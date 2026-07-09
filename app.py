@@ -6,11 +6,36 @@ import json
 import csv
 import io
 import secrets
+import urllib.request
+import urllib.parse
 from collections import defaultdict
 from time import time as _time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
+
+# ── reCAPTCHA v3 ─────────────────────────────────────────────────────────────
+RECAPTCHA_SITE_KEY   = os.environ.get("RECAPTCHA_SITE_KEY", "")
+RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY", "")
+RECAPTCHA_THRESHOLD  = 0.5   # scores below this are treated as bots
+
+def _verify_recaptcha(token: str, action: str = "") -> bool:
+    if not RECAPTCHA_SECRET_KEY or not token:
+        return True   # skip verification when keys are not configured
+    try:
+        data = urllib.parse.urlencode({
+            "secret":   RECAPTCHA_SECRET_KEY,
+            "response": token,
+        }).encode()
+        req  = urllib.request.Request("https://www.google.com/recaptcha/api/siteverify", data=data)
+        resp = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        if not resp.get("success"):
+            return False
+        if action and resp.get("action") != action:
+            return False
+        return resp.get("score", 0) >= RECAPTCHA_THRESHOLD
+    except Exception:
+        return True   # fail open on network errors — don't lock out real users
 
 # ── Login rate limiter (in-memory, per IP) ────────────────────────────────────
 _login_fail_times: dict[str, list[float]] = defaultdict(list)
@@ -103,6 +128,26 @@ class _CSRFMiddleware(BaseHTTPMiddleware):
             return _StarletteResponse("403 Forbidden — CSRF token invalid", status_code=403)
         return await call_next(request)
 
+class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"]  = "nosniff"
+        response.headers["X-Frame-Options"]          = "DENY"
+        response.headers["X-XSS-Protection"]         = "1; mode=block"
+        response.headers["Referrer-Policy"]          = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"]       = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"]  = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "frame-src https://www.google.com; "
+            "connect-src 'self' https://www.google.com;"
+        )
+        return response
+
+app.add_middleware(_SecurityHeadersMiddleware)
 app.add_middleware(_CSRFMiddleware)
 # SessionMiddleware must be added AFTER _CSRFMiddleware so it runs first (Starlette LIFO order)
 app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET)
@@ -216,14 +261,24 @@ async def login_page(request: Request):
     return templates.TemplateResponse(request, "login.html", {
         "flash": get_flash(request),
         "csrf_token": _get_csrf_token(request),
+        "recaptcha_site_key": RECAPTCHA_SITE_KEY,
     })
 
 
 @app.post("/login")
-async def login_post(request: Request, username: str = Form(...), password: str = Form(...)):
+async def login_post(
+    request: Request,
+    username: str = Form(...),
+    password: str = Form(...),
+    g_recaptcha_response: str = Form(""),
+):
     u = username.strip()
     ip = request.client.host if request.client else "unknown"
     ua = request.headers.get("user-agent", "")
+
+    if not _verify_recaptcha(g_recaptcha_response, action="login"):
+        flash(request, "reCAPTCHA verification failed. Please try again.", "error")
+        return RedirectResponse("/login", status_code=302)
 
     if not _check_login_rate(ip):
         flash(request, "Too many failed attempts. Please wait 5 minutes.", "error")
@@ -273,6 +328,7 @@ async def register_page(request: Request):
         "csrf_token": _get_csrf_token(request),
         "skills_list": skills_list,
         "now": get_pht_now().isoformat(),
+        "recaptcha_site_key": RECAPTCHA_SITE_KEY,
     })
 
 
@@ -293,7 +349,12 @@ async def register_submit(
     skills_json: str = Form("[]"),
     privacy_agreed: str = Form(""),
     terms_agreed: str = Form(""),
+    g_recaptcha_response: str = Form(""),
 ):
+    if not _verify_recaptcha(g_recaptcha_response, action="register"):
+        flash(request, "reCAPTCHA verification failed. Please try again.", "error")
+        return RedirectResponse("/register", status_code=302)
+
     if not privacy_agreed or not terms_agreed:
         flash(request, "You must agree to all required consents to proceed.", "error")
         return RedirectResponse("/register", status_code=302)

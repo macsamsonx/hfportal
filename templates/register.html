@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Apply for Access — Hundredfold Employee Portal</title>
   <link rel="stylesheet" href="/static/css/style.css">
+  {% if recaptcha_site_key %}
+  <script src="https://www.google.com/recaptcha/api.js?render={{ recaptcha_site_key }}"></script>
+  {% endif %}
   <style>
     .reg-page {
       min-height: 100vh;
@@ -96,6 +99,7 @@
     {% endif %}
 
     <form method="post" action="/api/register" id="reg-form">
+      <input type="hidden" name="g_recaptcha_response" id="g_recaptcha_response">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
 
       <div class="section-title">Personal Information</div>
@@ -317,6 +321,19 @@
     }
   });
   document.addEventListener('click', e => { if (!wrap.contains(e.target)) hideDropdown(); });
+
+  {% if recaptcha_site_key %}
+  document.getElementById('reg-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    grecaptcha.ready(function() {
+      grecaptcha.execute('{{ recaptcha_site_key }}', {action: 'register'}).then(function(token) {
+        document.getElementById('g_recaptcha_response').value = token;
+        form.submit();
+      });
+    });
+  });
+  {% endif %}
 </script>
 </body>
 </html>
