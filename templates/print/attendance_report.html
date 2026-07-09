@@ -1,0 +1,54 @@
+{% extends "print/base_print.html" %}
+{% block title %}Attendance Report{% endblock %}
+{% block report_title %}Attendance Report{% endblock %}
+
+{% block content %}
+<section>
+  <p style="font-size:10pt; margin-bottom:12px;"><strong>Period:</strong> {{ date_from }} — {{ date_to }}</p>
+  <h2>Daily Attendance — {{ records | length }} Record(s)</h2>
+  {% if not records %}
+  <div class="no-data">No attendance records for this period.</div>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Employee</th>
+        <th>Date</th>
+        <th>Clock In</th>
+        <th>Clock Out</th>
+        <th style="text-align:right;">Hours</th>
+        <th>Late</th>
+        <th>Shift</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in records %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td style="font-weight:700;">{{ r.emp_name }}</td>
+        <td>{{ r.date }}</td>
+        <td>{{ r.clock_in or '—' }}</td>
+        <td>{{ r.clock_out or '—' }}</td>
+        <td style="text-align:right;">{{ "%.1f"|format(r.hours or 0) }}h</td>
+        <td>{% if r.late_flag %}<span class="badge badge-red">Late</span>{% else %}—{% endif %}</td>
+        <td style="font-size:8.5pt;">{{ r.shift_type or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td colspan="5"><strong>Total Hours</strong></td>
+        <td style="text-align:right;">{{ "%.1f"|format(total_hours) }}h</td>
+        <td colspan="2">Avg: {{ "%.1f"|format(avg_hours) }}h/day</td>
+      </tr>
+    </tfoot>
+  </table>
+  {% endif %}
+</section>
+
+<div class="sig-row">
+  <div class="sig-box"><div class="sig-name">Prepared by</div><div>HR Manager / Admin</div></div>
+  <div class="sig-box"><div class="sig-name">Date</div></div>
+</div>
+{% endblock %}

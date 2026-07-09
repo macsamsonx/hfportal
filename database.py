@@ -33,6 +33,51 @@ BIBLE_VERSES = [
     {"verse": "Trust in the Lord with all your heart, and do not lean on your own understanding.", "ref": "Proverbs 3:5"},
     {"verse": "For we are God's handiwork, created in Christ Jesus to do good works.", "ref": "Ephesians 2:10"},
     {"verse": "The plans of the diligent lead surely to abundance.", "ref": "Proverbs 21:5"},
+    {"verse": "But seek first the kingdom of God and his righteousness, and all these things will be added to you.", "ref": "Matthew 6:33"},
+    {"verse": "For I know the plans I have for you, declares the Lord, plans for welfare and not for evil, to give you a future and a hope.", "ref": "Jeremiah 29:11"},
+    {"verse": "The Lord is my shepherd; I shall not want.", "ref": "Psalm 23:1"},
+    {"verse": "Be strong and courageous. Do not be afraid; do not be discouraged, for the Lord your God will be with you wherever you go.", "ref": "Joshua 1:9"},
+    {"verse": "And my God will supply every need of yours according to his riches in glory in Christ Jesus.", "ref": "Philippians 4:19"},
+    {"verse": "Cast your burden on the Lord, and he will sustain you; he will never permit the righteous to be moved.", "ref": "Psalm 55:22"},
+    {"verse": "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you.", "ref": "Numbers 6:24-25"},
+    {"verse": "Come to me, all who labor and are heavy laden, and I will give you rest.", "ref": "Matthew 11:28"},
+    {"verse": "He gives power to the faint, and to him who has no might he increases strength.", "ref": "Isaiah 40:29"},
+    {"verse": "No weapon formed against you shall prosper.", "ref": "Isaiah 54:17"},
+    {"verse": "For God gave us a spirit not of fear but of power and love and self-control.", "ref": "2 Timothy 1:7"},
+    {"verse": "Delight yourself in the Lord, and he will give you the desires of your heart.", "ref": "Psalm 37:4"},
+    {"verse": "The Lord is my light and my salvation; whom shall I fear?", "ref": "Psalm 27:1"},
+    {"verse": "If you abide in me, and my words abide in you, ask whatever you wish, and it will be done for you.", "ref": "John 15:7"},
+    {"verse": "Blessed are the pure in heart, for they shall see God.", "ref": "Matthew 5:8"},
+    {"verse": "The name of the Lord is a strong tower; the righteous man runs into it and is safe.", "ref": "Proverbs 18:10"},
+    {"verse": "Do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God.", "ref": "Philippians 4:6"},
+    {"verse": "And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus.", "ref": "Philippians 4:7"},
+    {"verse": "I will instruct you and teach you in the way you should go; I will counsel you with my eye upon you.", "ref": "Psalm 32:8"},
+    {"verse": "Have I not commanded you? Be strong and courageous.", "ref": "Joshua 1:9"},
+    {"verse": "For everyone who asks receives, and the one who seeks finds, and to the one who knocks it will be opened.", "ref": "Matthew 7:8"},
+    {"verse": "He who began a good work in you will bring it to completion at the day of Jesus Christ.", "ref": "Philippians 1:6"},
+    {"verse": "The Lord is near to all who call on him, to all who call on him in truth.", "ref": "Psalm 145:18"},
+    {"verse": "But those who hope in the Lord will renew their strength. They will soar on wings like eagles.", "ref": "Isaiah 40:31"},
+    {"verse": "When you pass through the waters, I will be with you; and through the rivers, they shall not overwhelm you.", "ref": "Isaiah 43:2"},
+    {"verse": "Fear not, for I am with you; be not dismayed, for I am your God; I will strengthen you.", "ref": "Isaiah 41:10"},
+    {"verse": "The righteous person may have many troubles, but the Lord delivers him from them all.", "ref": "Psalm 34:19"},
+    {"verse": "Give, and it will be given to you. Good measure, pressed down, shaken together, running over.", "ref": "Luke 6:38"},
+    {"verse": "With God all things are possible.", "ref": "Matthew 19:26"},
+    {"verse": "Ask, and it will be given to you; seek, and you will find; knock, and it will be opened to you.", "ref": "Matthew 7:7"},
+    {"verse": "The Lord is faithful, and he will strengthen you and protect you from the evil one.", "ref": "2 Thessalonians 3:3"},
+    {"verse": "For with God nothing will be impossible.", "ref": "Luke 1:37"},
+    {"verse": "Beloved, I pray that all may go well with you and that you may be in good health, as it goes well with your soul.", "ref": "3 John 1:2"},
+    {"verse": "The steps of a man are established by the Lord, when he delights in his way.", "ref": "Psalm 37:23"},
+    {"verse": "Every good gift and every perfect gift is from above, coming down from the Father of lights.", "ref": "James 1:17"},
+    {"verse": "And we know that for those who love God all things work together for good.", "ref": "Romans 8:28"},
+    {"verse": "But seek first the kingdom of God and his righteousness, and all these things will be added to you.", "ref": "Matthew 6:33"},
+    {"verse": "The blessing of the Lord makes rich, and he adds no sorrow with it.", "ref": "Proverbs 10:22"},
+    {"verse": "A generous person will prosper; whoever refreshes others will be refreshed.", "ref": "Proverbs 11:25"},
+    {"verse": "Bring the whole tithe into the storehouse... and see if I will not throw open the floodgates of heaven and pour out so much blessing.", "ref": "Malachi 3:10"},
+    {"verse": "For the Lord God is a sun and shield; the Lord bestows favor and honor. No good thing does he withhold from those who walk uprightly.", "ref": "Psalm 84:11"},
+    {"verse": "Peace I leave with you; my peace I give to you. Not as the world gives do I give to you.", "ref": "John 14:27"},
+    {"verse": "In all your ways acknowledge him, and he will make straight your paths.", "ref": "Proverbs 3:6"},
+    {"verse": "The Lord will fight for you; you need only to be still.", "ref": "Exodus 14:14"},
+    {"verse": "My grace is sufficient for you, for my power is made perfect in weakness.", "ref": "2 Corinthians 12:9"},
 ]
 
 
@@ -491,6 +536,16 @@ def init_db():
             ("doc_pagibig_expiry", "TEXT"),
             ("employment_type", "TEXT DEFAULT 'Full-time'"),
             ("department", "TEXT"),
+            ("first_name", "TEXT"),
+            ("last_name", "TEXT"),
+            ("middle_name", "TEXT"),
+            ("no_middle_name", "INTEGER DEFAULT 0"),
+            ("prefix", "TEXT"),
+            ("nickname", "TEXT"),
+            ("emp_status", "TEXT DEFAULT 'Active'"),
+            ("bank_account_name", "TEXT"),
+            ("bank_qr_path", "TEXT"),
+            ("status_note", "TEXT"),
         ]:
             col_name = col.split()[0]
             if col_name not in _ecols:
@@ -520,6 +575,7 @@ def init_db():
             ("is_running", "INTEGER DEFAULT 0"), ("reviewer_name", "TEXT"),
             ("priority", "TEXT DEFAULT 'Medium'"), ("due_date", "TEXT"),
             ("is_archived", "INTEGER DEFAULT 0"),
+            ("revision_count", "INTEGER DEFAULT 0"),
         ]:
             col_name = col.split()[0]
             if col_name not in _wcols:
@@ -544,6 +600,53 @@ def init_db():
         _clcols = {r[1] for r in conn.execute("PRAGMA table_info(clients)").fetchall()}
         if "monthly_retainer" not in _clcols:
             conn.execute("ALTER TABLE clients ADD COLUMN monthly_retainer REAL DEFAULT 0")
+
+        # ── Column migrations — registration_requests ─────────────────────────────
+        _regcols = {r[1] for r in conn.execute("PRAGMA table_info(registration_requests)").fetchall()}
+        for col, typ in [
+            ("first_name", "TEXT"), ("last_name", "TEXT"),
+            ("middle_name", "TEXT"), ("no_middle_name", "INTEGER DEFAULT 0"),
+            ("prefix", "TEXT"), ("nickname", "TEXT"),
+        ]:
+            if col not in _regcols:
+                conn.execute(f"ALTER TABLE registration_requests ADD COLUMN {col} {typ}")
+
+        # ── HR Kanban tasks (private HR/Admin board) ─────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS hr_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT,
+                assigned_to INTEGER REFERENCES employees(id),
+                assigned_name TEXT,
+                priority TEXT DEFAULT 'Normal',
+                due_date TEXT,
+                status TEXT DEFAULT 'Todo',
+                created_by INTEGER,
+                created_by_name TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                is_archived INTEGER DEFAULT 0
+            )""")
+
+        # ── Skills tables ────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS skills (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours'))
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS employee_skills (
+                emp_id INTEGER NOT NULL,
+                skill_id INTEGER NOT NULL,
+                PRIMARY KEY (emp_id, skill_id),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE,
+                FOREIGN KEY(skill_id) REFERENCES skills(id) ON DELETE CASCADE
+            )""")
+        # Seed default skills
+        default_skills = ["Web Developer", "Graphic Designer", "Admin", "HR", "Video Editor"]
+        for s in default_skills:
+            conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (s,))
 
         # ── Seed clients ──────────────────────────────────────────────────────────
         if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:

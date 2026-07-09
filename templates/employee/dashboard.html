@@ -14,6 +14,36 @@
 {% set tasks_today  = tasks_month | selectattr('date_logged', 'eq', today)  | list %}
 {% set tasks_week   = tasks_month | selectattr('date_logged', 'ge', week_start) | selectattr('date_logged', 'le', week_end) | list %}
 
+{# ── Birthday banner ──────────────────────────────────────────────────────── #}
+{% if birthday_people %}
+<div style="background:linear-gradient(135deg,#fef08a,#fde047); border:1px solid #facc15; border-radius:12px;
+            padding:14px 20px; margin-bottom:16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+  <div style="font-size:2rem;">🎂</div>
+  <div>
+    <div style="font-weight:800; font-size:1rem; color:#713f12;">Happy Birthday!</div>
+    <div style="font-size:.88rem; color:#92400e; margin-top:2px;">
+      {% for b in birthday_people %}
+        <strong>{{ b.name }}</strong>{% if not loop.last %}, {% endif %}
+      {% endfor %}
+      — wishing you a wonderful day! 🎉
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Bible verse banner ──────────────────────────────────────────────────────── #}
+{% if verse %}
+<div style="background:var(--primary); border-radius:12px; padding:20px 28px; margin-bottom:20px; text-align:center; position:relative; overflow:hidden;">
+  <div style="position:absolute; inset:0; opacity:.08; font-size:8rem; line-height:1; display:flex; align-items:center; justify-content:center; pointer-events:none; user-select:none;">✝</div>
+  <div style="font-size:1.08rem; font-weight:600; color:#fff; line-height:1.6; font-style:italic; position:relative;">
+    "{{ verse.verse }}"
+  </div>
+  <div style="font-size:.78rem; color:rgba(255,255,255,.75); margin-top:8px; font-weight:600; position:relative;">
+    — {{ verse.ref }}
+  </div>
+</div>
+{% endif %}
+
 {# ── TOP ROW: clock + stats + attendance ──────────────────────────────────── #}
 <div style="display:flex; gap:12px; align-items:stretch; margin-bottom:20px; flex-wrap:wrap;">
 
@@ -46,42 +76,23 @@
     </div>
   </div>
 
-  <!-- VL Balance -->
-  {% if vl_enabled %}
-  <div class="stat-card {% if vl_balance <= 3 %}yellow{% else %}green{% endif %}" style="flex:1; min-width:120px;">
-    <div class="stat-icon {% if vl_balance <= 3 %}yellow{% else %}green{% endif %}">🌴</div>
-    <div>
-      <div class="stat-label">VL Left</div>
-      <div class="stat-value">{{ vl_balance }}</div>
-      <div class="stat-sub">of {{ vl_total }} days</div>
-    </div>
-  </div>
-  {% endif %}
-
-  <!-- SL Balance -->
-  {% if sl_enabled %}
-  <div class="stat-card {% if sl_balance <= 3 %}yellow{% else %}blue{% endif %}" style="flex:1; min-width:120px;">
-    <div class="stat-icon {% if sl_balance <= 3 %}yellow{% else %}blue{% endif %}">🏥</div>
-    <div>
-      <div class="stat-label">SL Left</div>
-      <div class="stat-value">{{ sl_balance }}</div>
-      <div class="stat-sub">of {{ sl_total }} days</div>
-    </div>
-  </div>
-  {% endif %}
-
   <!-- Timesheet status widget -->
-  {% set ts_color = {'Draft':'yellow','Submitted':'blue','Approved':'green','Returned':'red'} %}
-  {% set ts_icon  = {'Draft':'📝','Submitted':'📤','Approved':'✅','Returned':'↩️'} %}
-  <a href="/my-timesheet" style="flex:1; min-width:120px; text-decoration:none;">
-    <div class="stat-card {% if timesheet_status == 'Approved' %}green{% elif timesheet_status == 'Returned' %}red{% elif timesheet_status == 'Submitted' %}blue{% elif timesheet_status %}yellow{% else %}gray{% endif %}">
-      <div class="stat-icon {% if timesheet_status == 'Approved' %}green{% elif timesheet_status == 'Returned' %}red{% elif timesheet_status == 'Submitted' %}blue{% elif timesheet_status %}yellow{% else %}gray{% endif %}">
-        {{ ts_icon.get(timesheet_status, '🗓️') }}
-      </div>
+  {% set ts_icon = {'Draft':'📝','Submitted':'📤','Approved':'✅','Returned':'↩️'} %}
+  {% set ts_grad = {
+    'Approved': 'linear-gradient(135deg,#16a34a,#4ade80)',
+    'Returned': 'linear-gradient(135deg,#dc2626,#f87171)',
+    'Submitted': 'linear-gradient(135deg,#2563eb,#60a5fa)',
+    'Draft':    'linear-gradient(135deg,#d97706,#fbbf24)'
+  } %}
+  <a href="/my-timesheet" style="flex:1; min-width:140px; text-decoration:none;">
+    <div style="border-radius:var(--radius); padding:16px 18px; min-height:90px;
+                background:{{ ts_grad.get(timesheet_status, 'linear-gradient(135deg,#64748b,#94a3b8)') }};
+                display:flex; align-items:center; gap:12px; color:#fff; box-shadow:var(--shadow);">
+      <div style="font-size:1.8rem; opacity:.9;">{{ ts_icon.get(timesheet_status, '🗓️') }}</div>
       <div>
-        <div class="stat-label">Timesheet</div>
-        <div class="stat-value" style="font-size:1rem;">{{ timesheet_status or 'No Entry' }}</div>
-        <div class="stat-sub">this week</div>
+        <div style="font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Timesheet</div>
+        <div style="font-size:1.05rem; font-weight:800; margin-top:2px;">{{ timesheet_status or 'No Entry' }}</div>
+        <div style="font-size:.72rem; opacity:.7; margin-top:2px;">this week</div>
       </div>
     </div>
   </a>
@@ -103,80 +114,120 @@
   </div>
   {% endif %}
 
-  <!-- Attendance / Clock in-out -->
-  <div class="card" style="flex:2.5; min-width:260px; padding:14px 18px;">
+  <!-- Attendance / Clock in-out — BIG card -->
+  <div class="card" style="flex:3; min-width:300px; padding:20px 24px;">
+
+    {# ── Dynamic Island Status Bar ────────────────────────────────────── #}
+    {% if attendance and attendance.clock_in %}
+      {% if attendance.clock_out %}
+        <!-- Clocked Out — pill -->
+        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
+                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+                    box-shadow:0 2px 12px rgba(0,0,0,.4); font-family:monospace; min-height:54px;">
+          <span style="width:10px;height:10px;border-radius:50%;background:#6b7280;flex-shrink:0;"></span>
+          <div style="flex:1;">
+            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#9ca3af; font-weight:700;">Shift Complete</div>
+            <div style="font-size:.95rem; font-weight:800; color:#e5e7eb;">
+              {{ attendance.clock_in[:5] }} → {{ attendance.clock_out[:5] }}
+              {% if active_hours %}<span style="opacity:.5; font-size:.75rem; margin-left:8px;">{{ active_hours }}h worked</span>{% endif %}
+            </div>
+          </div>
+          <span style="font-size:1.1rem;">⏹</span>
+        </div>
+
+      {% elif attendance.is_on_break %}
+        <!-- On Break — pill -->
+        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
+                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+                    box-shadow:0 2px 16px rgba(251,146,60,.25); font-family:monospace; min-height:54px;"
+             id="break-status-bar"
+             data-break-min="{{ break_minutes }}">
+          <span style="width:10px;height:10px;border-radius:50%;background:#fb923c;flex-shrink:0;
+                       animation:pulse-dot 1.5s infinite;"></span>
+          <div style="flex:1;">
+            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#fb923c; font-weight:700;">On Break</div>
+            <div id="break-elapsed" style="font-size:1.15rem; font-weight:800; color:#fb923c; font-variant-numeric:tabular-nums;">
+              {{ (break_minutes | int) }}:00
+            </div>
+          </div>
+          <form method="post" action="/api/break/end">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <button type="submit" class="btn btn-success btn-sm" style="border-radius:9999px; padding:5px 14px;">▶ Resume</button>
+          </form>
+        </div>
+
+      {% else %}
+        <!-- Active / Clocked In — pill -->
+        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
+                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
+                    box-shadow:0 2px 16px rgba(74,222,128,.2); font-family:monospace; min-height:54px;"
+             id="active-status-bar"
+             data-clock-in="{{ attendance.clock_in }}"
+             data-break-min="{{ break_minutes }}">
+          <span style="width:10px;height:10px;border-radius:50%;background:#4ade80;flex-shrink:0;
+                       animation:pulse-dot 1.5s infinite;"></span>
+          <div style="flex:1;">
+            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#4ade80; font-weight:700;">Active</div>
+            <div id="running-elapsed" style="font-size:1.3rem; font-weight:800; color:#4ade80; font-variant-numeric:tabular-nums;">
+              --:--:--
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+            <form method="post" action="/api/break/start">
+              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+              <button type="submit" class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;font-weight:600;border-radius:9999px;padding:5px 12px;">⏸</button>
+            </form>
+            <form method="post" action="/api/clock-out" style="display:flex; gap:4px; align-items:center;">
+              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+              <input type="time" name="clock_time" value="{{ now[11:16] if now else '' }}"
+                     style="border:1px solid #374151;border-radius:6px;background:#1f2937;color:#e5e7eb;padding:3px 6px;font-size:.72rem;width:82px;">
+              <button type="submit" class="btn btn-danger btn-sm" style="border-radius:9999px;padding:5px 12px;">■</button>
+            </form>
+          </div>
+        </div>
+      {% endif %}
+
+    {% else %}
+      <!-- Not Clocked In — pill -->
+      <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
+                  display:flex; align-items:center; gap:12px; margin-bottom:14px;
+                  font-family:monospace; min-height:54px;">
+        <span style="width:10px;height:10px;border-radius:50%;background:#374151;flex-shrink:0;"></span>
+        <div style="font-size:.88rem; color:#6b7280;">Not clocked in today</div>
+      </div>
+    {% endif %}
+
+    {# ── Clock In form or Time adjustment ─────────────────────────────── #}
     {% if not attendance %}
-      <div class="text-xs text-muted mb-8 fw-600">Not clocked in today</div>
       <form method="post" action="/api/clock-in">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
         <div style="display:flex; gap:8px; align-items:flex-end;">
           <div class="form-group" style="margin:0; flex:1;">
-            <label class="form-label">Clock In Time (PHT)</label>
-            <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:36px;">
+            <label class="form-label" style="font-size:.72rem;">Clock In Time (PHT)</label>
+            <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:44px; font-size:1.1rem; font-weight:700; text-align:center;">
           </div>
-          <button type="submit" class="btn btn-success" style="height:36px; font-weight:600;">
+          <button type="submit" class="btn btn-success" style="height:44px; font-weight:700; font-size:1rem; padding:0 24px;">
             ▶ Clock In
           </button>
         </div>
       </form>
-
-    {% else %}
-      <div class="flex-between mb-10">
-        {% if not attendance.clock_out %}
-          {% if attendance.is_on_break %}
-            <div class="clock-status" style="background:#fef3c7; color:#d97706; font-size:.76rem; border-radius:99px; padding:4px 12px;">
-              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;"></span>
-              On Break{% if break_minutes %} · {{ break_minutes | int }}m taken{% endif %}
-            </div>
-            <form method="post" action="/api/break/end">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-              <button type="submit" class="btn btn-success btn-sm">▶ Resume Work</button>
-            </form>
-          {% else %}
-            <div class="clock-status in" style="font-size:.76rem;">
-              <div class="dot dot-green"></div>
-              Active{% if active_hours %} · {{ active_hours }}h{% endif %}
-            </div>
-            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
-              <form method="post" action="/api/break/start">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-                <button type="submit" class="btn btn-warning btn-sm">⏸ Break</button>
-              </form>
-              <form method="post" action="/api/clock-out" style="display:flex; gap:6px; align-items:center;">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-                <input type="time" name="clock_time" value="{{ now.strftime('%H:%M') }}"
-                       class="form-input" style="width:100px; height:30px; padding:4px 8px; font-size:.8rem;">
-                <button type="submit" class="btn btn-danger btn-sm">■ Clock Out</button>
-              </form>
-            </div>
-          {% endif %}
-        {% else %}
-          <div class="clock-status out" style="font-size:.76rem;">
-            <div class="dot dot-gray"></div>
-            Shift Complete
-          </div>
-          {% if break_minutes > 0 %}
-            <span class="badge badge-yellow">{{ break_minutes | int }}m break taken</span>
-          {% endif %}
-        {% endif %}
-      </div>
-
-      <!-- Time adjustment -->
+    {% elif attendance.clock_in %}
+      <!-- Time adjustment form -->
       <form method="post" action="/api/attendance/edit" style="display:flex; gap:8px; align-items:flex-end;">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
         <div class="form-group" style="margin:0; flex:1;">
-          <label class="form-label">Time In</label>
+          <label class="form-label" style="font-size:.7rem;">Time In</label>
           <input type="time" name="clock_in_time" class="form-input"
-                 style="height:30px; padding:4px 8px; font-size:.8rem;"
+                 style="height:36px; padding:4px 8px; font-size:.88rem; font-weight:700; text-align:center;"
                  value="{{ attendance.clock_in[:5] if attendance.clock_in else '' }}">
         </div>
         <div class="form-group" style="margin:0; flex:1;">
-          <label class="form-label">Time Out</label>
+          <label class="form-label" style="font-size:.7rem;">Time Out</label>
           <input type="time" name="clock_out_time" class="form-input"
-                 style="height:30px; padding:4px 8px; font-size:.8rem;"
+                 style="height:36px; padding:4px 8px; font-size:.88rem; font-weight:700; text-align:center;"
                  value="{{ attendance.clock_out[:5] if attendance.clock_out else '' }}">
         </div>
-        <button type="submit" class="btn btn-outline btn-sm" style="height:30px;">Save</button>
+        <button type="submit" class="btn btn-outline btn-sm" style="height:36px;">Adjust</button>
       </form>
     {% endif %}
   </div>
@@ -217,9 +268,9 @@
           <textarea name="notes" class="form-textarea" rows="2"
                     placeholder="Steps, deliverables, links…"></textarea>
         </div>
-        <button type="submit" id="start-task-btn" class="btn btn-success btn-full"
+        <button type="submit" id="start-task-btn" class="btn btn-primary btn-full"
                 style="font-size:.9rem; padding:10px; font-weight:600;">
-          ▶ Start Task
+          + Log Task
         </button>
       </form>
     </div>
@@ -441,6 +492,48 @@ if (clockInInput) {
   });
   clockInInput.value = phtTime;
 }
+
+// ── Active shift elapsed timer (status bar) ────────────────────────────────────
+(function() {
+  const bar = document.getElementById('active-status-bar');
+  const el  = document.getElementById('running-elapsed');
+  if (!bar || !el) return;
+  const clockInStr = bar.dataset.clockIn;   // HH:MM:SS
+  const breakMin   = parseFloat(bar.dataset.breakMin) || 0;
+  if (!clockInStr) return;
+
+  function calcElapsed() {
+    const now = new Date();
+    const phtNow = new Date(now.toLocaleString('en-US', {timeZone: 'Asia/Manila'}));
+    const parts = clockInStr.split(':').map(Number);
+    const startMs = new Date(phtNow);
+    startMs.setHours(parts[0], parts[1], parts[2] || 0, 0);
+    let diffSec = Math.max(0, Math.floor((phtNow - startMs) / 1000) - Math.floor(breakMin * 60));
+    const h = Math.floor(diffSec / 3600);
+    const m = Math.floor((diffSec % 3600) / 60);
+    const s = diffSec % 60;
+    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+  }
+
+  function tick() { el.textContent = calcElapsed(); }
+  setInterval(tick, 1000);
+  tick();
+})();
+
+// ── Break elapsed counter (moving MM:SS) ──────────────────────────────────────
+(function() {
+  const bar = document.getElementById('break-status-bar');
+  const el  = document.getElementById('break-elapsed');
+  if (!bar || !el) return;
+  let totalSec = Math.round(parseFloat(bar.dataset.breakMin || 0) * 60);
+  function tickBreak() {
+    totalSec++;
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    el.textContent = m + ':' + String(s).padStart(2, '0');
+  }
+  setInterval(tickBreak, 1000);
+})();
 
 // ── Running task timers ────────────────────────────────────────────────────────
 function updateTimers() {

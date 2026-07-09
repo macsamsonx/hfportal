@@ -298,25 +298,49 @@
     <div class="card">
       <div class="card-header"><h3>🏦 Bank Account for Payroll</h3></div>
       <div class="card-body">
-        <form method="post" action="/api/profile/gov-ids">
+        <form method="post" action="/api/profile/bank">
           <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-          <!-- carry government IDs silently -->
-          <input type="hidden" name="sss_no"        value="{{ emp.sss_no or '' }}">
-          <input type="hidden" name="philhealth_no" value="{{ emp.philhealth_no or '' }}">
-          <input type="hidden" name="tin_no"        value="{{ emp.tin_no or '' }}">
-          <input type="hidden" name="pagibig_no"    value="{{ emp.pagibig_no or '' }}">
           <div class="form-group">
-            <label class="form-label">Bank Name</label>
+            <label class="form-label">Bank / E-wallet Name</label>
             <input type="text" name="bank_name" class="form-input"
-                   value="{{ emp.bank_name or '' }}" placeholder="e.g. BDO, BPI, GCash">
+                   value="{{ emp.bank_name or '' }}" placeholder="e.g. BDO, BPI, GCash, Maya">
           </div>
           <div class="form-group">
             <label class="form-label">Account Number</label>
             <input type="text" name="bank_account" class="form-input"
                    value="{{ emp.bank_account or '' }}" placeholder="Account or wallet number">
           </div>
+          <div class="form-group">
+            <label class="form-label">Account Name</label>
+            <input type="text" name="bank_account_name" class="form-input"
+                   value="{{ emp.bank_account_name or '' }}"
+                   placeholder="Name as registered with the bank">
+          </div>
           <button type="submit" class="btn btn-primary btn-sm">Save Bank Info</button>
         </form>
+
+        <!-- QR Code upload -->
+        <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border);">
+          <div class="form-label mb-8">QR Code (for bank/e-wallet transfers)</div>
+          {% if emp.bank_qr_path %}
+            <div style="width:148px; height:148px; background:#fff; border-radius:10px; padding:4px; display:inline-flex; align-items:center; justify-content:center; margin-bottom:10px; border:1px solid #e2e8f0;">
+              <img src="{{ emp.bank_qr_path }}" alt="Bank QR"
+                   style="width:140px; height:140px; object-fit:contain; display:block;">
+            </div>
+          {% else %}
+            <div style="width:140px; height:140px; border:2px dashed var(--border); border-radius:8px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:.78rem; margin-bottom:10px;">
+              No QR uploaded
+            </div>
+          {% endif %}
+          <form method="post" action="/api/profile/bank-qr" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+              <input type="file" name="qr_file" accept="image/*" class="form-input"
+                     style="flex:1; font-size:.8rem;">
+              <button type="submit" class="btn btn-outline btn-sm">Upload QR</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
 

@@ -204,6 +204,7 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
             ).fetchone()[0]
     ctx["vl_enabled"] = bool(user.get("vl_enabled", 1))
     ctx["sl_enabled"] = bool(user.get("sl_enabled", 1))
+    ctx["now"] = get_pht_now().isoformat()
     return ctx
 
 
@@ -261,31 +262,68 @@ async def logout(request: Request):
 # ── Self-Registration (public) ────────────────────────────────────────────────
 @app.get("/register", response_class=HTMLResponse)
 async def register_page(request: Request):
-    if current_user(request):
+    u = current_user(request)
+    if u and u.get("role") not in ("HR Manager", "Admin"):
         return RedirectResponse("/dashboard", status_code=302)
+    with get_db() as conn:
+        skills = conn.execute("SELECT name FROM skills ORDER BY name").fetchall()
+    skills_list = [s["name"] for s in skills]
     return templates.TemplateResponse(request, "register.html", {
         "flash": get_flash(request),
         "csrf_token": _get_csrf_token(request),
+        "skills_list": skills_list,
+        "now": get_pht_now().isoformat(),
     })
 
 
 @app.post("/api/register")
 async def register_submit(
     request: Request,
-    name: str = Form(...),
+    first_name: str = Form(...),
+    last_name: str = Form(...),
+    middle_name: str = Form(""),
+    no_middle_name: str = Form(""),
+    prefix: str = Form(""),
+    nickname: str = Form(""),
     email: str = Form(...),
     phone: str = Form(""),
     gender: str = Form(""),
     birthday: str = Form(""),
     address: str = Form(""),
-    position_applied: str = Form(""),
-    message: str = Form(""),
+    skills_json: str = Form("[]"),
     privacy_agreed: str = Form(""),
     terms_agreed: str = Form(""),
 ):
     if not privacy_agreed or not terms_agreed:
         flash(request, "You must agree to all required consents to proceed.", "error")
         return RedirectResponse("/register", status_code=302)
+
+    first_name = first_name.strip()
+    last_name = last_name.strip()
+    middle_name = middle_name.strip()
+    has_no_middle = bool(no_middle_name)
+
+    # Build display name: Prefix First [Middle] Last (Nickname)
+    parts = []
+    if prefix.strip():
+        parts.append(prefix.strip())
+    parts.append(first_name)
+    if not has_no_middle and middle_name:
+        parts.append(middle_name)
+    parts.append(last_name)
+    full_name = " ".join(parts)
+    if nickname.strip():
+        full_name += f" ({nickname.strip()})"
+
+    # Parse skills list
+    try:
+        skills_list = json.loads(skills_json) if skills_json else []
+        if not isinstance(skills_list, list):
+            skills_list = []
+        position_applied = ", ".join(str(s) for s in skills_list)
+    except Exception:
+        position_applied = ""
+
     with get_db() as conn:
         dup_pending = conn.execute(
             "SELECT id FROM registration_requests WHERE LOWER(email)=LOWER(?) AND status='Pending'",
@@ -302,24 +340,124 @@ async def register_submit(
             return RedirectResponse("/register", status_code=302)
         conn.execute(
             """INSERT INTO registration_requests
-               (name, email, phone, gender, birthday, address, position_applied, message, privacy_agreed, terms_agreed)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)""",
-            (name.strip(), email.strip(), phone.strip(), gender, birthday, address.strip(),
-             position_applied.strip(), message.strip()),
+               (name, first_name, last_name, middle_name, no_middle_name, prefix, nickname,
+                email, phone, gender, birthday, address, position_applied, privacy_agreed, terms_agreed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1)""",
+            (full_name, first_name, last_name, middle_name,
+             1 if has_no_middle else 0, prefix.strip(), nickname.strip(),
+             email.strip(), phone.strip(), gender, birthday, address.strip(),
+             position_applied),
         )
-        # Notify all HR and Admin
         hr_ids = conn.execute(
             "SELECT id FROM employees WHERE role IN ('HR Manager', 'Admin') AND is_active=1"
         ).fetchall()
         for hr in hr_ids:
             push_notification(conn, hr["id"], "New Registration",
-                              f"{name.strip()} applied for access", "/hr-registrations")
+                              f"{full_name} applied for access", "/hr-registrations")
     return RedirectResponse("/register/success", status_code=302)
 
 
 @app.get("/register/success", response_class=HTMLResponse)
 async def register_success(request: Request):
     return templates.TemplateResponse(request, "register_success.html", {})
+
+
+# ── Static policy pages (public) ─────────────────────────────────────────────
+@app.get("/privacy", response_class=HTMLResponse)
+async def privacy_page(request: Request):
+    user = current_user(request)
+    ctx = {"request": request, "now": get_pht_now().isoformat(), "user": user}
+    if user:
+        ctx.update(shared_ctx(user))
+    tmpl = "public/privacy_auth.html" if user else "public/privacy.html"
+    return templates.TemplateResponse(request, tmpl, ctx)
+
+
+@app.get("/terms", response_class=HTMLResponse)
+async def terms_page(request: Request):
+    user = current_user(request)
+    ctx = {"request": request, "now": get_pht_now().isoformat(), "user": user}
+    if user:
+        ctx.update(shared_ctx(user))
+    tmpl = "public/terms_auth.html" if user else "public/terms.html"
+    return templates.TemplateResponse(request, tmpl, ctx)
+
+
+# ── Admin: Skills management ──────────────────────────────────────────────────
+@app.get("/api/skills")
+async def list_skills(request: Request):
+    require_user(request)
+    with get_db() as conn:
+        skills = conn.execute("SELECT id, name FROM skills ORDER BY name").fetchall()
+    return [{"id": s["id"], "name": s["name"]} for s in skills]
+
+
+@app.post("/api/skills")
+async def add_skill(request: Request, name: str = Form(...)):
+    require_role(request, "HR Manager", "Admin")
+    name = name.strip()
+    if not name:
+        from fastapi import HTTPException
+        raise HTTPException(400, "Skill name required")
+    with get_db() as conn:
+        try:
+            conn.execute("INSERT INTO skills (name) VALUES (?)", (name,))
+            skill_id = conn.execute("SELECT id FROM skills WHERE name=?", (name,)).fetchone()["id"]
+        except Exception:
+            existing = conn.execute("SELECT id, name FROM skills WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+            return {"id": existing["id"], "name": existing["name"], "existed": True}
+    return {"id": skill_id, "name": name, "existed": False}
+
+
+@app.post("/api/employees/{emp_id}/skills")
+async def set_employee_skills(request: Request, emp_id: int):
+    require_role(request, "HR Manager", "Admin")
+    data = await request.json()
+    skill_names = data.get("skills", [])
+    with get_db() as conn:
+        conn.execute("DELETE FROM employee_skills WHERE emp_id=?", (emp_id,))
+        for name in skill_names:
+            name = name.strip()
+            if not name:
+                continue
+            row = conn.execute("SELECT id FROM skills WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+            if not row:
+                conn.execute("INSERT INTO skills (name) VALUES (?)", (name,))
+                row = conn.execute("SELECT id FROM skills WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+            conn.execute("INSERT OR IGNORE INTO employee_skills (emp_id, skill_id) VALUES (?,?)",
+                         (emp_id, row["id"]))
+    return {"ok": True}
+
+
+# ── Admin: Clear database ─────────────────────────────────────────────────────
+@app.get("/admin/clear-database", response_class=HTMLResponse)
+async def clear_db_page(request: Request):
+    user = require_role(request, "Admin")
+    ctx = {"request": request}
+    ctx.update(shared_ctx(user))
+    return templates.TemplateResponse(request, "admin/clear_database.html", ctx)
+
+
+@app.post("/api/admin/clear-database")
+async def clear_database(request: Request, confirm_code: str = Form(...)):
+    user = require_role(request, "Admin")
+    CLEAR_CODE = "142857"
+    if confirm_code.strip() != CLEAR_CODE:
+        flash(request, "Incorrect confirmation code. Database was NOT cleared.", "error")
+        return RedirectResponse("/admin/clear-database", status_code=302)
+    admin_id = user["id"]
+    with get_db() as conn:
+        conn.execute("DELETE FROM employees WHERE id != ?", (admin_id,))
+        for tbl in ["work_logs", "attendance", "break_logs", "leave_requests",
+                    "overtime_requests", "registration_requests", "payroll_runs",
+                    "chat_messages", "notifications", "tasks", "task_comments",
+                    "employee_skills"]:
+            try:
+                conn.execute(f"DELETE FROM {tbl}")
+            except Exception:
+                pass
+    flash(request, "Database cleared. All employee records have been removed.", "success")
+    return RedirectResponse("/admin/clear-database", status_code=302)
 
 
 # ── HR: Registration Queue ────────────────────────────────────────────────────
@@ -527,9 +665,20 @@ async def dashboard(request: Request):
             "SELECT COUNT(*) FROM work_logs WHERE emp_id=? AND status='For Review' AND COALESCE(is_archived,0)=0",
             (user["id"],)
         ).fetchone()[0]
+        # Today's birthdays (MM-DD match)
+        today_md = now_pht.strftime("%m-%d")
+        birthday_people = conn.execute(
+            """SELECT name, profile_pic_path FROM employees
+               WHERE is_active=1 AND birthday IS NOT NULL
+                 AND SUBSTR(birthday, 6, 5) = ?
+               ORDER BY name""",
+            (today_md,)
+        ).fetchall()
+        birthday_people = [dict(b) for b in birthday_people]
 
     vl_total = int(user.get("vl_days_per_year") or 15)
     sl_total = int(user.get("sl_days_per_year") or 15)
+    verse = random.choice(BIBLE_VERSES)
     return templates.TemplateResponse(request, "employee/dashboard.html", {
         "user": user,
         "today": today,
@@ -556,6 +705,8 @@ async def dashboard(request: Request):
         "pending_leave_mine": pending_leave_mine,
         "timesheet_status": timesheet_status,
         "for_review_mine": for_review_mine,
+        "birthday_people": birthday_people,
+        "verse": verse,
         **shared_ctx(user, request),
     })
 
@@ -689,19 +840,18 @@ async def start_task(
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
-    started_at = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         conn.execute(
             """INSERT INTO work_logs
                (emp_id, client, task_title, hours_worked, notes, output_files,
                 status, date_logged, started_at, is_running)
-               VALUES (?, ?, ?, 0, ?, ?, 'In Progress', ?, ?, 1)""",
-            (user["id"], client, task_title, notes, output_files or None, today, started_at),
+               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0)""",
+            (user["id"], client, task_title, notes, output_files or None, today),
         )
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "created",
                           client if client else None)
-    flash(request, "Task started — click Stop when done.")
+    flash(request, "Task logged. Move it to 'In Progress' on the board when you start.")
     return RedirectResponse("/dashboard", status_code=302)
 
 
@@ -784,8 +934,7 @@ async def assign_reviewer(request: Request, task_id: int, reviewer_name: str = F
         task = conn.execute("SELECT emp_id FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        if user["role"] == "Employee" and task["emp_id"] != user["id"]:
-            return JSONResponse({"error": "Not authorized"}, status_code=403)
+        # Any logged-in user can change reviewer
         reviewer = reviewer_name.strip() or None
         conn.execute("UPDATE work_logs SET reviewer_name=? WHERE id=?", (reviewer, task_id))
         detail = f"Assigned: {reviewer}" if reviewer else "Reviewer cleared"
@@ -1003,6 +1152,29 @@ async def review_task(request: Request, task_id: int):
     return RedirectResponse("/kanban", status_code=302)
 
 
+@app.post("/api/tasks/{task_id}/return")
+async def return_task(request: Request, task_id: int, return_note: str = Form("")):
+    user = require_user(request)
+    with get_db() as conn:
+        task = conn.execute("SELECT * FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        if not task:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        new_revision = (task["revision_count"] or 0) + 1
+        conn.execute(
+            """UPDATE work_logs SET status='In Progress', revision_count=?, hr_reviewed_by=NULL
+               WHERE id=?""",
+            (new_revision, task_id),
+        )
+        note = return_note.strip() or "Returned for revision"
+        log_card_activity(conn, task_id, user["name"], "returned",
+                          f"Revision #{new_revision}: {note}")
+        push_notification(conn, task["emp_id"], "Task Returned for Revision",
+                          f"'{task['task_title']}' needs revision. Revision #{new_revision}: {note}",
+                          "/dashboard")
+    flash(request, f"Task returned for revision (revision #{new_revision}).")
+    return RedirectResponse("/kanban", status_code=302)
+
+
 @app.post("/api/tasks/{task_id}/approve")
 async def approve_task(request: Request, task_id: int):
     user = require_role(request, "Admin")
@@ -1085,13 +1257,88 @@ async def archive_task(request: Request, task_id: int):
         ).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        if user["role"] == "Employee" and task["emp_id"] != user["id"]:
+        if user["role"] not in ("HR Manager", "Admin") and task["emp_id"] != user["id"]:
             return JSONResponse({"error": "Not authorized"}, status_code=403)
         new_archived = 0 if task["is_archived"] else 1
         conn.execute("UPDATE work_logs SET is_archived=? WHERE id=?", (new_archived, task_id))
         action = "archived" if new_archived else "unarchived"
         log_card_activity(conn, task_id, user["name"], action)
     return JSONResponse({"ok": True, "archived": bool(new_archived)})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── HR KANBAN (private HR/Admin board) ────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/hr-kanban", response_class=HTMLResponse)
+async def hr_kanban_page(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        tasks = conn.execute(
+            """SELECT t.*, e.name as assignee_name
+               FROM hr_tasks t
+               LEFT JOIN employees e ON t.assigned_to=e.id
+               WHERE COALESCE(t.is_archived,0)=0
+               ORDER BY t.created_at DESC"""
+        ).fetchall()
+        staff = conn.execute(
+            "SELECT id, name FROM employees WHERE role IN ('HR Manager','Admin') AND is_active=1 ORDER BY name"
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/hr_kanban.html", {
+        "user": user,
+        "tasks": [dict(t) for t in tasks],
+        "staff": [dict(s) for s in staff],
+        "statuses": ["Todo", "In Progress", "Review", "Done"],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/api/hr-tasks")
+async def create_hr_task(
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(""),
+    assigned_to: str = Form(""),
+    priority: str = Form("Normal"),
+    due_date: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        assigned_id = int(assigned_to) if assigned_to.strip().isdigit() else None
+        assigned_name = None
+        if assigned_id:
+            row = conn.execute("SELECT name FROM employees WHERE id=?", (assigned_id,)).fetchone()
+            assigned_name = row["name"] if row else None
+        conn.execute(
+            """INSERT INTO hr_tasks (title, description, assigned_to, assigned_name, priority, due_date, status, created_by, created_by_name)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (title.strip(), description.strip(), assigned_id, assigned_name,
+             priority, due_date or None, "Todo", user["id"], user["name"])
+        )
+    flash(request, "HR task created.")
+    return RedirectResponse("/hr-kanban", status_code=302)
+
+
+@app.post("/api/hr-tasks/{task_id}/move")
+async def move_hr_task(request: Request, task_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    data = await request.json()
+    new_status = data.get("status")
+    if new_status not in ("Todo", "In Progress", "Review", "Done"):
+        return JSONResponse({"error": "Invalid status"}, status_code=400)
+    with get_db() as conn:
+        conn.execute("UPDATE hr_tasks SET status=? WHERE id=?", (new_status, task_id))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/hr-tasks/{task_id}/delete")
+async def delete_hr_task(request: Request, task_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute("DELETE FROM hr_tasks WHERE id=?", (task_id,))
+    flash(request, "Task deleted.")
+    return RedirectResponse("/hr-kanban", status_code=302)
 
 
 @app.get("/kanban/archive", response_class=HTMLResponse)
@@ -1528,13 +1775,30 @@ async def edit_attendance_record(
 
 # ── Employee Management (Admin + HR for rate) ──────────────────────────────────
 @app.get("/employees", response_class=HTMLResponse)
-async def employees_page(request: Request):
+async def employees_page(request: Request, status_tab: str = "Active"):
     user = require_role(request, "Admin", "HR Manager")
     with get_db() as conn:
-        employees = conn.execute("SELECT * FROM employees ORDER BY role, name").fetchall()
+        if status_tab in ("Terminated", "Resigned"):
+            employees = conn.execute(
+                "SELECT * FROM employees WHERE COALESCE(emp_status,?) = ? ORDER BY name",
+                (status_tab, status_tab)
+            ).fetchall()
+        elif status_tab == "Inactive":
+            employees = conn.execute(
+                "SELECT * FROM employees WHERE COALESCE(emp_status,'Active') = 'Inactive' ORDER BY name"
+            ).fetchall()
+        else:
+            employees = conn.execute(
+                "SELECT * FROM employees WHERE COALESCE(emp_status,'Active') = 'Active' ORDER BY role, name"
+            ).fetchall()
+        counts = {s: conn.execute(
+            "SELECT COUNT(*) FROM employees WHERE COALESCE(emp_status,'Active')=?", (s,)
+        ).fetchone()[0] for s in ("Active", "Inactive", "Terminated", "Resigned")}
     return templates.TemplateResponse(request, "admin/employees.html", {
         "user": user,
         "employees": [dict(e) for e in employees],
+        "status_tab": status_tab,
+        "counts": counts,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
@@ -1715,6 +1979,70 @@ async def toggle_employee(request: Request, emp_id: int):
             conn.execute("UPDATE employees SET is_active=? WHERE id=?", (0 if emp["is_active"] else 1, emp_id))
     flash(request, "Employee status updated.")
     return RedirectResponse("/employees", status_code=302)
+
+
+@app.post("/api/employees/{emp_id}/set-status")
+async def set_employee_status(
+    request: Request,
+    emp_id: int,
+    emp_status: str = Form(...),
+    status_note: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    valid_statuses = ("Active", "Inactive", "Terminated", "Resigned")
+    if emp_status not in valid_statuses:
+        flash(request, "Invalid status.", "error")
+        return RedirectResponse("/employees", status_code=302)
+    is_active = 1 if emp_status == "Active" else 0
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE employees SET emp_status=?, is_active=?, status_note=? WHERE id=?",
+            (emp_status, is_active, status_note.strip(), emp_id),
+        )
+        audit(conn, user["id"], user["name"], "set_emp_status", "employees", emp_id,
+              f"Status → {emp_status}")
+    flash(request, f"Employee status changed to {emp_status}.")
+    return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+
+
+@app.post("/api/profile/bank")
+async def update_bank_info(
+    request: Request,
+    bank_name: str = Form(""),
+    bank_account: str = Form(""),
+    bank_account_name: str = Form(""),
+):
+    user = require_user(request)
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE employees SET bank_name=?, bank_account=?, bank_account_name=? WHERE id=?",
+            (bank_name.strip(), bank_account.strip(), bank_account_name.strip(), user["id"]),
+        )
+    flash(request, "Bank details updated.")
+    return RedirectResponse("/profile", status_code=302)
+
+
+@app.post("/api/profile/bank-qr")
+async def upload_bank_qr(request: Request, qr_file: UploadFile = File(None)):
+    user = require_user(request)
+    if not qr_file or not qr_file.filename:
+        flash(request, "No file selected.", "error")
+        return RedirectResponse("/profile", status_code=302)
+    ext = qr_file.filename.rsplit(".", 1)[-1].lower()
+    if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+        flash(request, "Only image files allowed.", "error")
+        return RedirectResponse("/profile", status_code=302)
+    upload_dir = Path("static/uploads/bank_qr")
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    fname = f"bank_qr_{user['id']}.{ext}"
+    dest = upload_dir / fname
+    content = await qr_file.read()
+    dest.write_bytes(content)
+    with get_db() as conn:
+        conn.execute("UPDATE employees SET bank_qr_path=? WHERE id=?",
+                     (f"/static/uploads/bank_qr/{fname}", user["id"]))
+    flash(request, "QR code uploaded.")
+    return RedirectResponse("/profile", status_code=302)
 
 
 # ── TV Dashboard ───────────────────────────────────────────────────────────────
@@ -1926,6 +2254,38 @@ async def deny_ot(request: Request, ot_id: int, denied_reason: str = Form("")):
     return RedirectResponse("/hr-ot", status_code=302)
 
 
+@app.post("/api/ot/{ot_id}/change-status")
+async def change_ot_status(
+    request: Request,
+    ot_id: int,
+    new_status: str = Form(...),
+    denied_reason: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    if new_status not in ("Pending", "Approved", "Denied"):
+        flash(request, "Invalid status.", "error")
+        return RedirectResponse("/hr-ot", status_code=302)
+    now = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        ot = conn.execute("SELECT * FROM overtime_requests WHERE id=?", (ot_id,)).fetchone()
+        if not ot:
+            flash(request, "OT request not found.", "error")
+            return RedirectResponse("/hr-ot", status_code=302)
+        conn.execute(
+            """UPDATE overtime_requests SET status=?, approved_by=?, approved_at=?, denied_reason=?
+               WHERE id=?""",
+            (new_status, user["name"], now, denied_reason.strip() if new_status == "Denied" else "", ot_id),
+        )
+        notif_title = f"OT Request {new_status}"
+        notif_body = f"Your OT on {ot['ot_date']} status changed to {new_status} by {user['name']}."
+        if new_status == "Denied" and denied_reason:
+            notif_body += f" Reason: {denied_reason}"
+        push_notification(conn, ot["emp_id"], notif_title, notif_body, "/my-ot")
+        audit(conn, user["id"], user["name"], "change_ot_status", "overtime_requests", ot_id)
+    flash(request, f"OT request status changed to {new_status}.")
+    return RedirectResponse("/hr-ot", status_code=302)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ── LEAVE MANAGEMENT ──────────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2063,6 +2423,38 @@ async def deny_leave(request: Request, leave_id: int, denied_reason: str = Form(
                 f"Your {lr['leave_type']} request was denied. {denied_reason}",
                 "/my-leave")
     flash(request, "Leave denied.")
+    return RedirectResponse("/hr-leave", status_code=302)
+
+
+@app.post("/api/leave/{leave_id}/change-status")
+async def change_leave_status(
+    request: Request,
+    leave_id: int,
+    new_status: str = Form(...),
+    denied_reason: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    if new_status not in ("Pending", "Approved", "Denied"):
+        flash(request, "Invalid status.", "error")
+        return RedirectResponse("/hr-leave", status_code=302)
+    now = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        lr = conn.execute("SELECT * FROM leave_requests WHERE id=?", (leave_id,)).fetchone()
+        if not lr:
+            flash(request, "Leave request not found.", "error")
+            return RedirectResponse("/hr-leave", status_code=302)
+        conn.execute(
+            """UPDATE leave_requests SET status=?, approved_by=?, approved_at=?, denied_reason=?
+               WHERE id=?""",
+            (new_status, user["name"], now, denied_reason.strip() if new_status == "Denied" else "", leave_id),
+        )
+        notif_title = f"Leave Request {new_status}"
+        notif_body = f"Your {lr['leave_type']} ({lr['start_date']}–{lr['end_date']}) status changed to {new_status}."
+        if new_status == "Denied" and denied_reason:
+            notif_body += f" Reason: {denied_reason}"
+        push_notification(conn, lr["emp_id"], notif_title, notif_body, "/my-leave")
+        audit(conn, user["id"], user["name"], "change_leave_status", "leave_requests", leave_id)
+    flash(request, f"Leave request status changed to {new_status}.")
     return RedirectResponse("/hr-leave", status_code=302)
 
 
@@ -2863,6 +3255,177 @@ async def update_leave_allowance(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ── PRINT / REPORT VIEWS ──────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/print/employee/{emp_id}", response_class=HTMLResponse)
+async def print_employee_profile(request: Request, emp_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    now_pht = get_pht_now()
+    year_start = now_pht.strftime("%Y-01-01")
+    with get_db() as conn:
+        emp = conn.execute("SELECT * FROM employees WHERE id=?", (emp_id,)).fetchone()
+        if not emp:
+            return HTMLResponse("Employee not found", status_code=404)
+        emp = dict(emp)
+        vl_used = conn.execute(
+            "SELECT COALESCE(SUM(days_count),0) FROM leave_requests WHERE emp_id=? AND leave_type='Vacation Leave' AND status='Approved' AND start_date>=?",
+            (emp_id, year_start)
+        ).fetchone()[0]
+        sl_used = conn.execute(
+            "SELECT COALESCE(SUM(days_count),0) FROM leave_requests WHERE emp_id=? AND leave_type='Sick Leave' AND status='Approved' AND start_date>=?",
+            (emp_id, year_start)
+        ).fetchone()[0]
+    vl_total = int(emp.get("vl_days_per_year") or 15)
+    sl_total = int(emp.get("sl_days_per_year") or 15)
+    return templates.TemplateResponse(request, "print/employee_profile.html", {
+        "emp": emp,
+        "vl_used": int(vl_used or 0), "sl_used": int(sl_used or 0),
+        "vl_balance": max(0, vl_total - int(vl_used or 0)),
+        "sl_balance": max(0, sl_total - int(sl_used or 0)),
+        "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/roster", response_class=HTMLResponse)
+async def print_roster(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        employees = conn.execute(
+            "SELECT * FROM employees ORDER BY is_active DESC, name ASC"
+        ).fetchall()
+    return templates.TemplateResponse(request, "print/roster.html", {
+        "employees": [dict(e) for e in employees],
+        "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/payroll", response_class=HTMLResponse)
+async def print_payroll(request: Request, week_start: str = "", week_end: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        if week_start and week_end:
+            rows = conn.execute(
+                "SELECT * FROM payroll_runs WHERE week_start=? AND week_end=? ORDER BY emp_name",
+                (week_start, week_end)
+            ).fetchall()
+        else:
+            # Most recent pay period
+            latest = conn.execute(
+                "SELECT week_start, week_end FROM payroll_runs ORDER BY week_start DESC LIMIT 1"
+            ).fetchone()
+            if latest:
+                week_start, week_end = latest["week_start"], latest["week_end"]
+                rows = conn.execute(
+                    "SELECT * FROM payroll_runs WHERE week_start=? AND week_end=? ORDER BY emp_name",
+                    (week_start, week_end)
+                ).fetchall()
+            else:
+                rows = []
+    payroll = [dict(r) for r in rows]
+    total_gross = sum(p.get("gross_pay") or p.get("total_pay", 0) for p in payroll)
+    total_sss   = sum(p.get("sss_deduction", 0) for p in payroll)
+    total_phic  = sum(p.get("philhealth_deduction", 0) for p in payroll)
+    total_hdmf  = sum(p.get("pagibig_deduction", 0) for p in payroll)
+    total_tax   = sum(p.get("tax_deduction", 0) for p in payroll)
+    total_ded   = sum(p.get("total_deductions", 0) for p in payroll)
+    total_net   = sum(p.get("net_pay") or p.get("gross_pay") or p.get("total_pay", 0) for p in payroll)
+    return templates.TemplateResponse(request, "print/payroll.html", {
+        "payroll": payroll,
+        "week_start": week_start, "week_end": week_end,
+        "total_gross": round(total_gross, 2), "total_sss": round(total_sss, 2),
+        "total_phic": round(total_phic, 2), "total_hdmf": round(total_hdmf, 2),
+        "total_tax": round(total_tax, 2), "total_ded": round(total_ded, 2),
+        "total_net": round(total_net, 2),
+        "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/leave", response_class=HTMLResponse)
+async def print_leave_report(request: Request, year: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    now_pht = get_pht_now()
+    year = year or now_pht.strftime("%Y")
+    year_start = f"{year}-01-01"
+    year_end   = f"{year}-12-31"
+    with get_db() as conn:
+        requests = conn.execute(
+            """SELECT lr.*, e.name as emp_name FROM leave_requests lr
+               JOIN employees e ON e.id = lr.emp_id
+               WHERE lr.start_date >= ? AND lr.start_date <= ?
+               ORDER BY e.name, lr.start_date""",
+            (year_start, year_end)
+        ).fetchall()
+        employees = conn.execute(
+            "SELECT id, name, vl_days_per_year, sl_days_per_year FROM employees WHERE is_active=1 ORDER BY name"
+        ).fetchall()
+        # Build balance map
+        balances = []
+        for e in employees:
+            vl_used = conn.execute(
+                "SELECT COALESCE(SUM(days_count),0) FROM leave_requests WHERE emp_id=? AND leave_type='Vacation Leave' AND status='Approved' AND start_date>=?",
+                (e["id"], year_start)
+            ).fetchone()[0]
+            sl_used = conn.execute(
+                "SELECT COALESCE(SUM(days_count),0) FROM leave_requests WHERE emp_id=? AND leave_type='Sick Leave' AND status='Approved' AND start_date>=?",
+                (e["id"], year_start)
+            ).fetchone()[0]
+            vl_total = int(e["vl_days_per_year"] or 15)
+            sl_total = int(e["sl_days_per_year"] or 15)
+            balances.append({
+                "name": e["name"],
+                "vl_total": vl_total, "vl_used": int(vl_used or 0), "vl_balance": max(0, vl_total - int(vl_used or 0)),
+                "sl_total": sl_total, "sl_used": int(sl_used or 0), "sl_balance": max(0, sl_total - int(sl_used or 0)),
+            })
+    reqs = [dict(r) for r in requests]
+    approved = [r for r in reqs if r["status"] == "Approved"]
+    return templates.TemplateResponse(request, "print/leave_report.html", {
+        "requests": reqs,
+        "balances": balances,
+        "year": year,
+        "total_approved_days": sum(r["days_count"] for r in approved),
+        "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/attendance", response_class=HTMLResponse)
+async def print_attendance_report(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    now_pht = get_pht_now()
+    if not date_from:
+        date_from = now_pht.replace(day=1).strftime("%Y-%m-%d")
+    if not date_to:
+        date_to = now_pht.strftime("%Y-%m-%d")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT a.*, e.name as emp_name, e.shift_type,
+                      ROUND(
+                        (JULIANDAY(COALESCE(a.clock_out, datetime('now','+8 hours'))) - JULIANDAY(a.date || ' ' || a.clock_in)) * 24
+                        - COALESCE((SELECT SUM(ROUND((JULIANDAY(clock_out) - JULIANDAY(clock_in))*24*60)/60.0) FROM break_logs bl WHERE bl.att_id=a.id AND bl.clock_out IS NOT NULL), 0)
+                      , 2) as hours
+               FROM attendance a JOIN employees e ON e.id=a.emp_id
+               WHERE a.date >= ? AND a.date <= ? AND a.clock_in IS NOT NULL
+               ORDER BY e.name, a.date""",
+            (date_from, date_to)
+        ).fetchall()
+    records = [dict(r) for r in rows]
+    total_hours = sum(r.get("hours") or 0 for r in records)
+    avg_hours = total_hours / len(records) if records else 0
+    return templates.TemplateResponse(request, "print/attendance_report.html", {
+        "records": records,
+        "date_from": date_from, "date_to": date_to,
+        "total_hours": round(total_hours, 1),
+        "avg_hours": round(avg_hours, 1),
+        "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ── TV POSTER MANAGEMENT ──────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2945,6 +3508,103 @@ async def get_tv_posters():
             "SELECT * FROM tv_posters WHERE is_active=1 ORDER BY display_order, id"
         ).fetchall()
     return JSONResponse({"posters": [dict(p) for p in posters]})
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── REPORTS ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/reports", response_class=HTMLResponse)
+async def reports_landing(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    return templates.TemplateResponse(request, "shared/reports.html", {
+        "user": user,
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/reports/employees", response_class=HTMLResponse)
+async def report_employees(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        employees = conn.execute(
+            """SELECT * FROM employees WHERE is_active=1 AND role='Employee' ORDER BY name"""
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/report_employees.html", {
+        "user": user,
+        "employees": [dict(e) for e in employees],
+        "now_str": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/reports/attendance", response_class=HTMLResponse)
+async def report_attendance(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or (get_pht_now().replace(day=1).strftime("%Y-%m-%d"))
+    d_to   = date_to or today
+    with get_db() as conn:
+        records = conn.execute(
+            """SELECT a.*, e.name as emp_name
+               FROM attendance a JOIN employees e ON a.emp_id=e.id
+               WHERE e.role='Employee' AND a.date_logged BETWEEN ? AND ?
+               ORDER BY a.date_logged DESC, e.name""",
+            (d_from, d_to)
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/report_attendance.html", {
+        "user": user,
+        "records": [dict(r) for r in records],
+        "date_from": d_from, "date_to": d_to,
+        "now_str": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/reports/ot", response_class=HTMLResponse)
+async def report_ot(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or (get_pht_now().replace(day=1).strftime("%Y-%m-%d"))
+    d_to   = date_to or today
+    with get_db() as conn:
+        records = conn.execute(
+            """SELECT o.*, e.name as emp_name FROM overtime_requests o
+               JOIN employees e ON o.emp_id=e.id
+               WHERE o.ot_date BETWEEN ? AND ?
+               ORDER BY o.ot_date DESC""",
+            (d_from, d_to)
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/report_ot.html", {
+        "user": user,
+        "records": [dict(r) for r in records],
+        "date_from": d_from, "date_to": d_to,
+        "now_str": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/reports/leave", response_class=HTMLResponse)
+async def report_leave(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or (get_pht_now().replace(day=1).strftime("%Y-%m-%d"))
+    d_to   = date_to or today
+    with get_db() as conn:
+        records = conn.execute(
+            """SELECT l.*, e.name as emp_name FROM leave_requests l
+               JOIN employees e ON l.emp_id=e.id
+               WHERE l.start_date BETWEEN ? AND ?
+               ORDER BY l.start_date DESC""",
+            (d_from, d_to)
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/report_leave.html", {
+        "user": user,
+        "records": [dict(r) for r in records],
+        "date_from": d_from, "date_to": d_to,
+        "now_str": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        **shared_ctx(user, request),
+    })
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3041,6 +3701,36 @@ async def admin_dashboard(request: Request):
             "SELECT COUNT(*) FROM timesheet_submissions WHERE status='Submitted'"
         ).fetchone()[0]
 
+        # Active clients this month (distinct clients with logged tasks)
+        active_clients = conn.execute(
+            "SELECT COUNT(DISTINCT client) FROM work_logs WHERE date_logged BETWEEN ? AND ? AND client IS NOT NULL AND client != ''",
+            (month_start, today_str)
+        ).fetchone()[0]
+
+        # Task status breakdown (all active, non-archived)
+        task_status_counts = {
+            row["status"]: row["cnt"]
+            for row in conn.execute(
+                "SELECT status, COUNT(*) as cnt FROM work_logs WHERE COALESCE(is_archived,0)=0 GROUP BY status"
+            ).fetchall()
+        }
+
+        # Employees on approved leave today
+        on_leave_today = conn.execute(
+            """SELECT e.name FROM leave_requests l JOIN employees e ON l.emp_id=e.id
+               WHERE l.status='Approved' AND l.start_date<=? AND l.end_date>=? AND e.is_active=1""",
+            (today_str, today_str)
+        ).fetchall()
+
+        # Who is clocked in right now
+        clocked_in_now = conn.execute(
+            """SELECT e.name, a.clock_in, e.profile_pic_path
+               FROM attendance a JOIN employees e ON a.emp_id=e.id
+               WHERE e.role='Employee' AND a.date_logged=? AND a.clock_in IS NOT NULL AND a.clock_out IS NULL
+               ORDER BY a.clock_in""",
+            (today_str,)
+        ).fetchall()
+
     # Estimate this week's labor cost
     week_cost = 0.0
     for emp in emp_list:
@@ -3062,6 +3752,10 @@ async def admin_dashboard(request: Request):
         "doc_expiry_alerts": [dict(r) for r in doc_expiry_alerts],
         "top_performers": [dict(r) for r in top_performers],
         "pending_timesheets": pending_timesheets,
+        "active_clients": active_clients,
+        "task_status_counts": task_status_counts,
+        "on_leave_today": [dict(r) for r in on_leave_today],
+        "clocked_in_now": [dict(r) for r in clocked_in_now],
         "today_str": today_str,
         "week_start": week_start,
         "week_end": week_end,

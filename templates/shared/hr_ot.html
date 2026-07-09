@@ -81,6 +81,7 @@
           <th>Type</th>
           <th>Status</th>
           <th>Approved / Denied By</th>
+          <th>Change</th>
         </tr>
       </thead>
       <tbody>
@@ -92,7 +93,8 @@
           <td><span class="badge badge-gray">{{ r.ot_type }}</span></td>
           <td>
             {% if r.status == 'Approved' %}<span class="status-pill status-approved">✓ Approved</span>
-            {% else %}<span class="status-pill status-denied">✗ Denied</span>{% endif %}
+            {% elif r.status == 'Denied' %}<span class="status-pill status-denied">✗ Denied</span>
+            {% else %}<span class="badge badge-yellow">Pending</span>{% endif %}
           </td>
           <td class="text-sm text-muted">
             {{ r.approved_by or '—' }}
@@ -100,12 +102,51 @@
               <div class="text-xs" style="color:var(--danger);">{{ r.denied_reason }}</div>
             {% endif %}
           </td>
+          <td>
+            <button class="btn btn-xs btn-outline"
+                    onclick="openChangeOt({{ r.id }}, '{{ r.emp_name | e }}', '{{ r.ot_date }}', '{{ r.status }}')">
+              Change Status
+            </button>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No history yet.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted" style="padding:24px;">No history yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Change status modal -->
+<div class="modal-overlay" id="change-ot-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">Change OT Status</span>
+      <button class="modal-close" onclick="closeModal('change-ot-modal')">×</button>
+    </div>
+    <form id="change-ot-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm mb-12" id="change-ot-label"></p>
+        <div class="form-group mb-12">
+          <label class="form-label">New Status</label>
+          <select name="new_status" id="change-ot-status" class="form-input"
+                  onchange="document.getElementById('change-ot-reason-wrap').style.display=this.value==='Denied'?'block':'none'">
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="Denied">Denied</option>
+          </select>
+        </div>
+        <div class="form-group" id="change-ot-reason-wrap" style="display:none;">
+          <label class="form-label">Reason for denial</label>
+          <textarea name="denied_reason" class="form-textarea" rows="2" placeholder="Reason shown to employee…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('change-ot-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -140,6 +181,13 @@ function openDenyModal(id, name, date) {
   document.getElementById('deny-ot-label').textContent = `Deny OT for ${name} on ${date}?`;
   document.getElementById('deny-ot-form').action = `/api/ot/${id}/deny`;
   openModal('deny-ot-modal');
+}
+function openChangeOt(id, name, date, currentStatus) {
+  document.getElementById('change-ot-label').textContent = `Change status of OT for ${name} on ${date}`;
+  document.getElementById('change-ot-form').action = `/api/ot/${id}/change-status`;
+  document.getElementById('change-ot-status').value = currentStatus;
+  document.getElementById('change-ot-reason-wrap').style.display = currentStatus === 'Denied' ? 'block' : 'none';
+  openModal('change-ot-modal');
 }
 </script>
 {% endblock %}

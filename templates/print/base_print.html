@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Report{% endblock %} — Hundredfold Digital Marketing</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Arial', sans-serif; font-size: 11pt; color: #111; background: #fff; padding: 28px 32px; }
+    .print-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; border-bottom: 2px solid #7c3aed; padding-bottom: 14px; }
+    .print-header .co-name { font-size: 18pt; font-weight: 900; color: #7c3aed; letter-spacing: -.02em; }
+    .print-header .co-sub  { font-size: 9pt; color: #555; margin-top: 2px; }
+    .print-header .report-title { text-align: right; }
+    .print-header .report-title h1 { font-size: 14pt; font-weight: 800; }
+    .print-header .report-title .rdate { font-size: 9pt; color: #666; margin-top: 4px; }
+    section { margin-bottom: 20px; }
+    h2 { font-size: 10pt; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #7c3aed; border-bottom: 1px solid #e5e6ef; padding-bottom: 4px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+    th { background: #f3f4f8; font-weight: 700; padding: 6px 8px; text-align: left; border: 1px solid #ddd; }
+    td { padding: 5px 8px; border: 1px solid #e5e6ef; vertical-align: top; }
+    tr:nth-child(even) td { background: #fafafa; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; }
+    .field-row { margin-bottom: 7px; }
+    .field-label { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #666; }
+    .field-val   { font-size: 10.5pt; font-weight: 500; }
+    .badge { display: inline-block; padding: 2px 7px; border-radius: 99px; font-size: 8pt; font-weight: 700; }
+    .badge-green  { background: #d1fae5; color: #065f46; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .badge-gray   { background: #f4f4f5; color: #52525b; }
+    .badge-purple { background: #ede9fe; color: #5b21b6; }
+    .tfoot-row td { font-weight: 800; background: #ede9fe; border-top: 2px solid #7c3aed; }
+    .sig-row { display: flex; gap: 40px; margin-top: 40px; }
+    .sig-box { flex: 1; border-top: 1px solid #555; padding-top: 6px; font-size: 9pt; color: #444; }
+    .sig-box .sig-name { font-weight: 700; }
+    .no-data { color: #999; font-style: italic; padding: 12px 0; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none !important; }
+      @page { margin: 15mm 12mm; }
+    }
+    .print-btn { position: fixed; bottom: 24px; right: 24px; background: #7c3aed; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; font-size: 10pt; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(124,58,237,.35); }
+    .print-btn:hover { background: #6d28d9; }
+  </style>
+</head>
+<body>
+<div class="print-header">
+  <div>
+    <div class="co-name">Hundredfold Digital Marketing</div>
+    <div class="co-sub">Employee Portal — Confidential</div>
+  </div>
+  <div class="report-title">
+    <h1>{% block report_title %}Report{% endblock %}</h1>
+    <div class="rdate">Generated: {{ now }}</div>
+  </div>
+</div>
+
+{% block content %}{% endblock %}
+
+<button class="print-btn no-print" onclick="window.print()">🖨️ Print / Save PDF</button>
+<script>
+  // Auto-print if ?autoprint=1 in URL
+  if (new URLSearchParams(window.location.search).get('autoprint') === '1') {
+    window.addEventListener('load', () => setTimeout(() => window.print(), 400));
+  }
+</script>
+</body>
+</html>

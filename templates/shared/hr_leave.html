@@ -8,6 +8,7 @@
     <h2>Leave Requests</h2>
     <p>{{ pending | length }} pending approval</p>
   </div>
+  <a href="/print/leave" target="_blank" class="btn btn-outline btn-sm">🖨️ Print Leave Report</a>
 </div>
 
 {% if pending %}
@@ -84,6 +85,7 @@
           <th>Days</th>
           <th>Status</th>
           <th>Actioned By</th>
+          <th>Change</th>
         </tr>
       </thead>
       <tbody>
@@ -95,18 +97,59 @@
           <td>{{ r.days_count }}d</td>
           <td>
             {% if r.status == 'Approved' %}<span class="status-pill status-approved">✓ Approved</span>
-            {% else %}<span class="status-pill status-denied">✗ Denied</span>{% endif %}
+            {% elif r.status == 'Denied' %}<span class="status-pill status-denied">✗ Denied</span>
+            {% else %}<span class="badge badge-yellow">Pending</span>{% endif %}
           </td>
           <td class="text-sm text-muted">
             {{ r.approved_by or '—' }}
             {% if r.denied_reason %}<div class="text-xs" style="color:var(--danger);">{{ r.denied_reason }}</div>{% endif %}
           </td>
+          <td>
+            <button class="btn btn-xs btn-outline"
+                    onclick="openChangeLeave({{ r.id }}, '{{ r.emp_name | e }}', '{{ r.leave_type }}', '{{ r.status }}')">
+              Change Status
+            </button>
+          </td>
         </tr>
         {% else %}
-        <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No history yet.</td></tr>
+        <tr><td colspan="7" class="text-center text-muted" style="padding:24px;">No history yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- Change status modal -->
+<div class="modal-overlay" id="change-leave-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">Change Leave Status</span>
+      <button class="modal-close" onclick="closeModal('change-leave-modal')">×</button>
+    </div>
+    <form id="change-leave-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm mb-12" id="change-leave-label"></p>
+        <div class="form-group mb-12">
+          <label class="form-label">New Status</label>
+          <select name="new_status" id="change-leave-status" class="form-input"
+                  onchange="document.getElementById('change-leave-reason-wrap').style.display=this.value==='Denied'?'block':'none'">
+            <option value="Pending">Pending</option>
+            <option value="Approved">Approved</option>
+            <option value="Denied">Denied</option>
+          </select>
+        </div>
+        <div class="form-group" id="change-leave-reason-wrap" style="display:none;">
+          <label class="form-label">Reason for denial</label>
+          <textarea name="denied_reason" class="form-textarea" rows="2"
+                    placeholder="Reason shown to employee…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('change-leave-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -142,6 +185,13 @@ function openDenyModal(id, name, type) {
   document.getElementById('deny-leave-label').textContent = `Deny ${type} for ${name}?`;
   document.getElementById('deny-leave-form').action = `/api/leave/${id}/deny`;
   openModal('deny-leave-modal');
+}
+function openChangeLeave(id, name, type, currentStatus) {
+  document.getElementById('change-leave-label').textContent = `Change status of ${type} for ${name}`;
+  document.getElementById('change-leave-form').action = `/api/leave/${id}/change-status`;
+  document.getElementById('change-leave-status').value = currentStatus;
+  document.getElementById('change-leave-reason-wrap').style.display = currentStatus === 'Denied' ? 'block' : 'none';
+  openModal('change-leave-modal');
 }
 </script>
 {% endblock %}

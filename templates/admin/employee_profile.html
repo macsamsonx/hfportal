@@ -11,8 +11,9 @@
       <p class="text-muted text-sm">{{ emp.email }}</p>
     </div>
   </div>
-  {% if user.role == 'Admin' %}
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
+  <a href="/print/employee/{{ emp.id }}" target="_blank" class="btn btn-outline btn-sm">🖨️ Print 201</a>
+  {% if user.role == 'Admin' %}
   <button class="btn btn-danger btn-sm" onclick="openModal('reset-pw-modal')">🔑 Reset Password</button>
   <button class="btn btn-primary btn-sm"
     onclick="openEditEmployee(
@@ -27,8 +28,8 @@
       '{{ emp.employment_type or "Full-time" }}',
       '{{ (emp.department or "") | replace("'","\\'")|e }}'
     )">✏️ Edit Info</button>
-  </div>
   {% endif %}
+  </div>
 </div>
 
 <div style="display:grid; grid-template-columns: 300px 1fr; gap:20px; align-items:start;">
@@ -372,6 +373,41 @@
             </div>
           </div>
           <button type="submit" class="btn btn-primary btn-sm">Save Leave Allowance</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Employment Status -->
+    <div class="card mt-16">
+      <div class="card-header">
+        <h3>👤 Employment Status</h3>
+        {% set st = emp.emp_status or ('Active' if emp.is_active else 'Inactive') %}
+        {% if st == 'Active' %}<span class="badge badge-green">Active</span>
+        {% elif st == 'Inactive' %}<span class="badge badge-yellow">Inactive</span>
+        {% elif st == 'Terminated' %}<span class="badge badge-red">Terminated</span>
+        {% elif st == 'Resigned' %}<span class="badge badge-gray">Resigned</span>{% endif %}
+      </div>
+      <div class="card-body">
+        <form method="post" action="/api/employees/{{ emp.id }}/set-status">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Status</label>
+              <select name="emp_status" class="form-input">
+                <option value="Active" {% if st == 'Active' %}selected{% endif %}>Active — Full access, in roster</option>
+                <option value="Inactive" {% if st == 'Inactive' %}selected{% endif %}>Inactive — Account locked, hidden</option>
+                <option value="Terminated" {% if st == 'Terminated' %}selected{% endif %}>Terminated — Ended by company</option>
+                <option value="Resigned" {% if st == 'Resigned' %}selected{% endif %}>Resigned — Voluntarily left</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Note</label>
+              <input type="text" name="status_note" class="form-input"
+                     value="{{ emp.status_note or '' }}"
+                     placeholder="e.g. AWOL, end of contract…">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Save Status</button>
         </form>
       </div>
     </div>

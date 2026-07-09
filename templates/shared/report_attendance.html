@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Attendance Report{% endblock %}
+{% block page_title %}Attendance Report{% endblock %}
+
+{% block extra_head %}
+<style>
+@media print {
+  .sidebar, .topbar, #chat-bubble, .no-print, footer { display:none !important; }
+  .main { margin-left:0 !important; }
+  .page-content { padding:0 !important; }
+  body { background:#fff !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <h2>Attendance Report</h2>
+    <p>{{ records | length }} records · {{ date_from }} to {{ date_to }}</p>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <form method="get" action="/reports/attendance" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <input type="date" name="date_from" value="{{ date_from }}" class="form-input" style="height:36px; font-size:.82rem; width:150px;">
+      <span class="text-muted text-sm">to</span>
+      <input type="date" name="date_to" value="{{ date_to }}" class="form-input" style="height:36px; font-size:.82rem; width:150px;">
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+    </form>
+    <button class="btn btn-primary" onclick="window.print()">🖨 Print</button>
+  </div>
+</div>
+
+<div class="card">
+  <div style="padding:14px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div style="font-weight:700;">Attendance Report · {{ date_from }} to {{ date_to }}</div>
+      <div style="font-size:.76rem; color:var(--muted);">Generated {{ now_str }}</div>
+    </div>
+    <div style="font-size:.75rem; color:var(--muted);">{{ records | length }} records</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Employee</th>
+          <th>Clock In</th>
+          <th>Clock Out</th>
+          <th>Hours</th>
+          <th>Break</th>
+          <th>Late?</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="fw-600">{{ r.date_logged }}</td>
+          <td>{{ r.emp_name }}</td>
+          <td>{{ r.clock_in or '—' }}</td>
+          <td>{{ r.clock_out or '—' }}</td>
+          <td class="fw-700">
+            {% if r.clock_in and r.clock_out %}
+              {% set h = ((r.clock_out[:2]|int * 60 + r.clock_out[3:5]|int) - (r.clock_in[:2]|int * 60 + r.clock_in[3:5]|int)) / 60 %}
+              {{ '%.2f'|format(h) }}h
+            {% else %}—{% endif %}
+          </td>
+          <td class="text-sm text-muted">{{ r.is_on_break | default(0) }}m</td>
+          <td>
+            {% if r.late_flag %}<span class="badge badge-red" style="font-size:.65rem;">Late</span>
+            {% else %}<span class="text-muted text-sm">—</span>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:32px;">No records in date range.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

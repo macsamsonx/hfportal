@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Employee Roster Report{% endblock %}
+{% block page_title %}Employee Roster{% endblock %}
+
+{% block extra_head %}
+<style>
+@media print {
+  .sidebar, .topbar, .chat-bubble, #chat-bubble, .no-print, footer { display:none !important; }
+  .main { margin-left:0 !important; }
+  .page-content { padding:0 !important; }
+  body { background:#fff !important; }
+  table { font-size:10pt; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <h2>Employee Roster Report</h2>
+    <p>{{ employees | length }} active employees · Generated {{ now_str }}</p>
+  </div>
+  <button class="btn btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+</div>
+
+<div class="card">
+  <div style="padding:16px 20px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center;">
+    <div>
+      <div style="font-weight:700; font-size:1rem;">Hundredfold Digital Marketing</div>
+      <div style="font-size:.78rem; color:var(--muted);">Employee Roster — {{ now_str }}</div>
+    </div>
+    <div style="font-size:.75rem; color:var(--muted);">{{ employees | length }} employees</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Name</th>
+          <th>Role</th>
+          <th>Email</th>
+          <th>Shift</th>
+          <th>Status</th>
+          <th>Employment</th>
+          <th>Birthday</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td class="text-muted text-sm">{{ loop.index }}</td>
+          <td class="fw-700">{{ e.name }}</td>
+          <td><span class="badge badge-gray" style="font-size:.68rem;">{{ e.role }}</span></td>
+          <td class="text-sm">{{ e.email }}</td>
+          <td class="text-sm">{{ e.shift_type }}</td>
+          <td>
+            {% set sc = {'Active':'green','Inactive':'yellow','Terminated':'red','Resigned':'gray'} %}
+            <span class="badge badge-{{ sc.get(e.emp_status or 'Active','gray') }}" style="font-size:.68rem;">
+              {{ e.emp_status or 'Active' }}
+            </span>
+          </td>
+          <td class="text-sm">{{ e.employment_type or 'Full-time' }}</td>
+          <td class="text-sm">{{ e.birthday or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted" style="padding:32px;">No employees found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

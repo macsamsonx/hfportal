@@ -1,0 +1,72 @@
+{% extends "print/base_print.html" %}
+{% block title %}Payroll Report{% endblock %}
+{% block report_title %}Payroll Report{% endblock %}
+
+{% block content %}
+<section>
+  {% if week_start and week_end %}
+  <p style="font-size:10pt; margin-bottom:12px;"><strong>Pay Period:</strong> {{ week_start }} — {{ week_end }}</p>
+  {% endif %}
+  <h2>Payroll Breakdown — {{ payroll | length }} Employee(s)</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Employee</th>
+        <th style="text-align:right;">Rate/hr</th>
+        <th style="text-align:right;">Reg Hrs</th>
+        <th style="text-align:right;">OT Hrs</th>
+        <th style="text-align:right;">Gross Pay</th>
+        <th style="text-align:right;">SSS</th>
+        <th style="text-align:right;">PhilHealth</th>
+        <th style="text-align:right;">Pag-IBIG</th>
+        <th style="text-align:right;">Tax</th>
+        <th style="text-align:right;">Deductions</th>
+        <th style="text-align:right;">NET PAY</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in payroll %}
+      {% set gross = p.get('gross_pay') or p.get('total_pay', 0) %}
+      {% set sss   = p.get('sss_deduction', 0) %}
+      {% set phic  = p.get('philhealth_deduction', 0) %}
+      {% set hdmf  = p.get('pagibig_deduction', 0) %}
+      {% set tax   = p.get('tax_deduction', 0) %}
+      {% set tded  = p.get('total_deductions', 0) %}
+      {% set net   = p.get('net_pay') or gross %}
+      <tr>
+        <td style="font-weight:700;">{{ p.emp_name }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(p.hourly_rate or 0) }}</td>
+        <td style="text-align:right;">{{ p.regular_hours or 0 }}h</td>
+        <td style="text-align:right;">{% if p.overtime_hours and p.overtime_hours > 0 %}+{{ p.overtime_hours }}h{% else %}—{% endif %}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(gross) }}</td>
+        <td style="text-align:right; color:#888;">{% if sss > 0 %}₱{{ "%.2f"|format(sss) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right; color:#888;">{% if phic > 0 %}₱{{ "%.2f"|format(phic) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right; color:#888;">{% if hdmf > 0 %}₱{{ "%.2f"|format(hdmf) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right; color:#888;">{% if tax > 0 %}₱{{ "%.2f"|format(tax) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right; color:#cc2222;">{% if tded > 0 %}— ₱{{ "%.2f"|format(tded) }}{% else %}—{% endif %}</td>
+        <td style="text-align:right; font-weight:800; color:#1a0033;">₱{{ "%.2f"|format(net) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td colspan="4"><strong>TOTALS</strong></td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_gross) }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_sss) }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_phic) }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_hdmf) }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_tax) }}</td>
+        <td style="text-align:right;">— ₱{{ "%.2f"|format(total_ded) }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(total_net) }}</td>
+      </tr>
+    </tfoot>
+  </table>
+</section>
+
+<div class="sig-row">
+  <div class="sig-box"><div class="sig-name">Prepared by</div><div>HR Manager / Admin</div></div>
+  <div class="sig-box"><div class="sig-name">Reviewed by</div></div>
+  <div class="sig-box"><div class="sig-name">Approved by</div></div>
+  <div class="sig-box"><div class="sig-name">Date</div></div>
+</div>
+{% endblock %}

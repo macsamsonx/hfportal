@@ -6,16 +6,32 @@
 <div class="page-header">
   <div>
     <h2>Employee Management</h2>
-    <p>{{ employees | length }} total accounts</p>
+    <p>{{ employees | length }} {{ status_tab | lower }} accounts</p>
   </div>
-  {% if user.role == 'Admin' %}
-  <button class="btn btn-primary" onclick="openModal('add-emp-modal')">+ Add Employee</button>
-  {% endif %}
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a href="/print/roster" target="_blank" class="btn btn-outline btn-sm">🖨️ Print Roster</a>
+    {% if user.role == 'Admin' %}
+    <button class="btn btn-primary" onclick="openModal('add-emp-modal')">+ Add Employee</button>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Status tabs -->
+<div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+  {% for tab in ['Active','Inactive','Terminated','Resigned'] %}
+  <a href="/employees?status_tab={{ tab }}"
+     class="btn btn-sm {% if status_tab == tab %}btn-primary{% else %}btn-outline{% endif %}">
+    {{ tab }}
+    {% if counts and counts[tab] %}
+      <span style="font-size:.72rem; opacity:.75; margin-left:4px;">({{ counts[tab] }})</span>
+    {% endif %}
+  </a>
+  {% endfor %}
 </div>
 
 <div class="card">
   <div class="card-header">
-    <h3>All Accounts</h3>
+    <h3>{{ status_tab }} Employees</h3>
     <input type="text" id="emp-search" class="form-input" style="width:220px" placeholder="Search employees…">
   </div>
   <div class="table-wrapper">
@@ -60,12 +76,20 @@
           <td class="fw-600">{% if emp.hourly_rate %}₱{{ "%.2f"|format(emp.hourly_rate) }}/hr{% else %}—{% endif %}</td>
           <td class="text-sm text-muted truncate" style="max-width:140px">{{ emp.capabilities or '—' }}</td>
           <td>
-            {% if emp.is_active %}<span class="badge badge-green">Active</span>
-            {% else %}<span class="badge badge-red">Inactive</span>{% endif %}
+            {% set st = emp.emp_status or ('Active' if emp.is_active else 'Inactive') %}
+            {% if st == 'Active' %}<span class="badge badge-green">Active</span>
+            {% elif st == 'Inactive' %}<span class="badge badge-yellow">Inactive</span>
+            {% elif st == 'Terminated' %}<span class="badge badge-red">Terminated</span>
+            {% elif st == 'Resigned' %}<span class="badge badge-gray">Resigned</span>
+            {% else %}<span class="badge badge-gray">{{ st }}</span>{% endif %}
           </td>
           <td>
-            <div class="flex gap-8">
+            <div class="flex gap-8" style="flex-wrap:wrap;">
               <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline btn-sm">View</a>
+              <button class="btn btn-outline btn-sm"
+                      onclick="openStatusModal({{ emp.id }},'{{ (emp.name)|e }}','{{ emp.emp_status or 'Active' }}')">
+                Status
+              </button>
 
               {% if user.role == 'Admin' %}
               <button class="btn btn-outline btn-sm" onclick="openEditEmployee(
@@ -80,14 +104,6 @@
                   '{{ emp.employment_type or "Full-time" }}',
                   '{{ (emp.department or "") | replace("'","\\'")|e }}'
                 )">Edit</button>
-              <form method="post" action="/api/employees/{{ emp.id }}/toggle" style="display:inline">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-                <button type="submit" class="btn btn-ghost btn-sm"
-                        data-confirm="{{ 'Deactivate this employee?' if emp.is_active else 'Reactivate this employee?' }}">
-                  {{ 'Deactivate' if emp.is_active else 'Reactivate' }}
-                </button>
-              </form>
-
               {% elif user.role == 'HR Manager' and emp.role == 'Employee' %}
               <button class="btn btn-outline btn-sm" onclick="openHrEdit(
                   {{ emp.id }},
@@ -321,10 +337,51 @@
 </div>
 {% endif %}
 
+<!-- Employee Status Modal -->
+<div class="modal-overlay" id="status-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">Change Employee Status</span>
+      <button class="modal-close" onclick="closeModal('status-modal')">×</button>
+    </div>
+    <form id="status-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm mb-12" id="status-modal-name"></p>
+        <div class="form-group mb-12">
+          <label class="form-label">New Status</label>
+          <select name="emp_status" id="status-select" class="form-input">
+            <option value="Active">Active — Full access, appears in roster</option>
+            <option value="Inactive">Inactive — Account locked, hidden from roster</option>
+            <option value="Terminated">Terminated — Employment ended by company</option>
+            <option value="Resigned">Resigned — Voluntarily left</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Note (optional)</label>
+          <input type="text" name="status_note" class="form-input"
+                 placeholder="e.g. AWOL, end of contract, etc.">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('status-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Status</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
+  function openStatusModal(id, name, currentStatus) {
+    document.getElementById('status-modal-name').textContent = 'Employee: ' + name;
+    document.getElementById('status-form').action = '/api/employees/' + id + '/set-status';
+    document.getElementById('status-select').value = currentStatus || 'Active';
+    openModal('status-modal');
+  }
+
   // Search
   const empSearch = document.getElementById('emp-search');
   if (empSearch) {

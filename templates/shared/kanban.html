@@ -31,25 +31,39 @@
 <div class="page-header">
   <div>
     <h2>📋 Production Board</h2>
-    <p>
-      {% if user.role == 'Employee' %}
-        Drag your cards · Click any card for details &amp; comments
-      {% else %}
-        Drag cards between columns · Click a card for details, comments &amp; reviewer
-      {% endif %}
-    </p>
+    <p>Drag cards between columns · Click a card for details, comments &amp; reviewer</p>
   </div>
   <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
     {% set total = columns.values() | map('length') | sum %}
     <span class="badge badge-blue">{{ total }} active</span>
     <span class="badge badge-yellow">{{ columns['For Review'] | length }} for review</span>
     <span class="badge badge-green">{{ columns['Done'] | length }} done</span>
-    {% if user.role in ('HR Manager', 'Admin') and archived_count > 0 %}
+    {% if archived_count > 0 %}
     <a href="/kanban/archive" class="btn btn-outline btn-sm" style="font-size:.75rem;">
       🗄️ Archive ({{ archived_count }})
     </a>
     {% endif %}
   </div>
+</div>
+
+<!-- Filters -->
+<div style="display:flex; gap:10px; margin-bottom:16px; flex-wrap:wrap; align-items:center;">
+  <input id="kb-search" type="text" placeholder="🔍 Search tasks…"
+         class="form-input" style="max-width:220px; height:34px; font-size:.82rem;"
+         oninput="applyKanbanFilter()">
+  <select id="kb-client" class="form-input" style="max-width:160px; height:34px; font-size:.82rem;" onchange="applyKanbanFilter()">
+    <option value="">All Clients</option>
+    {% for c in clients %}
+      <option value="{{ c.name }}">{{ c.name }}</option>
+    {% endfor %}
+  </select>
+  <select id="kb-person" class="form-input" style="max-width:180px; height:34px; font-size:.82rem;" onchange="applyKanbanFilter()">
+    <option value="">All People</option>
+    {% for e in all_employees %}
+      <option value="{{ e.name }}">{{ e.name }}</option>
+    {% endfor %}
+  </select>
+  <button class="btn btn-outline btn-sm" onclick="clearKanbanFilter()" style="height:34px; font-size:.8rem;">✕ Clear</button>
 </div>
 
 <div class="kanban-board">
@@ -82,7 +96,10 @@
            style="border-left:3px solid {{ client_hex }};"
            data-task-id="{{ card.id }}"
            data-own="{{ 'true' if card.emp_id == user.id else 'false' }}"
-           data-role="{{ user.role }}">
+           data-role="{{ user.role }}"
+           data-client="{{ card.client | default('') | lower }}"
+           data-person="{{ card.emp_name | default('') | lower }}"
+           data-title="{{ card.task_title | default('') | lower }}">
 
         <!-- Title -->
         <div class="kanban-card-title" style="margin-bottom:5px;">{{ card.task_title }}</div>
@@ -166,4 +183,24 @@ const currentUserId = {{ user.id }};
 
 {% endblock %}
 
-{% block extra_js %}{% endblock %}
+{% block extra_js %}
+<script>
+function applyKanbanFilter() {
+  const q      = (document.getElementById('kb-search')?.value || '').trim().toLowerCase();
+  const client = (document.getElementById('kb-client')?.value || '').toLowerCase();
+  const person = (document.getElementById('kb-person')?.value || '').toLowerCase();
+  document.querySelectorAll('.kanban-card').forEach(card => {
+    const matchQ = !q || card.dataset.title?.includes(q) || card.dataset.client?.includes(q) || card.dataset.person?.includes(q);
+    const matchC = !client || card.dataset.client === client;
+    const matchP = !person || card.dataset.person?.includes(person);
+    card.style.display = (matchQ && matchC && matchP) ? '' : 'none';
+  });
+}
+function clearKanbanFilter() {
+  document.getElementById('kb-search').value = '';
+  document.getElementById('kb-client').value = '';
+  document.getElementById('kb-person').value = '';
+  applyKanbanFilter();
+}
+</script>
+{% endblock %}

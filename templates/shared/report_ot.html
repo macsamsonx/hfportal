@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}OT Report{% endblock %}
+{% block page_title %}Overtime Report{% endblock %}
+
+{% block extra_head %}
+<style>
+@media print {
+  .sidebar, .topbar, #chat-bubble, .no-print, footer { display:none !important; }
+  .main { margin-left:0 !important; }
+  .page-content { padding:0 !important; }
+  body { background:#fff !important; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header no-print">
+  <div>
+    <h2>Overtime Report</h2>
+    <p>{{ records | length }} records · {{ date_from }} to {{ date_to }}</p>
+  </div>
+  <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+    <form method="get" action="/reports/ot" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <input type="date" name="date_from" value="{{ date_from }}" class="form-input" style="height:36px; font-size:.82rem; width:150px;">
+      <span class="text-muted text-sm">to</span>
+      <input type="date" name="date_to" value="{{ date_to }}" class="form-input" style="height:36px; font-size:.82rem; width:150px;">
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+    </form>
+    <button class="btn btn-primary" onclick="window.print()">🖨 Print</button>
+  </div>
+</div>
+
+{% set total_hrs = records | sum(attribute='hours_computed') %}
+{% set approved = records | selectattr('status','eq','Approved') | list %}
+
+<div class="grid-3 mb-20 no-print">
+  <div class="stat-card blue">
+    <div class="stat-icon blue">⏰</div>
+    <div><div class="stat-label">Total Records</div><div class="stat-value">{{ records | length }}</div></div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon green">✅</div>
+    <div><div class="stat-label">Approved Hours</div><div class="stat-value">{{ approved | sum(attribute='hours_computed') | round(1) }}h</div></div>
+  </div>
+  <div class="stat-card gray">
+    <div class="stat-icon gray">⏱</div>
+    <div><div class="stat-label">Total Filed Hours</div><div class="stat-value">{{ total_hrs | round(1) }}h</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div style="padding:14px 20px; border-bottom:1px solid var(--border);">
+    <div style="font-weight:700;">Overtime Report · {{ date_from }} to {{ date_to }}</div>
+    <div style="font-size:.76rem; color:var(--muted);">Generated {{ now_str }}</div>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Employee</th>
+          <th>Time</th>
+          <th>Hours</th>
+          <th>Type</th>
+          <th>Status</th>
+          <th>Approved By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in records %}
+        <tr>
+          <td class="fw-600">{{ r.ot_date }}</td>
+          <td>{{ r.emp_name }}</td>
+          <td class="text-sm">{{ r.ot_start }}–{{ r.ot_end }}</td>
+          <td class="fw-700">{{ r.hours_computed }}h</td>
+          <td class="text-sm">{{ r.ot_type }}</td>
+          <td>
+            {% if r.status=='Approved' %}<span class="badge badge-green" style="font-size:.65rem;">✓ Approved</span>
+            {% elif r.status=='Denied' %}<span class="badge badge-red" style="font-size:.65rem;">✗ Denied</span>
+            {% else %}<span class="badge badge-yellow" style="font-size:.65rem;">⏳ Pending</span>{% endif %}
+          </td>
+          <td class="text-sm text-muted">{{ r.approved_by or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:32px;">No records in date range.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

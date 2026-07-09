@@ -8,11 +8,11 @@
   <style>
     .reg-page {
       min-height: 100vh;
-      background: var(--bg);
+      background: var(--body-bg);
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 40px 16px 60px;
+      padding: 40px 16px 80px;
     }
     .reg-card {
       background: var(--surface);
@@ -20,68 +20,61 @@
       border-radius: 12px;
       padding: 40px;
       width: 100%;
-      max-width: 680px;
+      max-width: 720px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.07);
     }
-    .reg-logo {
-      text-align: center;
-      margin-bottom: 28px;
-    }
+    .reg-logo { text-align: center; margin-bottom: 28px; }
     .reg-logo img { height: 52px; margin-bottom: 8px; }
     .reg-logo h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); margin: 0; }
     .reg-logo p  { font-size: 0.85rem; color: var(--muted); margin: 4px 0 0; }
-    .form-grid-2 {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .form-grid-4 { display: grid; grid-template-columns: auto 1fr 1fr auto; gap: 12px; }
+    @media (max-width: 600px) {
+      .form-grid-2, .form-grid-3, .form-grid-4 { grid-template-columns: 1fr; }
+      .reg-card { padding: 24px 16px; }
     }
-    @media (max-width: 520px) { .form-grid-2 { grid-template-columns: 1fr; } }
     .section-title {
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      color: var(--muted);
-      margin: 24px 0 12px;
-      padding-bottom: 6px;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted);
+      margin: 24px 0 12px; padding-bottom: 6px;
       border-bottom: 1px solid var(--border);
     }
     .privacy-box {
       background: var(--surface-2, #f8fafc);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 18px 20px;
-      font-size: 0.78rem;
-      color: var(--muted);
-      line-height: 1.6;
-      max-height: 280px;
-      overflow-y: auto;
-      margin-bottom: 16px;
+      border: 1px solid var(--border); border-radius: 8px;
+      padding: 18px 20px; font-size: 0.78rem; color: var(--muted);
+      line-height: 1.6; max-height: 280px; overflow-y: auto; margin-bottom: 16px;
     }
     [data-theme="dark"] .privacy-box { background: #1a1f2e; }
     .privacy-box h3 { font-size: 0.82rem; font-weight: 700; color: var(--text); margin: 0 0 8px; }
     .privacy-box h4 { font-size: 0.75rem; font-weight: 700; color: var(--text); margin: 12px 0 4px; }
     .privacy-box p  { margin: 0 0 6px; }
     .consent-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      padding: 10px 0;
-      border-bottom: 1px solid var(--border);
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 0; border-bottom: 1px solid var(--border);
     }
     .consent-item:last-child { border-bottom: none; }
-    .consent-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; }
+    .consent-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--primary); }
     .consent-item label { font-size: 0.83rem; color: var(--text); cursor: pointer; line-height: 1.5; }
     .consent-item label strong { color: var(--primary); }
-    .back-link {
-      display: inline-block;
-      margin-top: 16px;
-      font-size: 0.82rem;
-      color: var(--muted);
-      text-decoration: none;
-    }
+    .back-link { display: inline-block; margin-top: 16px; font-size: 0.82rem; color: var(--muted); text-decoration: none; }
     .back-link:hover { color: var(--primary); }
     .req-note { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; }
+    /* Skills tag input */
+    .skills-wrap { border: 1.5px solid var(--border); border-radius: var(--radius); padding: 6px 10px; background: var(--surface); min-height: 44px; display: flex; flex-wrap: wrap; gap: 6px; cursor: text; }
+    .skills-wrap:focus-within { border-color: var(--border-focus); }
+    .skill-tag { background: var(--primary-l); color: var(--primary-d); border-radius: 99px; padding: 3px 10px 3px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .skill-tag button { background: none; border: none; cursor: pointer; color: var(--primary-d); font-size: 1rem; line-height: 1; padding: 0; opacity: .6; }
+    .skill-tag button:hover { opacity: 1; }
+    .skills-input { border: none; outline: none; background: transparent; font-size: 0.84rem; min-width: 120px; flex: 1; color: var(--text); padding: 4px 0; }
+    .skills-dropdown { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 50; width: 100%; max-height: 200px; overflow-y: auto; top: 100%; left: 0; }
+    .skill-option { padding: 8px 12px; cursor: pointer; font-size: 0.84rem; }
+    .skill-option:hover, .skill-option.highlighted { background: var(--primary-l); color: var(--primary-d); }
+    .skills-outer { position: relative; }
+    .footer-links { text-align: center; margin-top: 20px; font-size: 0.78rem; color: var(--muted); }
+    .footer-links a { color: var(--primary); text-decoration: none; }
+    .footer-links a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -108,52 +101,91 @@
       <div class="section-title">Personal Information</div>
       <p class="req-note">Fields marked with * are required.</p>
 
-      <div class="form-grid-2">
+      <!-- Name row: Prefix | First | Last -->
+      <div class="form-grid-4" style="margin-bottom:12px;">
         <div class="form-group">
-          <label class="form-label" for="name">Full Name *</label>
-          <input id="name" name="name" type="text" class="form-input"
-                 placeholder="Juan dela Cruz" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="email">Email Address *</label>
-          <input id="email" name="email" type="email" class="form-input"
-                 placeholder="juan@email.com" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="phone">Phone Number</label>
-          <input id="phone" name="phone" type="tel" class="form-input"
-                 placeholder="+63 912 345 6789">
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="gender">Gender</label>
-          <select id="gender" name="gender" class="form-input">
-            <option value="">— Select —</option>
-            <option>Male</option>
-            <option>Female</option>
-            <option>Prefer not to say</option>
+          <label class="form-label">Prefix</label>
+          <select name="prefix" class="form-input" style="min-width:80px;">
+            <option value="">—</option>
+            <option>Mr.</option>
+            <option>Ms.</option>
+            <option>Mrs.</option>
+            <option>Dr.</option>
+            <option>Engr.</option>
+            <option>Atty.</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label" for="birthday">Date of Birth</label>
-          <input id="birthday" name="birthday" type="date" class="form-input">
+          <label class="form-label">First Name *</label>
+          <input name="first_name" type="text" class="form-input" placeholder="Juan" required>
         </div>
         <div class="form-group">
-          <label class="form-label" for="position_applied">Position Applied For</label>
-          <input id="position_applied" name="position_applied" type="text" class="form-input"
-                 placeholder="e.g. Content Writer, Web Designer">
+          <label class="form-label">Last Name *</label>
+          <input name="last_name" type="text" class="form-input" placeholder="dela Cruz" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nickname</label>
+          <input name="nickname" type="text" class="form-input" placeholder="JD">
         </div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="address">Home Address</label>
-        <input id="address" name="address" type="text" class="form-input"
+      <!-- Middle name row -->
+      <div class="form-grid-2" style="margin-bottom:16px;">
+        <div class="form-group">
+          <label class="form-label">Middle Name</label>
+          <input name="middle_name" id="middle_name_input" type="text" class="form-input" placeholder="Santos">
+        </div>
+        <div class="form-group" style="display:flex; align-items:flex-end; padding-bottom:14px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.84rem; font-weight:500;">
+            <input type="checkbox" name="no_middle_name" id="no_middle_name" value="1"
+                   style="width:16px;height:16px;accent-color:var(--primary);"
+                   onchange="document.getElementById('middle_name_input').disabled=this.checked; if(this.checked)document.getElementById('middle_name_input').value='';">
+            No Middle Name
+          </label>
+        </div>
+      </div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label">Email Address *</label>
+          <input name="email" type="email" class="form-input" placeholder="juan@email.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Phone Number</label>
+          <input name="phone" type="tel" class="form-input" placeholder="+63 912 345 6789">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Gender</label>
+          <select name="gender" class="form-input">
+            <option value="">— Select —</option>
+            <option>Male</option>
+            <option>Female</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Date of Birth</label>
+          <input name="birthday" type="date" class="form-input">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:12px;">
+        <label class="form-label">Home Address</label>
+        <input name="address" type="text" class="form-input"
                placeholder="Street, Barangay, City, Province">
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="message">Message / Cover Note (Optional)</label>
-        <textarea id="message" name="message" class="form-input" rows="3"
-                  placeholder="Briefly introduce yourself or mention anything HR should know..."></textarea>
+      <!-- Skills / Position -->
+      <div class="form-group" style="margin-bottom:16px;">
+        <label class="form-label">Skills / Position Applied For</label>
+        <div class="skills-outer">
+          <div class="skills-wrap" id="skills-wrap" onclick="document.getElementById('skills-text-input').focus()">
+            <input type="text" id="skills-text-input" class="skills-input"
+                   placeholder="Type to search or add a skill…" autocomplete="off">
+          </div>
+          <div class="skills-dropdown" id="skills-dropdown" style="display:none;"></div>
+        </div>
+        <input type="hidden" name="skills_json" id="skills-json-input" value="[]">
+        <span style="font-size:.73rem; color:var(--muted);">Select from the list or type a custom skill and press Enter.</span>
       </div>
 
       <div class="section-title">Data Privacy Statement</div>
@@ -161,55 +193,46 @@
       <div class="privacy-box" id="privacy-text">
         <h3>Data Privacy Notice — Hundredfold Digital Marketing</h3>
         <p>Pursuant to <strong>Republic Act No. 10173</strong> (Data Privacy Act of 2012) and its Implementing Rules and Regulations, Hundredfold Digital Marketing informs you of the following before collecting your personal data:</p>
-
         <h4>1. Data Controller</h4>
-        <p>Hundredfold Digital Marketing is the Personal Information Controller responsible for your personal data collected through this form.</p>
-
+        <p>Hundredfold Digital Marketing is the Personal Information Controller (PIC) responsible for your personal data collected through this form.</p>
         <h4>2. Personal Data Collected</h4>
-        <p>We collect your full name, email address, phone number, date of birth, gender, home address, and any other information you voluntarily provide in this registration form.</p>
-
+        <p>We collect your full name, email address, phone number, date of birth, gender, home address, and skills/position information you voluntarily provide in this registration form.</p>
         <h4>3. Purpose of Processing</h4>
-        <p>Your personal data is collected and processed for the following purposes: (a) evaluating your employment application; (b) creating and managing your employee account upon approval; (c) administering employment-related activities including payroll, attendance tracking, and performance management; and (d) compliance with applicable labor laws.</p>
-
+        <p>Your personal data is collected and processed for the following purposes: (a) evaluating your employment application; (b) creating and managing your employee account upon approval; (c) administering employment-related activities including payroll, attendance tracking, and performance management; and (d) compliance with applicable labor laws and regulations of the Philippines.</p>
         <h4>4. Legal Basis</h4>
-        <p>Processing is necessary for the performance of, or in preparation for, an employment contract to which you are a party, and to comply with legal obligations applicable to the employer.</p>
-
+        <p>Processing is based on: (a) your consent given through this form; (b) the necessity of processing for the performance of, or in preparation for, an employment contract to which you are a party; and (c) compliance with legal obligations applicable to the employer under Philippine law including the Labor Code of the Philippines, DOLE regulations, SSS Act, PhilHealth Act, Home Development Mutual Fund Act, and the National Internal Revenue Code.</p>
         <h4>5. Data Retention</h4>
-        <p>Your personal data will be retained for the duration of your employment and for a period required by applicable Philippine labor and tax laws after the termination of employment (typically 10 years). Applications that are not approved will be retained for 1 year and then deleted.</p>
-
+        <p>Your personal data will be retained for the duration of your employment and for a period required by applicable Philippine labor and tax laws after the termination of employment (typically not less than 10 years, per DOLE and BIR requirements). Applications that are not approved will be retained for 1 year and then securely deleted.</p>
         <h4>6. Data Sharing</h4>
-        <p>Your personal data will not be sold or disclosed to unauthorized third parties. Data may be shared with government agencies (SSS, PhilHealth, PAG-IBIG, Bureau of Internal Revenue) as required by Philippine law, and with authorized HR personnel for employment administration purposes only.</p>
-
+        <p>Your personal data will not be sold or disclosed to unauthorized third parties. Data may be shared with: (a) government agencies including the Social Security System (SSS), Philippine Health Insurance Corporation (PhilHealth), Home Development Mutual Fund (Pag-IBIG), and Bureau of Internal Revenue (BIR) as required by Philippine law; (b) authorized HR personnel and management for employment administration purposes only.</p>
         <h4>7. Your Rights as a Data Subject</h4>
-        <p>Under RA 10173, you have the following rights: (a) right to be informed; (b) right of access to your personal data; (c) right to correction of inaccurate data; (d) right to erasure or blocking, subject to applicable legal retention requirements; (e) right to object to processing; (f) right to lodge a complaint with the National Privacy Commission (NPC).</p>
-
+        <p>Under RA 10173 (Data Privacy Act of 2012), you have the following rights: (a) right to be informed; (b) right of access to your personal data; (c) right to rectification of inaccurate data; (d) right to erasure or blocking, subject to applicable legal retention requirements; (e) right to object to processing; (f) right to data portability; (g) right to lodge a complaint with the National Privacy Commission (NPC) at <em>complaints@privacy.gov.ph</em> or through www.privacy.gov.ph.</p>
         <h4>8. Data Protection Officer</h4>
-        <p>For privacy-related concerns or to exercise your data subject rights, contact our HR Manager at the office or through the official company email.</p>
-
+        <p>For privacy-related concerns or to exercise your data subject rights, contact our HR Manager or Data Protection Officer at the office or through the official company email. Hundredfold Digital Marketing is committed to designating a Data Protection Officer as required under NPC Circular 2023-04.</p>
         <h4>9. Security Measures</h4>
-        <p>We implement appropriate technical and organizational security measures to protect your personal data against unauthorized access, use, disclosure, or destruction.</p>
+        <p>We implement appropriate technical and organizational security measures consistent with the requirements of the National Privacy Commission to protect your personal data against unauthorized access, use, disclosure, alteration, or destruction.</p>
+        <h4>10. Consent Withdrawal</h4>
+        <p>You may withdraw your consent at any time by contacting our HR Manager in writing. Withdrawal of consent does not affect the lawfulness of processing based on consent before its withdrawal, and does not affect processing based on other legal bases.</p>
       </div>
 
       <div class="section-title">Required Agreements</div>
-
       <div class="consent-item">
         <input type="checkbox" id="privacy_agreed" name="privacy_agreed" value="1" required>
         <label for="privacy_agreed">
           <strong>I have read, understood, and agree to the Data Privacy Statement above.</strong>
-          I consent to the collection and processing of my personal data by Hundredfold Digital Marketing in accordance with Republic Act No. 10173 (Data Privacy Act of 2012) for the purposes stated above.
+          I consent to the collection and processing of my personal data by Hundredfold Digital Marketing in accordance with Republic Act No. 10173 (Data Privacy Act of 2012) and its Implementing Rules and Regulations for the purposes stated above.
         </label>
       </div>
-
       <div class="consent-item">
         <input type="checkbox" id="terms_agreed" name="terms_agreed" value="1" required>
         <label for="terms_agreed">
-          <strong>I confirm that all information I have provided is true and accurate.</strong>
-          I understand that any false or misleading information in this application may result in the rejection of my application or termination of employment if discovered after approval. I acknowledge that my application is subject to HR review and that approval is not guaranteed.
+          <strong>I confirm that all information I have provided is true, complete, and accurate.</strong>
+          I understand that any false or misleading information in this application may result in the rejection of my application or termination of employment if discovered after approval. I acknowledge that my application is subject to HR review and that approval is not guaranteed. I agree to the <a href="/terms" target="_blank" style="color:var(--primary);">Terms of Use</a> of the Employee Portal.
         </label>
       </div>
 
       <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:24px"
-              id="submit-btn" disabled onclick="return validateForm()">
+              id="submit-btn" disabled>
         Submit Application →
       </button>
     </form>
@@ -218,6 +241,14 @@
       <a href="/login" class="back-link">← Back to Sign In</a>
     </div>
   </div>
+
+  <div class="footer-links" style="margin-top:20px;">
+    <a href="/privacy" target="_blank">Data Privacy Policy</a>
+    &nbsp;·&nbsp;
+    <a href="/terms" target="_blank">Terms of Use</a>
+    &nbsp;·&nbsp;
+    <span>Hundredfold Digital Marketing © {{ now[:4] if now else '2026' }}</span>
+  </div>
 </div>
 
 <script>
@@ -225,24 +256,67 @@
     setTimeout(() => el.style.opacity = '0', 4000);
   });
 
-  // Enable submit only when both checkboxes are checked
   const cb1 = document.getElementById('privacy_agreed');
   const cb2 = document.getElementById('terms_agreed');
   const btn = document.getElementById('submit-btn');
-
-  function updateBtn() {
-    btn.disabled = !(cb1.checked && cb2.checked);
-  }
+  function updateBtn() { btn.disabled = !(cb1.checked && cb2.checked); }
   cb1.addEventListener('change', updateBtn);
   cb2.addEventListener('change', updateBtn);
 
-  function validateForm() {
-    if (!cb1.checked || !cb2.checked) {
-      alert('Please agree to all required consents before submitting.');
-      return false;
-    }
-    return true;
+  // ── Skills tag input ──────────────────────────────────────────────────────
+  const availableSkills = {{ skills_list | tojson }};
+  let selectedSkills = [];
+  const wrap = document.getElementById('skills-wrap');
+  const textInput = document.getElementById('skills-text-input');
+  const dropdown = document.getElementById('skills-dropdown');
+  const jsonInput = document.getElementById('skills-json-input');
+
+  function syncJson() { jsonInput.value = JSON.stringify(selectedSkills); }
+
+  function addSkill(name) {
+    name = name.trim();
+    if (!name || selectedSkills.includes(name)) return;
+    selectedSkills.push(name);
+    const tag = document.createElement('div');
+    tag.className = 'skill-tag';
+    tag.innerHTML = `<span>#${name}</span><button type="button" onclick="removeSkill(this,'${name.replace(/'/g,"\\'")}')">×</button>`;
+    wrap.insertBefore(tag, textInput);
+    textInput.value = '';
+    syncJson();
+    hideDropdown();
   }
+
+  function removeSkill(btn, name) {
+    selectedSkills = selectedSkills.filter(s => s !== name);
+    btn.parentElement.remove();
+    syncJson();
+  }
+
+  function showDropdown(query) {
+    const filtered = availableSkills.filter(s =>
+      s.toLowerCase().includes(query.toLowerCase()) && !selectedSkills.includes(s)
+    );
+    if (!filtered.length && !query) { hideDropdown(); return; }
+    dropdown.innerHTML = filtered.map(s =>
+      `<div class="skill-option" onclick="addSkill('${s.replace(/'/g,"\\'")}');">#${s}</div>`
+    ).join('');
+    if (query && !availableSkills.some(s => s.toLowerCase() === query.toLowerCase()) && !selectedSkills.includes(query)) {
+      dropdown.innerHTML += `<div class="skill-option" onclick="addSkill('${query.replace(/'/g,"\\'")}');">＋ Add "<strong>${query}</strong>"</div>`;
+    }
+    dropdown.style.display = filtered.length || query ? 'block' : 'none';
+  }
+
+  function hideDropdown() { dropdown.style.display = 'none'; }
+
+  textInput.addEventListener('input', () => showDropdown(textInput.value));
+  textInput.addEventListener('focus', () => showDropdown(textInput.value));
+  textInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); if (textInput.value.trim()) addSkill(textInput.value); }
+    if (e.key === 'Backspace' && !textInput.value && selectedSkills.length) {
+      removeSkill(wrap.querySelector('.skill-tag:last-of-type button'), selectedSkills[selectedSkills.length-1]);
+    }
+  });
+  document.addEventListener('click', e => { if (!wrap.contains(e.target)) hideDropdown(); });
 </script>
 </body>
 </html>

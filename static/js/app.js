@@ -5,17 +5,7 @@ function apiFetch(url, opts = {}) {
   return fetch(url, opts);
 }
 
-// ── PHT Live clock (topbar) ───────────────────────────────────────────────────
-function updateClock() {
-  const el = document.getElementById('live-clock');
-  if (!el) return;
-  el.textContent = new Date().toLocaleTimeString('en-PH', {
-    timeZone: 'Asia/Manila',
-    hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-}
-setInterval(updateClock, 1000);
-updateClock();
+// (live-clock removed — profile avatar in topbar instead)
 
 // ── Flash auto-dismiss ────────────────────────────────────────────────────────
 document.querySelectorAll('.flash').forEach(el => {
@@ -293,9 +283,17 @@ async function openCardModal(taskId) {
       ${(canReview || canPeerReview) && card.status === 'For Review' ? `
       <div class="flex gap-8 flex-wrap mb-16" style="border-top:1px solid var(--border);padding-top:14px;">
         <form method="post" action="/api/tasks/${card.id}/review">
+          <input type="hidden" name="_csrf" value="${document.querySelector('meta[name=csrf-token]')?.content || ''}">
           <button class="btn btn-success btn-sm">✓ ${canReview ? 'Mark Reviewed → Done' : 'Peer Review → Done'}</button>
         </form>
+        <form method="post" action="/api/tasks/${card.id}/return" id="return-form-${card.id}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <input type="hidden" name="_csrf" value="${document.querySelector('meta[name=csrf-token]')?.content || ''}">
+          <input type="text" name="return_note" placeholder="Return note…" class="form-input" style="width:180px;height:30px;font-size:.8rem;">
+          <button class="btn btn-warning btn-sm" type="submit">↩ Return for Revision</button>
+        </form>
+        ${card.revision_count > 0 ? `<span class="badge badge-yellow">Rev. #${card.revision_count}</span>` : ''}
         ${canApprove ? `<form method="post" action="/api/tasks/${card.id}/approve">
+          <input type="hidden" name="_csrf" value="${document.querySelector('meta[name=csrf-token]')?.content || ''}">
           <button class="btn btn-primary btn-sm">🔒 Admin Approve</button>
         </form>` : ''}
       </div>` : ''}

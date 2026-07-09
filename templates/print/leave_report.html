@@ -1,0 +1,81 @@
+{% extends "print/base_print.html" %}
+{% block title %}Leave Report{% endblock %}
+{% block report_title %}Leave Report{% endblock %}
+
+{% block content %}
+<section>
+  <p style="font-size:10pt; margin-bottom:12px;"><strong>Year:</strong> {{ year }}</p>
+  <h2>Leave Requests — {{ requests | length }} Record(s)</h2>
+  {% if not requests %}
+  <div class="no-data">No leave records found.</div>
+  {% else %}
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Employee</th>
+        <th>Leave Type</th>
+        <th>From</th>
+        <th>To</th>
+        <th style="text-align:right;">Days</th>
+        <th>Status</th>
+        <th>Reason</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in requests %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td style="font-weight:700;">{{ r.emp_name }}</td>
+        <td>{{ r.leave_type }}</td>
+        <td>{{ r.start_date }}</td>
+        <td>{{ r.end_date }}</td>
+        <td style="text-align:right;">{{ r.days_count }}</td>
+        <td>
+          {% if r.status == 'Approved' %}<span class="badge badge-green">Approved</span>
+          {% elif r.status == 'Rejected' %}<span class="badge badge-red">Rejected</span>
+          {% else %}<span class="badge badge-gray">Pending</span>{% endif %}
+        </td>
+        <td style="font-size:8.5pt;">{{ r.reason or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot>
+      <tr class="tfoot-row">
+        <td colspan="5"><strong>Total Approved Leave Days</strong></td>
+        <td style="text-align:right;">{{ total_approved_days }}</td>
+        <td colspan="2"></td>
+      </tr>
+    </tfoot>
+  </table>
+  {% endif %}
+</section>
+
+<!-- Leave balance summary -->
+<section style="margin-top:20px;">
+  <h2>Leave Balance Summary ({{ year }})</h2>
+  <table>
+    <thead>
+      <tr><th>Employee</th><th>VL Allowed</th><th>VL Used</th><th>VL Balance</th><th>SL Allowed</th><th>SL Used</th><th>SL Balance</th></tr>
+    </thead>
+    <tbody>
+      {% for b in balances %}
+      <tr>
+        <td style="font-weight:700;">{{ b.name }}</td>
+        <td style="text-align:right;">{{ b.vl_total }}</td>
+        <td style="text-align:right;">{{ b.vl_used }}</td>
+        <td style="text-align:right; font-weight:700;">{{ b.vl_balance }}</td>
+        <td style="text-align:right;">{{ b.sl_total }}</td>
+        <td style="text-align:right;">{{ b.sl_used }}</td>
+        <td style="text-align:right; font-weight:700;">{{ b.sl_balance }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="sig-row">
+  <div class="sig-box"><div class="sig-name">Prepared by</div><div>HR Manager / Admin</div></div>
+  <div class="sig-box"><div class="sig-name">Date</div></div>
+</div>
+{% endblock %}

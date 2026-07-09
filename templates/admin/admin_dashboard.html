@@ -3,152 +3,225 @@
 {% block page_title %}Executive Dashboard{% endblock %}
 
 {% block content %}
-<div class="page-header">
+
+{# ── Top action bar ─────────────────────────────────────────────────────────── #}
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
   <div>
-    <h2>Executive Overview</h2>
-    <p>{{ week_start }} — {{ week_end }}</p>
+    <div style="font-size:.78rem; color:var(--muted); font-weight:600; letter-spacing:.05em; text-transform:uppercase;">{{ today_str }}</div>
+    <div style="font-size:1.15rem; font-weight:800; margin-top:2px;">Good day, {{ user.first_name or user.name.split()[0] }} 👋</div>
   </div>
-  <div class="flex gap-8 flex-wrap">
-    {% if pending_ot > 0 %}
-      <a href="/hr-ot" class="btn btn-warning btn-sm">⏰ {{ pending_ot }} OT Pending</a>
-    {% endif %}
-    {% if pending_leave > 0 %}
-      <a href="/hr-leave" class="btn btn-warning btn-sm">🌴 {{ pending_leave }} Leave Pending</a>
-    {% endif %}
-    {% if for_review > 0 %}
-      <a href="/kanban" class="btn btn-outline btn-sm">📋 {{ for_review }} For Review</a>
-    {% endif %}
+  <div style="display:flex; gap:8px; flex-wrap:wrap;">
+    {% if pending_ot > 0 %}<a href="/hr-ot" class="btn btn-warning btn-sm">⏰ {{ pending_ot }} OT</a>{% endif %}
+    {% if pending_leave > 0 %}<a href="/hr-leave" class="btn btn-warning btn-sm">🌴 {{ pending_leave }} Leave</a>{% endif %}
+    {% if for_review > 0 %}<a href="/kanban" class="btn btn-outline btn-sm">📋 {{ for_review }} Review</a>{% endif %}
+    {% if pending_timesheets > 0 %}<a href="/hr-timesheets" class="btn btn-outline btn-sm">🗓️ {{ pending_timesheets }} Timesheet</a>{% endif %}
   </div>
 </div>
 
-<!-- Key metrics -->
-<div class="grid-4 mb-20">
-  <div class="stat-card green">
-    <div class="stat-icon green">👥</div>
-    <div>
-      <div class="stat-label">Clocked In Now</div>
-      <div class="stat-value">{{ active_employees }}</div>
-      <div class="stat-sub">of {{ total_employees }} employees</div>
-    </div>
+{# ── KPI Row 1 ──────────────────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:16px;">
+
+  <div style="background:linear-gradient(135deg,#16a34a,#4ade80); border-radius:var(--radius); padding:16px 18px; color:#fff;">
+    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Active Now</div>
+    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ active_employees }}</div>
+    <div style="font-size:.72rem; opacity:.75;">of {{ total_employees }} employees</div>
   </div>
-  <div class="stat-card purple">
-    <div class="stat-icon purple">💰</div>
-    <div>
-      <div class="stat-label">Est. Week Labor Cost</div>
-      <div class="stat-value" style="font-size:1.1rem;">₱{{ "{:,.0f}".format(week_cost) }}</div>
-      <div class="stat-sub">gross, before deductions</div>
-    </div>
+
+  <div style="background:linear-gradient(135deg,#2563eb,#60a5fa); border-radius:var(--radius); padding:16px 18px; color:#fff;">
+    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Active Clients</div>
+    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ active_clients }}</div>
+    <div style="font-size:.72rem; opacity:.75;">with tasks this month</div>
   </div>
-  <div class="stat-card blue">
-    <div class="stat-icon blue">✅</div>
-    <div>
-      <div class="stat-label">Tasks Done Today</div>
-      <div class="stat-value">{{ tasks_today }}</div>
-    </div>
+
+  <div style="background:linear-gradient(135deg,#7c3aed,#a78bfa); border-radius:var(--radius); padding:16px 18px; color:#fff;">
+    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Week Labor</div>
+    <div style="font-size:1.5rem; font-weight:800; line-height:1.1; margin:4px 0;">₱{{ "{:,.0f}".format(week_cost) }}</div>
+    <div style="font-size:.72rem; opacity:.75;">estimated gross pay</div>
   </div>
-  <div class="stat-card {% if pending_ot > 0 or pending_leave > 0 %}yellow{% else %}green{% endif %}">
-    <div class="stat-icon {% if pending_ot > 0 or pending_leave > 0 %}yellow{% else %}green{% endif %}">
-      {% if pending_ot > 0 or pending_leave > 0 %}⚠️{% else %}✅{% endif %}
-    </div>
-    <div>
-      <div class="stat-label">Pending Approvals</div>
-      <div class="stat-value">{{ pending_ot + pending_leave }}</div>
-      <div class="stat-sub">{{ pending_ot }} OT · {{ pending_leave }} Leave</div>
-    </div>
+
+  <div style="background:linear-gradient(135deg,#0891b2,#38bdf8); border-radius:var(--radius); padding:16px 18px; color:#fff;">
+    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Done Today</div>
+    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ tasks_today }}</div>
+    <div style="font-size:.72rem; opacity:.75;">tasks completed</div>
   </div>
+
+  <div style="background:{% if on_leave_today %}linear-gradient(135deg,#d97706,#fbbf24){% else %}linear-gradient(135deg,#64748b,#94a3b8){% endif %}; border-radius:var(--radius); padding:16px 18px; color:#fff;">
+    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">On Leave</div>
+    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ on_leave_today | length }}</div>
+    <div style="font-size:.72rem; opacity:.75;">approved today</div>
+  </div>
+
 </div>
 
-<!-- Secondary metrics row -->
-<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">
-  <a href="/hr-timesheets?status=Submitted" style="flex:1; min-width:150px; text-decoration:none;">
-    <div class="stat-card {% if pending_timesheets > 0 %}yellow{% else %}green{% endif %}">
-      <div class="stat-icon {% if pending_timesheets > 0 %}yellow{% else %}green{% endif %}">🗓️</div>
-      <div>
-        <div class="stat-label">Timesheets to Review</div>
-        <div class="stat-value">{{ pending_timesheets }}</div>
-        <div class="stat-sub">submitted</div>
-      </div>
-    </div>
-  </a>
-  <a href="/admin/audit-log" style="flex:1; min-width:150px; text-decoration:none;">
-    <div class="stat-card blue">
-      <div class="stat-icon blue">📜</div>
-      <div>
-        <div class="stat-label">Audit Log</div>
-        <div class="stat-value" style="font-size:1rem;">View All</div>
-        <div class="stat-sub">full system history</div>
-      </div>
-    </div>
-  </a>
-  {% if doc_expiry_alerts %}
-  <a href="/employees" style="flex:1; min-width:150px; text-decoration:none;">
-    <div class="stat-card red">
-      <div class="stat-icon red">📄</div>
-      <div>
-        <div class="stat-label">Doc Expiry Alert</div>
-        <div class="stat-value">{{ doc_expiry_alerts | length }}</div>
-        <div class="stat-sub">employee{{ 's' if doc_expiry_alerts|length != 1 }} need attention</div>
-      </div>
-    </div>
-  </a>
-  {% endif %}
-</div>
+{# ── Main content grid ──────────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
 
-<div class="grid-2">
-
-  <!-- Client hours this month -->
+  {# Client Hours Bar Chart #}
   <div class="card">
     <div class="card-header">
-      <h3>Hours per Client (This Month)</h3>
+      <h3>Hours by Client — This Month</h3>
+      <span class="badge badge-gray" style="font-size:.7rem;">{{ client_hours | length }} clients</span>
     </div>
-    <div class="table-wrapper">
-      <table>
-        <thead>
-          <tr><th>Client</th><th>Hours</th><th>Share</th></tr>
-        </thead>
-        <tbody>
-          {% set total_ch = client_hours | sum(attribute='total_hours') %}
-          {% for ch in client_hours %}
-          <tr>
-            <td class="fw-600">{{ ch.client or 'Unassigned' }}</td>
-            <td class="fw-700">{{ ch.total_hours | round(1) }}h</td>
-            <td style="width:120px;">
-              {% set pct = (ch.total_hours / total_ch * 100) | round(0) | int if total_ch else 0 %}
-              <div style="display:flex; align-items:center; gap:6px;">
-                <div style="flex:1; height:6px; background:var(--border); border-radius:99px; overflow:hidden;">
-                  <div style="width:{{ pct }}%; height:100%; background:var(--primary); border-radius:99px;"></div>
-                </div>
-                <span class="text-xs text-muted">{{ pct }}%</span>
-              </div>
-            </td>
-          </tr>
-          {% else %}
-          <tr><td colspan="3" class="text-center text-muted" style="padding:24px;">No data this month.</td></tr>
-          {% endfor %}
-        </tbody>
-      </table>
+    <div style="padding:4px 16px 16px;">
+      {% set total_ch = client_hours | sum(attribute='total_hours') %}
+      {% if client_hours %}
+        {% for ch in client_hours %}
+        {% set pct = [(ch.total_hours / total_ch * 100) | round(0) | int, 1] | max if total_ch else 0 %}
+        <div style="margin-bottom:10px;">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+            <span style="font-size:.8rem; font-weight:600;">{{ ch.client or 'Unassigned' }}</span>
+            <span style="font-size:.78rem; font-weight:700; color:var(--primary);">{{ ch.total_hours | round(1) }}h</span>
+          </div>
+          <div style="height:8px; background:var(--border); border-radius:9999px; overflow:hidden;">
+            <div style="width:{{ pct }}%; height:100%; background:var(--primary); border-radius:9999px; transition:width .5s ease;"></div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:24px;"><p>No tasks logged this month.</p></div>
+      {% endif %}
     </div>
   </div>
 
-  <!-- Security flags -->
+  {# Task Pipeline #}
   <div class="card">
     <div class="card-header">
-      <h3>Security Flags Today</h3>
-      <span class="badge {% if login_flags %}badge-red{% else %}badge-green{% endif %}">
-        {% if login_flags %}{{ login_flags | length }} flag(s){% else %}All Clear{% endif %}
+      <h3>Task Pipeline</h3>
+      <a href="/kanban" class="btn btn-outline btn-sm">Open Board</a>
+    </div>
+    <div style="padding:8px 16px 16px;">
+      {% set statuses = [('Todo','gray','📋'),('In Progress','blue','⚡'),('For Review','yellow','🔍'),('Done','green','✅')] %}
+      {% set total_t = task_status_counts.values() | sum %}
+      {% for st, color, icon in statuses %}
+      {% set cnt = task_status_counts.get(st, 0) %}
+      {% set pct = [(cnt / total_t * 100) | round(0) | int, 0] | max if total_t else 0 %}
+      <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);">
+        <span style="font-size:1rem; width:20px; text-align:center;">{{ icon }}</span>
+        <span style="font-size:.82rem; font-weight:600; width:90px;">{{ st }}</span>
+        <div style="flex:1; height:8px; background:var(--border); border-radius:9999px; overflow:hidden;">
+          <div style="width:{{ pct }}%; height:100%; border-radius:9999px;
+               background:{% if color=='green' %}#16a34a{% elif color=='blue' %}#2563eb{% elif color=='yellow' %}#d97706{% else %}#94a3b8{% endif %};"></div>
+        </div>
+        <span class="badge badge-{{ color }}" style="font-size:.7rem; min-width:28px; text-align:center;">{{ cnt }}</span>
+      </div>
+      {% endfor %}
+      {% if total_t == 0 %}
+      <div class="empty-state" style="padding:20px;"><p>No active tasks.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+{# ── Second row ─────────────────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+
+  {# Who's clocked in now #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Clocked In Right Now</h3>
+      <span class="badge badge-green" style="font-size:.7rem;">{{ clocked_in_now | length }} / {{ total_employees }}</span>
+    </div>
+    {% if clocked_in_now %}
+    <div style="padding:8px 16px 16px; display:flex; flex-wrap:wrap; gap:8px;">
+      {% for e in clocked_in_now %}
+      <div style="display:flex; align-items:center; gap:6px; background:var(--surface-2); border-radius:9999px; padding:5px 12px 5px 6px; font-size:.78rem;">
+        <div style="width:24px; height:24px; border-radius:50%; background:var(--primary); color:#fff; display:flex; align-items:center; justify-content:center; font-size:.62rem; font-weight:700; flex-shrink:0;">
+          {% if e.profile_pic_path %}
+            <img src="/uploads/{{ e.profile_pic_path }}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;">
+          {% else %}{{ e.name[0] }}{% endif %}
+        </div>
+        <span class="fw-600">{{ e.name }}</span>
+        <span class="text-muted" style="font-size:.68rem;">{{ e.clock_in[:5] if e.clock_in else '' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:24px;"><p>No employees clocked in yet today.</p></div>
+    {% endif %}
+  </div>
+
+  {# Top performers #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Top Performers — This Month</h3>
+      <span class="badge badge-blue" style="font-size:.7rem;">Completed tasks</span>
+    </div>
+    {% if top_performers %}
+    <div style="padding:4px 16px 16px;">
+      {% set max_h = top_performers[0].total_hours %}
+      {% for p in top_performers %}
+      {% set pct = [(p.total_hours / max_h * 100) | round(0) | int, 1] | max if max_h else 0 %}
+      <div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border);">
+        <span style="width:20px; text-align:center; font-size:.78rem; color:var(--muted);">{{ loop.index }}</span>
+        <span style="font-size:.82rem; font-weight:600; flex:1;">{{ p.name }}</span>
+        <div style="width:80px; height:6px; background:var(--border); border-radius:9999px; overflow:hidden;">
+          <div style="width:{{ pct }}%; height:100%; background:var(--primary); border-radius:9999px;"></div>
+        </div>
+        <span style="font-size:.78rem; font-weight:700; color:var(--primary); min-width:40px; text-align:right;">{{ p.total_hours | round(1) }}h</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:24px;"><p>No completed tasks this month yet.</p></div>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ── Alerts + Security row ───────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+
+  {# Alerts #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Alerts</h3>
+    </div>
+    <div style="padding:8px 16px 16px;">
+      {% if doc_expiry_alerts %}
+      <div style="background:rgba(220,53,69,.08); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
+        <div style="font-size:.78rem; font-weight:700; color:var(--danger); margin-bottom:4px;">📄 Document Expiry</div>
+        {% for a in doc_expiry_alerts %}
+        <div style="font-size:.75rem; color:var(--text); padding:2px 0;">{{ a.name }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if on_leave_today %}
+      <div style="background:rgba(217,119,6,.08); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
+        <div style="font-size:.78rem; font-weight:700; color:#d97706; margin-bottom:4px;">🌴 On Leave Today</div>
+        {% for l in on_leave_today %}
+        <div style="font-size:.75rem; color:var(--text); padding:2px 0;">{{ l.name }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      {% if not doc_expiry_alerts and not on_leave_today %}
+      <div class="empty-state" style="padding:16px;">
+        <div style="font-size:1.5rem;">✅</div>
+        <p style="font-size:.8rem;">No active alerts.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# Security #}
+  <div class="card">
+    <div class="card-header">
+      <h3>Security</h3>
+      <span class="badge {% if login_flags %}badge-red{% else %}badge-green{% endif %}" style="font-size:.7rem;">
+        {% if login_flags %}{{ login_flags | length }} flag{% else %}Clear{% endif %}
       </span>
     </div>
     {% if login_flags %}
     <div class="table-wrapper">
       <table>
-        <thead><tr><th>Employee</th><th>Distinct IPs Today</th></tr></thead>
+        <thead><tr><th>Employee</th><th>IPs Today</th></tr></thead>
         <tbody>
           {% for f in login_flags %}
           <tr>
             <td class="fw-600" style="color:var(--danger);">⚠️ {{ f.name }}</td>
-            <td>
-              <span class="badge badge-red">{{ f.ip_count }} different IPs</span>
-            </td>
+            <td><span class="badge badge-red" style="font-size:.65rem;">{{ f.ip_count }} IPs</span></td>
           </tr>
           {% endfor %}
         </tbody>
@@ -156,128 +229,12 @@
     </div>
     {% else %}
     <div class="empty-state" style="padding:24px;">
-      <div class="emoji" style="font-size:1.5rem;">🔒</div>
-      <p>No suspicious login activity detected today.</p>
+      <div style="font-size:1.5rem;">🔒</div>
+      <p style="font-size:.8rem;">No suspicious login activity today.</p>
     </div>
     {% endif %}
   </div>
 
 </div>
 
-<!-- Top performers + doc expiry row -->
-<div class="grid-2" style="margin-bottom:16px;">
-
-  <!-- Top performers this month -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Top Performers (This Month)</h3>
-      <span class="badge badge-green">Done tasks</span>
-    </div>
-    {% if top_performers %}
-    <div class="table-wrapper">
-      <table>
-        <thead><tr><th>#</th><th>Employee</th><th>Hours</th><th>Tasks</th></tr></thead>
-        <tbody>
-          {% for p in top_performers %}
-          <tr>
-            <td class="text-muted text-sm">{{ loop.index }}</td>
-            <td class="fw-600">{{ p.name }}</td>
-            <td class="fw-700" style="color:var(--primary);">{{ p.total_hours | round(1) }}h</td>
-            <td class="text-sm text-muted">{{ p.task_count }} tasks</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="empty-state" style="padding:24px;">
-      <div class="emoji" style="font-size:1.5rem;">📊</div>
-      <p>No completed tasks this month yet.</p>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- Document expiry alerts -->
-  <div class="card">
-    <div class="card-header">
-      <h3>Document Expiry Alerts</h3>
-      <span class="badge {% if doc_expiry_alerts %}badge-red{% else %}badge-green{% endif %}">
-        {% if doc_expiry_alerts %}{{ doc_expiry_alerts | length }} employee{{ 's' if doc_expiry_alerts|length != 1 }}{% else %}All Clear{% endif %}
-      </span>
-    </div>
-    {% if doc_expiry_alerts %}
-    <div class="table-wrapper">
-      <table>
-        <thead><tr><th>Employee</th><th>Document</th><th>Expires</th></tr></thead>
-        <tbody>
-          {% for a in doc_expiry_alerts %}
-            {% set doc_map = [
-              ('NBI', a.doc_nbi_expiry),
-              ('SSS', a.doc_sss_expiry),
-              ('TIN', a.doc_tin_expiry),
-              ('PhilHealth', a.doc_philhealth_expiry),
-              ('Pag-IBIG', a.doc_pagibig_expiry),
-            ] %}
-            {% for doc_name, exp in doc_map %}
-              {% if exp %}
-              <tr>
-                <td class="fw-600">{{ a.name }}</td>
-                <td class="text-sm">{{ doc_name }}</td>
-                <td>
-                  <span class="badge {% if exp < today_str %}badge-red{% else %}badge-yellow{% endif %}">
-                    {{ exp }}{% if exp < today_str %} ⚠ Expired{% endif %}
-                  </span>
-                </td>
-              </tr>
-              {% endif %}
-            {% endfor %}
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <div class="empty-state" style="padding:24px;">
-      <div class="emoji" style="font-size:1.5rem;">✅</div>
-      <p>No documents expiring in the next 30 days.</p>
-    </div>
-    {% endif %}
-  </div>
-
-</div>
-
-<!-- Recent audit log -->
-<div class="card mt-16">
-  <div class="card-header">
-    <h3>Recent Activity Log</h3>
-    <span class="text-xs text-muted">Last 10 system actions</span>
-  </div>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>IP</th></tr>
-      </thead>
-      <tbody>
-        {% for a in recent_audit %}
-        <tr>
-          <td class="text-xs text-muted nowrap">{{ a.created_at[11:16] if a.created_at else '—' }}</td>
-          <td class="fw-600">{{ a.user_name or '—' }}</td>
-          <td>
-            <span class="badge
-              {% if 'approve' in a.action %}badge-green
-              {% elif 'deny' in a.action or 'delete' in a.action %}badge-red
-              {% elif 'login' in a.action %}badge-blue
-              {% else %}badge-gray{% endif %}">
-              {{ a.action | replace('_',' ') | title }}
-            </span>
-          </td>
-          <td class="text-sm text-muted">{{ a.target_table or '—' }}{% if a.target_id %} #{{ a.target_id }}{% endif %}</td>
-          <td class="text-xs text-muted">{{ a.ip_address or '—' }}</td>
-        </tr>
-        {% else %}
-        <tr><td colspan="5" class="text-center text-muted" style="padding:24px;">No audit events yet.</td></tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</div>
 {% endblock %}

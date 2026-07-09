@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/style.css">
+  <meta name="csrf-token" content="{{ csrf_token or '' }}">
   {% block extra_head %}{% endblock %}
   <script>
     /* Theme init must be in <head> to avoid flash of light content */
@@ -61,26 +62,13 @@
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
-        <a href="/my-timesheet" class="nav-link {% if request.url.path == '/my-timesheet' %}active{% endif %}">
-          <span class="icon">🕐</span> My Timesheet
-        </a>
-        <a href="/my-review" class="nav-link {% if request.url.path == '/my-review' %}active{% endif %}">
-          <span class="icon">⭐</span> My Reviews
-        </a>
-        <a href="/my-schedule" class="nav-link {% if request.url.path == '/my-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> My Schedule
-        </a>
-        <a href="/my-ot" class="nav-link {% if request.url.path == '/my-ot' %}active{% endif %}">
-          <span class="icon">⏰</span> Overtime Filing
+        <div class="nav-section" style="margin-top:4px;">My Requests</div>
+        <a href="/my-ot" class="nav-link {% if request.url.path in ('/my-ot','/my-leave','/my-schedule','/my-timesheet','/my-review') %}active{% endif %}">
+          <span class="icon">📋</span> OT · Leave · Timesheet
           {% if pending_ot_count and pending_ot_count > 0 %}
             <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}
         </a>
-        {% if vl_enabled or sl_enabled %}
-        <a href="/my-leave" class="nav-link {% if request.url.path == '/my-leave' %}active{% endif %}">
-          <span class="icon">🌴</span> Leave Requests
-        </a>
-        {% endif %}
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
           <span class="icon">💬</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
@@ -97,10 +85,13 @@
       {% elif user.role == 'HR Manager' %}
         <div class="nav-section">Management</div>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Kanban Board
+          <span class="icon">📋</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
+        </a>
+        <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
+          <span class="icon">🔒</span> HR Board
         </a>
         <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
           <span class="icon">👥</span> Employee Roster
@@ -135,6 +126,9 @@
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll
         </a>
+        <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
+          <span class="icon">📊</span> Reports
+        </a>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
           <span class="icon">💬</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
@@ -166,10 +160,13 @@
           <span class="icon">📈</span> Executive View
         </a>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Kanban Board
+          <span class="icon">📋</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
+        </a>
+        <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
+          <span class="icon">🔒</span> HR Board
         </a>
         <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
           <span class="icon">👥</span> Roster
@@ -213,6 +210,9 @@
         <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
           <span class="icon">👥</span> Directory
         </a>
+        <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
+          <span class="icon">📊</span> Reports
+        </a>
         <div class="nav-section">Admin</div>
         <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
           <span class="icon">⚙️</span> Employee Mgmt
@@ -231,6 +231,9 @@
         </a>
         <a href="/admin/audit-log" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
           <span class="icon">📜</span> Audit Log
+        </a>
+        <a href="/admin/clear-database" class="nav-link {% if '/clear-database' in request.url.path %}active{% endif %}" style="color:var(--danger);">
+          <span class="icon">🗑️</span> Clear Database
         </a>
       {% endif %}
 
@@ -260,22 +263,6 @@
       <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
 
       <div style="display:flex; align-items:center; gap:10px;">
-        <!-- Global search -->
-        <div id="search-wrap" style="position:relative;">
-          <input id="global-search" type="text" placeholder="🔍 Search…"
-                 autocomplete="off"
-                 style="border:1px solid var(--border); border-radius:20px; padding:5px 14px;
-                        font-size:.8rem; background:var(--surface); color:var(--text);
-                        width:180px; outline:none; transition:width .2s;"
-                 onfocus="this.style.width='240px'" onblur="setTimeout(()=>closeSearch(),200)"
-                 oninput="debounceSearch(this.value)">
-          <div id="search-results"
-               style="display:none; position:absolute; right:0; top:110%; min-width:320px;
-                      background:var(--surface); border:1px solid var(--border);
-                      border-radius:var(--radius); box-shadow:0 8px 24px rgba(0,0,0,.12);
-                      z-index:900; max-height:420px; overflow-y:auto;"></div>
-        </div>
-
         <!-- Dark mode toggle -->
         <button id="theme-toggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
 
@@ -298,9 +285,77 @@
           </div>
         </div>
 
-        <div class="topbar-date" id="live-clock">--:--:--</div>
+        <!-- Profile dropdown -->
+        <div style="position:relative;" id="profile-menu-wrap">
+          <button onclick="toggleProfileMenu()" title="Account"
+                  style="display:flex;align-items:center;gap:8px;background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:8px;">
+            <div style="width:34px;height:34px;border-radius:50%;overflow:hidden;background:var(--primary);
+                        display:flex;align-items:center;justify-content:center;font-weight:700;
+                        color:#fff;font-size:.85rem;flex-shrink:0;border:2px solid var(--border);">
+              {% if user.profile_pic_path %}
+                <img src="/uploads/{{ user.profile_pic_path }}" alt="{{ user.name }}" style="width:100%;height:100%;object-fit:cover;">
+              {% else %}
+                {{ (user.first_name or user.name)[0] | upper }}
+              {% endif %}
+            </div>
+            <div style="text-align:left;display:none;" class="profile-name-topbar">
+              <div style="font-size:.78rem;font-weight:700;color:var(--text);line-height:1.2;">{{ user.first_name or (user.name.split()[0]) }}</div>
+              <div style="font-size:.64rem;color:var(--muted);">{{ user.role }}</div>
+            </div>
+            <span style="font-size:.6rem;color:var(--muted);">▾</span>
+          </button>
+          <div id="profile-dropdown"
+               style="display:none;position:absolute;right:0;top:calc(100% + 8px);width:196px;
+                      background:var(--card);border:1px solid var(--border);border-radius:10px;
+                      box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:2000;overflow:hidden;">
+            <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;">
+              <div style="width:36px;height:36px;border-radius:50%;overflow:hidden;background:var(--primary);
+                          display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:.9rem;flex-shrink:0;">
+                {% if user.profile_pic_path %}
+                  <img src="/uploads/{{ user.profile_pic_path }}" alt="{{ user.name }}" style="width:100%;height:100%;object-fit:cover;">
+                {% else %}
+                  {{ (user.first_name or user.name)[0] | upper }}
+                {% endif %}
+              </div>
+              <div>
+                <div style="font-size:.82rem;font-weight:700;color:var(--text);">{{ user.name }}</div>
+                <div style="font-size:.68rem;color:var(--muted);">{{ user.role }}</div>
+              </div>
+            </div>
+            <a href="/profile" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text);font-size:.82rem;"
+               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <span>👤</span> View Profile
+            </a>
+            <a href="/profile#edit" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text);font-size:.82rem;"
+               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <span>✏️</span> Edit Profile
+            </a>
+            <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
+            <a href="/logout" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--danger);font-size:.82rem;"
+               onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+              <span>🚪</span> Sign Out
+            </a>
+          </div>
+        </div>
       </div>
     </header>
+
+    <!-- Floating Chat Bubble -->
+    {% if chat_unread_count is defined %}
+    <a href="/chat" id="chat-bubble"
+       style="position:fixed;bottom:24px;right:24px;z-index:1500;width:54px;height:54px;
+              border-radius:50%;background:var(--primary);display:flex;align-items:center;
+              justify-content:center;text-decoration:none;box-shadow:0 4px 20px rgba(0,0,0,.3);
+              transition:transform .15s ease;">
+      <span style="font-size:1.35rem;">💬</span>
+      {% if chat_unread_count and chat_unread_count > 0 %}
+      <span style="position:absolute;top:-3px;right:-3px;background:#ef4444;color:#fff;
+                   border-radius:50%;min-width:20px;height:20px;font-size:.68rem;font-weight:800;
+                   display:flex;align-items:center;justify-content:center;padding:0 4px;
+                   border:2px solid var(--card);">{{ chat_unread_count }}</span>
+      {% endif %}
+    </a>
+    {% endif %}
 
     <div class="page-content">
       {% if flash %}
@@ -312,6 +367,13 @@
 
       {% block content %}{% endblock %}
     </div>
+    <footer style="border-top:1px solid var(--border); padding:12px 24px; text-align:center; font-size:0.75rem; color:var(--muted); margin-top:auto; flex-shrink:0;">
+      <a href="/privacy" style="color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--muted)'">Data Privacy Policy</a>
+      &nbsp;·&nbsp;
+      <a href="/terms" style="color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--primary)'" onmouseout="this.style.color='var(--muted)'">Terms of Use</a>
+      &nbsp;·&nbsp;
+      Hundredfold Digital Marketing &copy; {{ now[:4] if now else '2026' }}
+    </footer>
   </div>
 
 </div>
@@ -383,6 +445,24 @@ function toggleTheme() {
 // Sidebar mobile
 function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
 function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
+
+// Profile dropdown
+function toggleProfileMenu() {
+  const dd = document.getElementById('profile-dropdown');
+  if (!dd) return;
+  dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+}
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('profile-menu-wrap');
+  const dd   = document.getElementById('profile-dropdown');
+  if (wrap && !wrap.contains(e.target) && dd) dd.style.display = 'none';
+});
+// Chat bubble hover
+const cb = document.getElementById('chat-bubble');
+if (cb) {
+  cb.addEventListener('mouseenter', () => cb.style.transform = 'scale(1.12)');
+  cb.addEventListener('mouseleave', () => cb.style.transform = 'scale(1)');
+}
 
 // Notification panel
 function toggleNotifPanel() {

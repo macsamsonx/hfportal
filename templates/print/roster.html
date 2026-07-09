@@ -1,0 +1,53 @@
+{% extends "print/base_print.html" %}
+{% block title %}Employee Roster{% endblock %}
+{% block report_title %}Employee Roster{% endblock %}
+
+{% block content %}
+<section>
+  <h2>All Employees — {{ employees | length }} Total
+    ({{ employees | selectattr('is_active') | list | length }} Active,
+     {{ employees | rejectattr('is_active') | list | length }} Inactive)
+  </h2>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Name</th>
+        <th>Role</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Shift</th>
+        <th>Rate/hr</th>
+        <th>SSS</th>
+        <th>PhilHealth</th>
+        <th>Pag-IBIG</th>
+        <th>Tax</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in employees %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td style="font-weight:700;">{{ e.name }}</td>
+        <td>{{ e.role }}</td>
+        <td style="font-size:8.5pt;">{{ e.email or '—' }}</td>
+        <td style="font-size:8.5pt;">{{ e.phone or '—' }}</td>
+        <td>{{ e.shift_type or '—' }}</td>
+        <td style="text-align:right;">₱{{ "%.2f"|format(e.hourly_rate or 0) }}</td>
+        <td style="text-align:center;">{% if e.sss_enrolled %}✓{% else %}✗{% endif %}</td>
+        <td style="text-align:center;">{% if e.philhealth_enrolled %}✓{% else %}✗{% endif %}</td>
+        <td style="text-align:center;">{% if e.pagibig_enrolled %}✓{% else %}✗{% endif %}</td>
+        <td style="text-align:center;">{% if e.tax_enrolled %}✓{% else %}✗{% endif %}</td>
+        <td>{% if e.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-red">Inactive</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<div class="sig-row">
+  <div class="sig-box"><div class="sig-name">Prepared by</div><div>HR Manager / Admin</div></div>
+  <div class="sig-box"><div class="sig-name">Date</div></div>
+</div>
+{% endblock %}

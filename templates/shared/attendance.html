@@ -8,8 +8,12 @@
     <h2>🕒 Attendance Records</h2>
     <p>{{ records | length }} records · {{ start }} to {{ end }}</p>
   </div>
-  <a href="/export/attendance.csv?date_from={{ start }}&date_to={{ end }}"
-     class="btn btn-outline btn-sm">⬇ Export CSV</a>
+  <div style="display:flex;gap:8px;">
+    <a href="/export/attendance.csv?date_from={{ start }}&date_to={{ end }}"
+       class="btn btn-outline btn-sm">⬇ Export CSV</a>
+    <a href="/print/attendance?date_from={{ start }}&date_to={{ end }}" target="_blank"
+       class="btn btn-outline btn-sm">🖨️ Print Report</a>
+  </div>
 </div>
 
 <!-- Date filter -->
