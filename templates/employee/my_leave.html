@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Leave Requests{% endblock %}
+{% block page_title %}Leave Requests{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Leave Requests</h2>
+    <p>File and track your leave applications.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('file-leave-modal')">+ File Leave</button>
+</div>
+
+<!-- Leave balance cards -->
+<div class="grid-4 mb-20">
+  <div class="stat-card green">
+    <div class="stat-icon green">🌴</div>
+    <div>
+      <div class="stat-label">VL Used (this year)</div>
+      <div class="stat-value">{{ used_vl }}d</div>
+      <div class="stat-sub">of 15 days entitlement</div>
+    </div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-icon blue">🤒</div>
+    <div>
+      <div class="stat-label">SL Used (this year)</div>
+      <div class="stat-value">{{ used_sl }}d</div>
+      <div class="stat-sub">of 15 days entitlement</div>
+    </div>
+  </div>
+  <div class="stat-card yellow">
+    <div class="stat-icon yellow">⏳</div>
+    <div>
+      <div class="stat-label">Pending</div>
+      <div class="stat-value">{{ leave_requests | selectattr('status','eq','Pending') | list | length }}</div>
+    </div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-icon purple">📋</div>
+    <div>
+      <div class="stat-label">Total Filed</div>
+      <div class="stat-value">{{ leave_requests | length }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Leave history -->
+<div class="card">
+  <div class="card-header"><h3>My Leave History</h3></div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Days</th>
+          <th>Reason</th>
+          <th>Status</th>
+          <th>Approved By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in leave_requests %}
+        <tr>
+          <td>
+            {% if 'Vacation' in r.leave_type %}<span class="badge badge-green">{{ r.leave_type }}</span>
+            {% elif 'Sick' in r.leave_type %}<span class="badge badge-blue">{{ r.leave_type }}</span>
+            {% elif 'Emergency' in r.leave_type %}<span class="badge badge-red">{{ r.leave_type }}</span>
+            {% else %}<span class="badge badge-gray">{{ r.leave_type }}</span>{% endif %}
+          </td>
+          <td class="fw-600">{{ r.start_date }}</td>
+          <td class="fw-600">{{ r.end_date }}</td>
+          <td class="fw-700">{{ r.days_count }}d</td>
+          <td class="text-sm text-muted truncate" style="max-width:160px;">{{ r.reason or '—' }}</td>
+          <td>
+            {% if r.status == 'Approved' %}<span class="status-pill status-approved">✓ Approved</span>
+            {% elif r.status == 'Denied' %}<span class="status-pill status-denied">✗ Denied</span>
+            {% else %}<span class="status-pill status-pending">⏳ Pending</span>{% endif %}
+          </td>
+          <td class="text-sm text-muted">
+            {{ r.approved_by or '—' }}
+            {% if r.status == 'Denied' and r.denied_reason %}
+              <div class="text-xs" style="color:var(--danger);">{{ r.denied_reason }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:32px;">No leave requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- File Leave Modal -->
+<div class="modal-overlay" id="file-leave-modal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <span class="modal-title">File Leave Request</span>
+      <button class="modal-close" onclick="closeModal('file-leave-modal')">×</button>
+    </div>
+    <form method="post" action="/api/leave/file">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Leave Type *</label>
+          <select name="leave_type" class="form-select" required>
+            {% for lt in leave_types %}
+            <option value="{{ lt }}">{{ lt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">From *</label>
+            <input type="date" name="start_date" id="leave-start" class="form-input" required
+                   oninput="updateLeaveDays()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">To *</label>
+            <input type="date" name="end_date" id="leave-end" class="form-input" required
+                   oninput="updateLeaveDays()">
+          </div>
+        </div>
+        <div class="form-hint mb-12" id="leave-days-hint"></div>
+        <div class="form-group">
+          <label class="form-label">Reason</label>
+          <textarea name="reason" class="form-textarea" rows="3"
+                    placeholder="Brief reason for leave…"></textarea>
+        </div>
+        <div style="background:var(--warning-bg); border-radius:var(--radius); padding:10px 14px; font-size:.78rem; color:var(--warning);">
+          ⚠️ Leave requests are subject to HR approval. File at least 3 days in advance for planned leaves.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('file-leave-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function updateLeaveDays() {
+  const s = document.getElementById('leave-start').value;
+  const e = document.getElementById('leave-end').value;
+  const hint = document.getElementById('leave-days-hint');
+  if (s && e) {
+    const diff = Math.max(1, Math.round((new Date(e) - new Date(s)) / 86400000) + 1);
+    hint.textContent = `${diff} working day${diff !== 1 ? 's' : ''} requested`;
+    hint.style.color = diff > 5 ? 'var(--danger)' : 'var(--muted)';
+  }
+}
+</script>
+{% endblock %}

@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Operations Command Display — Hundredfold Digital Marketing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:        #020617;
+      --surface:   rgba(255,255,255,0.04);
+      --surface2:  rgba(255,255,255,0.08);
+      --border:    rgba(255,255,255,0.1);
+      --text:      #e2e8f0;
+      --muted:     #64748b;
+      --primary:   #7c3aed;
+      --success:   #10b981;
+      --warning:   #f59e0b;
+      --danger:    #ef4444;
+      --done:      #4ade80;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+
+    /* ── Layout ── */
+    .tv-root { height: 100vh; display: grid;
+               grid-template-rows: 80px 1fr 90px;
+               grid-template-columns: 320px 1fr;
+               gap: 0; }
+
+    /* ── Top bar ── */
+    .tv-topbar {
+      grid-column: 1 / -1;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 32px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+    }
+    .tv-brand { display: flex; align-items: center; gap: 12px; }
+    .tv-brand h1 { font-size: 1.15rem; font-weight: 800; color: #fff; }
+    .tv-brand p  { font-size: .72rem; color: var(--muted); }
+    .tv-clock { text-align: center; }
+    .tv-clock-time { font-size: 2.4rem; font-weight: 900; color: #fff; font-variant-numeric: tabular-nums;
+                     text-shadow: 0 0 20px rgba(59,130,246,.6); line-height: 1; }
+    .tv-clock-date { font-size: .78rem; color: var(--muted); margin-top: 2px; }
+    .tv-weather { text-align: right; min-width: 180px; }
+    .tv-weather-temp { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+    .tv-weather-desc { display: block; font-size: .7rem; color: var(--muted); margin-top: 2px; }
+
+    /* ── Attendance panel ── */
+    .tv-left {
+      padding: 16px 14px;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .tv-panel-title {
+      font-size: .65rem; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .1em; color: var(--primary); margin-bottom: 4px;
+    }
+    .tv-emp-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex; align-items: center; gap: 10px;
+      transition: border-color .3s;
+    }
+    .tv-emp-card.tv-emp-in { border-color: rgba(34,197,94,.4);
+                              background: rgba(34,197,94,.05); }
+    .tv-emp-avatar {
+      width: 38px; height: 38px;
+      border-radius: 50%;
+      background: rgba(59,130,246,.2);
+      color: var(--primary);
+      font-size: .85rem; font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .tv-emp-info { flex: 1; min-width: 0; }
+    .tv-emp-name { font-size: .83rem; font-weight: 700; white-space: nowrap;
+                   overflow: hidden; text-overflow: ellipsis; }
+    .tv-emp-meta { font-size: .66rem; color: var(--muted); }
+    .tv-status-badge {
+      display: flex; align-items: center; gap: 5px;
+      padding: 3px 8px;
+      border-radius: 99px;
+      font-size: .67rem; font-weight: 700;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .tv-status-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .tv-dot-green { background: rgba(34,197,94,.15); color: var(--success); }
+    .tv-dot-gray  { background: rgba(100,116,139,.15); color: var(--muted); }
+    .tv-dot-idle  { background: rgba(245,158,11,.12); color: var(--warning); }
+
+    /* ── Poster slideshow ── */
+    .tv-poster-wrap {
+      position: relative;
+      background: #000;
+      border-right: 1px solid var(--border);
+      overflow: hidden;
+      display: none; /* shown via JS when posters exist */
+    }
+    .tv-poster-img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      position: absolute; inset: 0;
+      opacity: 0;
+      transition: opacity .8s ease;
+    }
+    .tv-poster-img.active { opacity: 1; }
+    .tv-poster-caption {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,.7));
+      padding: 16px 14px 10px;
+      font-size: .75rem; color: rgba(255,255,255,.8);
+      font-weight: 600;
+    }
+    .tv-poster-dots {
+      position: absolute; bottom: 6px; right: 10px;
+      display: flex; gap: 4px;
+    }
+    .tv-poster-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: rgba(255,255,255,.3);
+      transition: background .3s;
+    }
+    .tv-poster-dot.active { background: #fff; }
+
+    /* ── Main content (kanban) ── */
+    .tv-main { padding: 14px 16px; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+
+    .tv-kanban-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; flex: 1; }
+    .tv-kanban-col {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .tv-kanban-col-header {
+      padding: 10px 12px 8px;
+      border-bottom: 2px solid transparent;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .tv-kanban-col[data-status="Todo"]        .tv-kanban-col-header { border-color: #475569; }
+    .tv-kanban-col[data-status="In Progress"] .tv-kanban-col-header { border-color: var(--primary); }
+    .tv-kanban-col[data-status="For Review"]  .tv-kanban-col-header { border-color: var(--warning); }
+    .tv-kanban-col[data-status="Done"]        .tv-kanban-col-header { border-color: var(--success); }
+    .tv-col-title { font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
+    .tv-kanban-col[data-status="Todo"]        .tv-col-title { color: #94a3b8; }
+    .tv-kanban-col[data-status="In Progress"] .tv-col-title { color: var(--primary); }
+    .tv-kanban-col[data-status="For Review"]  .tv-col-title { color: var(--warning); }
+    .tv-kanban-col[data-status="Done"]        .tv-col-title { color: var(--success); }
+    .tv-col-count {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: var(--surface2);
+      display: flex; align-items: center; justify-content: center;
+      font-size: .75rem; font-weight: 800; color: var(--text);
+    }
+    .tv-cards-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .tv-task-card {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 8px 10px;
+      border-left: 3px solid var(--primary);
+    }
+    .tv-task-title { font-size: .78rem; font-weight: 600; white-space: nowrap;
+                     overflow: hidden; text-overflow: ellipsis; }
+    .tv-task-meta  { font-size: .64rem; color: var(--muted); margin-top: 2px; }
+    .tv-task-status { font-size: .6rem; font-weight: 700; margin-top: 3px; text-transform: uppercase; }
+
+    /* ── Bottom verse ticker ── */
+    .tv-footer {
+      grid-column: 1 / -1;
+      background: rgba(255,255,255,0.03);
+      border-top: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+      padding: 0 40px;
+      gap: 16px;
+    }
+    .tv-verse {
+      font-size: .88rem;
+      font-style: italic;
+      color: #cbd5e1;
+      text-align: center;
+      transition: opacity .5s;
+    }
+    .tv-verse-ref { font-size: .72rem; color: var(--primary); font-weight: 700; font-style: normal; }
+    .tv-footer-brand { font-size: .65rem; color: var(--muted); white-space: nowrap; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 99px; }
+
+    .pulse { animation: pulse 2s infinite; }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: .5; }
+    }
+  </style>
+</head>
+<body>
+<div class="tv-root">
+
+  <!-- Top bar -->
+  <header class="tv-topbar">
+    <div class="tv-brand">
+      <img src="/static/img/logo.png" alt="HF"
+           style="height:48px;width:48px;object-fit:contain;flex-shrink:0;"
+           onerror="this.style.display='none'">
+      <div>
+        <h1>Hundredfold Digital Marketing</h1>
+        <p>Operations Command Display</p>
+      </div>
+    </div>
+
+    <div class="tv-clock">
+      <div class="tv-clock-time" id="tv-clock">--:--:--</div>
+      <div class="tv-clock-date" id="tv-date">Loading…</div>
+    </div>
+
+    <div class="tv-weather">
+      <div id="tv-weather">
+        <span class="tv-weather-temp pulse">⟳</span>
+        <span class="tv-weather-desc">Fetching weather…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Poster slideshow (shown when posters exist) -->
+  <div class="tv-poster-wrap" id="tv-poster-panel">
+    <div id="tv-poster-images"></div>
+    <div class="tv-poster-caption" id="tv-poster-caption"></div>
+    <div class="tv-poster-dots" id="tv-poster-dots"></div>
+  </div>
+
+  <!-- Left: Attendance -->
+  <aside class="tv-left">
+    <div class="tv-panel-title">🟢 Live Attendance</div>
+    <div id="attendance-grid">
+      <div style="text-align:center; color: var(--muted); font-size:.8rem; padding:20px">
+        Loading…
+      </div>
+    </div>
+  </aside>
+
+  <!-- Center: Kanban + recent cards -->
+  <main class="tv-main">
+    <div class="tv-panel-title">📋 Production Board</div>
+
+    <div class="tv-kanban-grid">
+
+      <div class="tv-kanban-col" data-status="Todo">
+        <div class="tv-kanban-col-header">
+          <span class="tv-col-title">Todo</span>
+          <span class="tv-col-count" id="tv-col-count-Todo">0</span>
+        </div>
+        <div class="tv-cards-list" id="tv-cards-Todo"></div>
+      </div>
+
+      <div class="tv-kanban-col" data-status="In Progress">
+        <div class="tv-kanban-col-header">
+          <span class="tv-col-title">In Progress</span>
+          <span class="tv-col-count" id="tv-col-count-In-Progress">0</span>
+        </div>
+        <div class="tv-cards-list" id="tv-cards-In-Progress"></div>
+      </div>
+
+      <div class="tv-kanban-col" data-status="For Review">
+        <div class="tv-kanban-col-header">
+          <span class="tv-col-title">For Review</span>
+          <span class="tv-col-count" id="tv-col-count-For-Review">0</span>
+        </div>
+        <div class="tv-cards-list" id="tv-cards-For-Review"></div>
+      </div>
+
+      <div class="tv-kanban-col" data-status="Done">
+        <div class="tv-kanban-col-header">
+          <span class="tv-col-title">Done</span>
+          <span class="tv-col-count" id="tv-col-count-Done">0</span>
+        </div>
+        <div class="tv-cards-list" id="tv-cards-Done"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Bottom: Bible verse -->
+  <footer class="tv-footer">
+    <span style="font-size:1.2rem">✝</span>
+    <div>
+      <span class="tv-verse" id="tv-verse">Loading verse…</span>
+      <span class="tv-verse-ref" id="tv-verse-ref"></span>
+    </div>
+    <span class="tv-footer-brand">Attendance · 5s · Board · 10s · Hundredfold Digital Marketing</span>
+  </footer>
+
+</div>
+<script src="/static/js/tv.js"></script>
+<script>
+// ── Poster slideshow ──────────────────────────────────────────────────────────
+(async function initPosters() {
+  try {
+    const res = await fetch('/api/tv/posters');
+    const { posters } = await res.json();
+    if (!posters || !posters.length) return;
+
+    const panel   = document.getElementById('tv-poster-panel');
+    const imgWrap = document.getElementById('tv-poster-images');
+    const caption = document.getElementById('tv-poster-caption');
+    const dotsEl  = document.getElementById('tv-poster-dots');
+
+    // Reconfigure grid: add poster column before the left attendance panel
+    const root = document.querySelector('.tv-root');
+    root.style.gridTemplateColumns = '260px 280px 1fr';
+
+    panel.style.display = 'block';
+
+    // Build images
+    posters.forEach((p, i) => {
+      const img = document.createElement('img');
+      img.src = `/uploads/posters/${p.filename}`;
+      img.className = 'tv-poster-img' + (i === 0 ? ' active' : '');
+      img.alt = p.caption || '';
+      imgWrap.appendChild(img);
+
+      const dot = document.createElement('div');
+      dot.className = 'tv-poster-dot' + (i === 0 ? ' active' : '');
+      dotsEl.appendChild(dot);
+    });
+
+    let current = 0;
+    const imgs = imgWrap.querySelectorAll('.tv-poster-img');
+    const dots = dotsEl.querySelectorAll('.tv-poster-dot');
+
+    function showSlide(idx) {
+      imgs[current].classList.remove('active');
+      dots[current].classList.remove('active');
+      current = idx % posters.length;
+      imgs[current].classList.add('active');
+      dots[current].classList.add('active');
+      caption.textContent = posters[current].caption || '';
+    }
+
+    function advance() {
+      const duration = (posters[current].duration_secs || 8) * 1000;
+      setTimeout(() => { showSlide(current + 1); advance(); }, duration);
+    }
+    advance();
+  } catch (e) {
+    console.warn('Poster load failed:', e);
+  }
+})();
+</script>
+</body>
+</html>

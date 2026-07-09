@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — Employee Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="/static/img/logo.png" alt="HF Logo"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <div style="display:none; font-size:2.8rem; margin-bottom:4px;">🛡️</div>
+      <h1>Employee Portal</h1>
+      <p>Hundredfold Digital Marketing — Sign in to your workspace</p>
+    </div>
+
+    {% if flash %}
+      <div class="flash {{ flash.kind }}">
+        {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+        {{ flash.msg }}
+      </div>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="form-group">
+        <label class="form-label" for="username">Username</label>
+        <input id="username" name="username" type="text" class="form-input"
+               placeholder="your username" required autofocus autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="password">Password</label>
+        <input id="password" name="password" type="password" class="form-input"
+               placeholder="••••••••" required autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:8px">
+        Sign In →
+      </button>
+    </form>
+
+    <p class="text-xs text-muted mt-16 text-right">
+      Having trouble? Contact your HR Manager or Admin.
+    </p>
+  </div>
+</div>
+<script>
+  document.querySelectorAll('.flash').forEach(el => {
+    setTimeout(() => el.style.opacity = '0', 3500);
+  });
+</script>
+</body>
+</html>

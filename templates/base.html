@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Employee Portal{% endblock %} — Hundredfold Digital Marketing</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  {% block extra_head %}{% endblock %}
+  <script>
+    /* Theme init must be in <head> to avoid flash of light content */
+    (function() {
+      try {
+        var t = localStorage.getItem('theme');
+        if (t === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+      } catch(e) {}
+    })();
+  </script>
+</head>
+<body>
+<div class="layout">
+
+  <!-- Mobile overlay -->
+  <div class="sidebar-overlay" id="sidebar-overlay" onclick="closeSidebar()"></div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <img src="/static/img/logo.png" alt="HF"
+           style="height:36px;width:36px;object-fit:contain;flex-shrink:0;"
+           onerror="this.style.display='none'">
+      <div>
+        <h1>Employee Portal</h1>
+        <p>Hundredfold Digital Marketing</p>
+      </div>
+    </div>
+
+    <div class="sidebar-user">
+      {% if user.profile_pic_path %}
+        <img src="/uploads/{{ user.profile_pic_path }}" class="sidebar-avatar" alt="{{ user.name }}">
+      {% else %}
+        <div class="sidebar-avatar">{{ user.name[0] }}</div>
+      {% endif %}
+      <div class="sidebar-user-info">
+        <div class="sidebar-user-name">{{ user.name }}</div>
+        <div class="sidebar-user-role">{{ user.role }}</div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      {% if user.role == 'Employee' %}
+        <div class="nav-section">Workspace</div>
+        <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
+          <span class="icon">📊</span> Dashboard
+        </a>
+        <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
+          <span class="icon">📋</span> Kanban Board
+          {% if for_review_count and for_review_count > 0 %}
+            <span class="nav-badge">{{ for_review_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/my-timesheet" class="nav-link {% if request.url.path == '/my-timesheet' %}active{% endif %}">
+          <span class="icon">🕐</span> My Timesheet
+        </a>
+        <a href="/my-review" class="nav-link {% if request.url.path == '/my-review' %}active{% endif %}">
+          <span class="icon">⭐</span> My Reviews
+        </a>
+        <a href="/my-schedule" class="nav-link {% if request.url.path == '/my-schedule' %}active{% endif %}">
+          <span class="icon">📅</span> My Schedule
+        </a>
+        <a href="/my-ot" class="nav-link {% if request.url.path == '/my-ot' %}active{% endif %}">
+          <span class="icon">⏰</span> Overtime Filing
+          {% if pending_ot_count and pending_ot_count > 0 %}
+            <span class="nav-badge">{{ pending_ot_count }}</span>
+          {% endif %}
+        </a>
+        {% if vl_enabled or sl_enabled %}
+        <a href="/my-leave" class="nav-link {% if request.url.path == '/my-leave' %}active{% endif %}">
+          <span class="icon">🌴</span> Leave Requests
+        </a>
+        {% endif %}
+        <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
+          <span class="icon">💬</span> Chat
+          {% if chat_unread_count and chat_unread_count > 0 %}
+            <span class="nav-badge">{{ chat_unread_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
+          <span class="icon">📢</span> Announcements
+        </a>
+        <a href="/profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">
+          <span class="icon">👤</span> My Profile
+        </a>
+
+      {% elif user.role == 'HR Manager' %}
+        <div class="nav-section">Management</div>
+        <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
+          <span class="icon">📋</span> Kanban Board
+          {% if for_review_count and for_review_count > 0 %}
+            <span class="nav-badge">{{ for_review_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
+          <span class="icon">👥</span> Employee Roster
+        </a>
+        <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
+          <span class="icon">🕒</span> Attendance
+        </a>
+        <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
+          <span class="icon">⏰</span> OT Requests
+          {% if pending_ot_count and pending_ot_count > 0 %}
+            <span class="nav-badge">{{ pending_ot_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/hr-leave" class="nav-link {% if request.url.path == '/hr-leave' %}active{% endif %}">
+          <span class="icon">🌴</span> Leave Requests
+          {% if pending_leave_count and pending_leave_count > 0 %}
+            <span class="nav-badge">{{ pending_leave_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/hr-timesheets" class="nav-link {% if request.url.path == '/hr-timesheets' %}active{% endif %}">
+          <span class="icon">🗓️</span> Timesheets
+        </a>
+        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
+          <span class="icon">⭐</span> Reviews
+          {% if status_counts is defined and status_counts.get('Pending HR Review', 0) > 0 %}
+            <span class="nav-badge">{{ status_counts['Pending HR Review'] }}</span>
+          {% endif %}
+        </a>
+        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
+          <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
+          <span class="icon">💰</span> Payroll
+        </a>
+        <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
+          <span class="icon">💬</span> Chat
+          {% if chat_unread_count and chat_unread_count > 0 %}
+            <span class="nav-badge">{{ chat_unread_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
+          <span class="icon">📢</span> Announcements
+        </a>
+        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
+          <span class="icon">👥</span> Directory
+        </a>
+        <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
+          <span class="icon">🏢</span> Clients
+        </a>
+        <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
+          <span class="icon">⚙️</span> Employee Mgmt
+        </a>
+
+      {% elif user.role == 'Admin' %}
+        <div class="nav-section">Operations</div>
+        <a href="/admin-dashboard" class="nav-link {% if request.url.path == '/admin-dashboard' %}active{% endif %}">
+          <span class="icon">📈</span> Executive View
+        </a>
+        <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
+          <span class="icon">📋</span> Kanban Board
+          {% if for_review_count and for_review_count > 0 %}
+            <span class="nav-badge">{{ for_review_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
+          <span class="icon">👥</span> Roster
+        </a>
+        <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
+          <span class="icon">🕒</span> Attendance
+        </a>
+        <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
+          <span class="icon">⏰</span> OT Requests
+          {% if pending_ot_count and pending_ot_count > 0 %}
+            <span class="nav-badge">{{ pending_ot_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/hr-leave" class="nav-link {% if request.url.path == '/hr-leave' %}active{% endif %}">
+          <span class="icon">🌴</span> Leave Requests
+          {% if pending_leave_count and pending_leave_count > 0 %}
+            <span class="nav-badge">{{ pending_leave_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/hr-timesheets" class="nav-link {% if request.url.path == '/hr-timesheets' %}active{% endif %}">
+          <span class="icon">🗓️</span> Timesheets
+        </a>
+        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
+          <span class="icon">⭐</span> Reviews
+        </a>
+        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
+          <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
+          <span class="icon">💰</span> Payroll
+        </a>
+        <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
+          <span class="icon">💬</span> Chat
+          {% if chat_unread_count and chat_unread_count > 0 %}
+            <span class="nav-badge">{{ chat_unread_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
+          <span class="icon">📢</span> Announcements
+        </a>
+        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
+          <span class="icon">👥</span> Directory
+        </a>
+        <div class="nav-section">Admin</div>
+        <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
+          <span class="icon">⚙️</span> Employee Mgmt
+        </a>
+        <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
+          <span class="icon">🏢</span> Clients
+        </a>
+        <a href="/tv-manage" class="nav-link {% if request.url.path == '/tv-manage' %}active{% endif %}">
+          <span class="icon">📺</span> TV Posters
+        </a>
+        <a href="/admin/audit-log" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
+          <span class="icon">📜</span> Audit Log
+        </a>
+      {% endif %}
+
+      {% if user.role != 'Employee' %}
+      <div class="nav-section" style="margin-top:8px;">System</div>
+      <a href="/tv" target="_blank" class="nav-link">
+        <span class="icon">📺</span> TV Display
+      </a>
+      {% endif %}
+    </nav>
+
+    <div class="sidebar-footer">
+      <a href="/logout">
+        <span>🚪</span> Sign Out
+      </a>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <!-- Mobile hamburger -->
+      <button class="hamburger" onclick="openSidebar()" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
+
+      <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
+
+      <div style="display:flex; align-items:center; gap:10px;">
+        <!-- Global search -->
+        <div id="search-wrap" style="position:relative;">
+          <input id="global-search" type="text" placeholder="🔍 Search…"
+                 autocomplete="off"
+                 style="border:1px solid var(--border); border-radius:20px; padding:5px 14px;
+                        font-size:.8rem; background:var(--surface); color:var(--text);
+                        width:180px; outline:none; transition:width .2s;"
+                 onfocus="this.style.width='240px'" onblur="setTimeout(()=>closeSearch(),200)"
+                 oninput="debounceSearch(this.value)">
+          <div id="search-results"
+               style="display:none; position:absolute; right:0; top:110%; min-width:320px;
+                      background:var(--surface); border:1px solid var(--border);
+                      border-radius:var(--radius); box-shadow:0 8px 24px rgba(0,0,0,.12);
+                      z-index:900; max-height:420px; overflow-y:auto;"></div>
+        </div>
+
+        <!-- Dark mode toggle -->
+        <button id="theme-toggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
+
+        <!-- Notification bell -->
+        <div class="notif-bell" id="notif-bell-wrap">
+          <button class="notif-btn" onclick="toggleNotifPanel()" title="Notifications">
+            🔔
+            {% if notif_count and notif_count > 0 %}
+              <span class="notif-dot">{{ notif_count }}</span>
+            {% endif %}
+          </button>
+          <div class="notif-panel" id="notif-panel">
+            <div class="notif-panel-header">
+              <span class="fw-700">Notifications</span>
+              <a href="/notifications/mark-read" class="text-xs" style="color:var(--primary);">Mark all read</a>
+            </div>
+            <div id="notif-list">
+              <div class="text-center text-muted text-sm" style="padding:20px;">Loading…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar-date" id="live-clock">--:--:--</div>
+      </div>
+    </header>
+
+    <div class="page-content">
+      {% if flash %}
+        <div class="flash {{ flash.kind }}">
+          {% if flash.kind == 'success' %}✓{% elif flash.kind == 'error' %}✗{% else %}!{% endif %}
+          {{ flash.msg }}
+        </div>
+      {% endif %}
+
+      {% block content %}{% endblock %}
+    </div>
+  </div>
+
+</div>
+<script src="/static/js/app.js"></script>
+{% block extra_js %}{% endblock %}
+<script>
+// Global search
+let _searchTimer = null;
+function debounceSearch(v) {
+  clearTimeout(_searchTimer);
+  if (!v || v.length < 2) { closeSearch(); return; }
+  _searchTimer = setTimeout(() => runSearch(v), 280);
+}
+async function runSearch(q) {
+  const box = document.getElementById('search-results');
+  box.style.display = 'block';
+  box.innerHTML = '<div style="padding:14px 16px; color:var(--muted); font-size:.82rem;">Searching…</div>';
+  try {
+    const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    const groups = data.results || {};
+    const keys = Object.keys(groups);
+    if (!keys.length) {
+      box.innerHTML = '<div style="padding:14px 16px; color:var(--muted); font-size:.82rem;">No results for <strong>' + escHtml(q) + '</strong></div>';
+      return;
+    }
+    let html = '';
+    for (const grp of keys) {
+      html += `<div style="padding:8px 16px 4px; font-size:.68rem; font-weight:700; letter-spacing:.07em; color:var(--muted); text-transform:uppercase;">${escHtml(grp)}</div>`;
+      for (const item of groups[grp]) {
+        html += `<a href="${item.url}" style="display:block; padding:8px 16px; text-decoration:none; color:var(--text);"
+                    onmouseenter="this.style.background='var(--surface-2)'" onmouseleave="this.style.background=''">
+          <div style="font-size:.83rem; font-weight:600;">${escHtml(item.label)}</div>
+          ${item.sub ? `<div style="font-size:.72rem; color:var(--muted); margin-top:1px;">${escHtml(item.sub)}</div>` : ''}
+        </a>`;
+      }
+    }
+    box.innerHTML = html;
+  } catch { box.innerHTML = '<div style="padding:14px; color:var(--muted); font-size:.82rem;">Error searching.</div>'; }
+}
+function closeSearch() {
+  document.getElementById('search-results').style.display = 'none';
+}
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Dark mode
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('theme', 'light');
+    document.getElementById('theme-toggle').textContent = '🌙';
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('theme', 'dark');
+    document.getElementById('theme-toggle').textContent = '☀️';
+  }
+}
+// Sync button icon on load
+(function() {
+  if (document.documentElement.getAttribute('data-theme') === 'dark') {
+    const btn = document.getElementById('theme-toggle');
+    if (btn) btn.textContent = '☀️';
+  }
+})();
+
+// Sidebar mobile
+function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
+function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebar-overlay').classList.remove('open'); }
+
+// Notification panel
+function toggleNotifPanel() {
+  const panel = document.getElementById('notif-panel');
+  const isOpen = panel.classList.toggle('open');
+  if (isOpen) loadNotifications();
+}
+document.addEventListener('click', e => {
+  const wrap = document.getElementById('notif-bell-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('notif-panel').classList.remove('open');
+  }
+});
+async function loadNotifications() {
+  try {
+    const res = await fetch('/api/notifications');
+    const data = await res.json();
+    const list = document.getElementById('notif-list');
+    if (!data.notifications || !data.notifications.length) {
+      list.innerHTML = '<div class="text-center text-muted text-sm" style="padding:20px;">All caught up!</div>';
+      return;
+    }
+    list.innerHTML = data.notifications.map(n => `
+      <a href="${n.link || '#'}" class="notif-item ${n.is_read ? '' : 'unread'}">
+        <div class="notif-title">${n.title}</div>
+        ${n.body ? `<div class="notif-body">${n.body}</div>` : ''}
+        <div class="notif-time">${n.created_at}</div>
+      </a>`).join('');
+  } catch {}
+}
+</script>
+</body>
+</html>

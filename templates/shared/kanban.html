@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Kanban Board{% endblock %}
+{% block page_title %}Kanban Board{% endblock %}
+
+{% block extra_head %}
+<style>
+  .page-content { padding: 16px 24px; }
+  .kanban-board { grid-template-columns: repeat(4, 1fr); }
+  .card-avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    object-fit: cover; flex-shrink: 0;
+    border: 1.5px solid var(--border);
+    background: var(--primary-l); color: var(--primary);
+    font-size: .62rem; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-avatar img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+  .kanban-card { transition: box-shadow .15s, transform .1s; }
+  .kanban-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.12); transform: translateY(-1px); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+{# Client → hex color map #}
+{% set cc = {} %}
+{% for c in clients %}
+  {% set _ = cc.update({c.name: c.hex_color}) %}
+{% endfor %}
+
+<div class="page-header">
+  <div>
+    <h2>📋 Production Board</h2>
+    <p>
+      {% if user.role == 'Employee' %}
+        Drag your cards · Click any card for details &amp; comments
+      {% else %}
+        Drag cards between columns · Click a card for details, comments &amp; reviewer
+      {% endif %}
+    </p>
+  </div>
+  <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
+    {% set total = columns.values() | map('length') | sum %}
+    <span class="badge badge-blue">{{ total }} active</span>
+    <span class="badge badge-yellow">{{ columns['For Review'] | length }} for review</span>
+    <span class="badge badge-green">{{ columns['Done'] | length }} done</span>
+    {% if user.role in ('HR Manager', 'Admin') and archived_count > 0 %}
+    <a href="/kanban/archive" class="btn btn-outline btn-sm" style="font-size:.75rem;">
+      🗄️ Archive ({{ archived_count }})
+    </a>
+    {% endif %}
+  </div>
+</div>
+
+<div class="kanban-board">
+
+  {% set col_meta = {
+    'Todo':        ('⬜', 'Todo',       '#94a3b8'),
+    'In Progress': ('🔵', 'In Progress', '#3b82f6'),
+    'For Review':  ('🟡', 'For Review',  '#f59e0b'),
+    'Done':        ('🟢', 'Done',        '#22c55e'),
+  } %}
+
+  {% for status in statuses %}
+  {% set icon, label, col_color = col_meta[status] %}
+  {% set cards = columns[status] %}
+  <div class="kanban-col" data-status="{{ status }}">
+    <div class="kanban-col-header">
+      <span class="kanban-col-title">{{ icon }} {{ label }}</span>
+      <span class="kanban-count">{{ cards | length }}</span>
+    </div>
+    <div class="kanban-cards">
+      {% if not cards %}
+        <div class="empty-state" style="padding:24px 8px;">
+          <div style="font-size:1.5rem; opacity:.4;">{{ icon }}</div>
+          <p style="font-size:.72rem; margin-top:6px;">Drop cards here</p>
+        </div>
+      {% endif %}
+      {% for card in cards %}
+      {% set client_hex = cc.get(card.client, '#64748b') %}
+      <div class="kanban-card"
+           style="border-left:3px solid {{ client_hex }};"
+           data-task-id="{{ card.id }}"
+           data-own="{{ 'true' if card.emp_id == user.id else 'false' }}"
+           data-role="{{ user.role }}">
+
+        <!-- Title -->
+        <div class="kanban-card-title" style="margin-bottom:5px;">{{ card.task_title }}</div>
+
+        <!-- Client badge -->
+        {% if card.client %}
+        <div style="display:flex; align-items:center; gap:5px; margin-bottom:4px;">
+          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
+          <span style="font-size:.64rem;font-weight:700;color:{{ client_hex }};text-transform:uppercase;letter-spacing:.04em;">{{ card.client }}</span>
+        </div>
+        {% endif %}
+
+        <!-- Meta -->
+        <div class="kanban-card-meta">
+          <span>⏱ {{ card.hours_worked }}h</span>
+          <span class="text-xs text-muted">{{ card.date_logged }}</span>
+        </div>
+
+        <!-- Reviewer -->
+        {% if card.reviewer_name %}
+        <div style="margin-top:4px; font-size:.65rem; color:var(--primary);">
+          👤 → {{ card.reviewer_name }}
+        </div>
+        {% endif %}
+
+        <!-- Footer -->
+        <div class="kanban-card-footer">
+          <div style="display:flex; align-items:center; gap:4px;">
+            {% if card.profile_pic_path %}
+              <div class="card-avatar" title="{{ card.emp_name }}">
+                <img src="/uploads/{{ card.profile_pic_path }}" alt="{{ card.emp_name[0] }}">
+              </div>
+            {% else %}
+              <div class="card-avatar" title="{{ card.emp_name }}">{{ card.emp_name[0] }}</div>
+            {% endif %}
+            {% if card.hr_reviewed_by %}
+              <div class="card-avatar"
+                   title="Reviewer: {{ card.hr_reviewed_by }}"
+                   style="background:rgba(34,197,94,.15); color:#16a34a; font-size:.5rem;">✓</div>
+            {% endif %}
+          </div>
+          <div style="display:flex; gap:4px; flex-wrap:wrap;">
+            {% if card.hr_reviewed_by %}
+              <span class="badge badge-green" style="font-size:.6rem;" title="HR: {{ card.hr_reviewed_by }}">✓HR</span>
+            {% endif %}
+            {% if card.admin_approved_by %}
+              <span class="badge badge-blue" style="font-size:.6rem;" title="Admin: {{ card.admin_approved_by }}">✓ADM</span>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="text-xs text-muted" style="margin-top:3px; font-size:.65rem;">{{ card.emp_name }}</div>
+
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<!-- Card detail modal -->
+<div class="modal-overlay" id="card-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <span class="modal-title" id="card-modal-title">Card Detail</span>
+      <button class="modal-close" onclick="closeModal('card-modal')">×</button>
+    </div>
+    <div class="modal-body" id="card-modal-body">
+      <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- All employee names for reviewer dropdown -->
+<script>
+const allEmployees = {{ all_employees | tojson }};
+const currentUserRole = "{{ user.role }}";
+const currentUserId = {{ user.id }};
+</script>
+
+{% endblock %}
+
+{% block extra_js %}{% endblock %}

@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Database — contains real employee data, never commit
+*.db
+*.db-shm
+*.db-wal
+
+# Uploaded files — employee avatars, docs, posters
+secure_vault/*
+secure_vault/avatars/*
+secure_vault/docs/*
+secure_vault/posters/*
+# Keep the directory structure but not the files
+!secure_vault/avatars/.gitkeep
+!secure_vault/docs/.gitkeep
+!secure_vault/posters/.gitkeep
+
+# Uploads directory (if used)
+uploads/*
+!uploads/.gitkeep
+
+# Environment / secrets
+.env
+.env.*
+*.secret
+
+# Claude workspace
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log

@@ -1,0 +1,822 @@
+import sqlite3
+import os
+import bcrypt
+from contextlib import contextmanager
+from datetime import datetime, timedelta, date, timezone
+
+DB_PATH = os.path.abspath("enterprise_ledger.db")
+UPLOAD_DIR = os.path.abspath("secure_vault")
+
+# Philippine Time = UTC+8
+PHT = timezone(timedelta(hours=8))
+
+KANBAN_STATUSES = ["Todo", "In Progress", "For Review", "Done"]
+CLIENT_LIST = ["Byron", "Pej", "CHD", "Waren Digital", "Syllabi", "MBQ", "Internal", "Other"]
+
+# Philippine government contribution tables (2024 rates)
+# SSS: employee share based on MSC brackets — simplified flat % for now
+SSS_EMPLOYEE_RATE   = 0.045   # 4.5% of monthly salary credit
+PHILHEALTH_RATE     = 0.025   # 2.5% of basic salary (employee share)
+PAGIBIG_RATE        = 0.02    # 2% of monthly compensation (employee share, max ₱100)
+PAGIBIG_MAX         = 100.0
+
+OT_MULTIPLIER_REGULAR = 1.0   # Standard OT rate (same as regular hourly rate)
+
+BIBLE_VERSES = [
+    {"verse": "Commit your work to the Lord, and your plans will be established.", "ref": "Proverbs 16:3"},
+    {"verse": "Whatever you do, work heartily, as for the Lord and not for men.", "ref": "Colossians 3:23"},
+    {"verse": "Let the favor of the Lord our God be upon us, and establish the work of our hands.", "ref": "Psalm 90:17"},
+    {"verse": "I can do all things through him who strengthens me.", "ref": "Philippians 4:13"},
+    {"verse": "The Lord will open to you his good treasury to bless all the work of your hands.", "ref": "Deuteronomy 28:12"},
+    {"verse": "Blessed is everyone who fears the Lord, who walks in his ways!", "ref": "Psalm 128:1"},
+    {"verse": "Do not be slothful in zeal, be fervent in spirit, serve the Lord.", "ref": "Romans 12:11"},
+    {"verse": "Trust in the Lord with all your heart, and do not lean on your own understanding.", "ref": "Proverbs 3:5"},
+    {"verse": "For we are God's handiwork, created in Christ Jesus to do good works.", "ref": "Ephesians 2:10"},
+    {"verse": "The plans of the diligent lead surely to abundance.", "ref": "Proverbs 21:5"},
+]
+
+
+def get_pht_now() -> datetime:
+    return datetime.now(PHT).replace(tzinfo=None)
+
+
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(plain: str, hashed: str) -> bool:
+    if not hashed.startswith("$2"):
+        return False  # plaintext passwords are migrated on startup; reject any that remain
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+@contextmanager
+def get_db():
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def init_db():
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "avatars"), exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "docs"), exist_ok=True)
+    os.makedirs(os.path.join(UPLOAD_DIR, "posters"), exist_ok=True)
+
+    with get_db() as conn:
+        conn.executescript("""
+            -- ── Core tables ──────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS employees (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                username TEXT UNIQUE,
+                email TEXT,
+                password TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'Employee',
+                hourly_rate REAL DEFAULT 0.0,
+                shift_type TEXT DEFAULT 'Morning',
+                capabilities TEXT,
+                profile_pic_path TEXT,
+                phone TEXT,
+                address TEXT,
+                birthday TEXT,
+                marital_status TEXT,
+                gender TEXT,
+                emergency_contact TEXT,
+                emergency_phone TEXT,
+                -- Philippine government IDs
+                sss_no TEXT,
+                philhealth_no TEXT,
+                tin_no TEXT,
+                pagibig_no TEXT,
+                -- Bank for payroll transfer
+                bank_name TEXT,
+                bank_account TEXT,
+                -- Government deduction enrollment (1=enrolled, 0=not enrolled)
+                sss_enrolled INTEGER DEFAULT 1,
+                philhealth_enrolled INTEGER DEFAULT 1,
+                pagibig_enrolled INTEGER DEFAULT 1,
+                tax_enrolled INTEGER DEFAULT 1,
+                -- Documents
+                doc_resume TEXT,
+                doc_nbi TEXT,
+                doc_sss TEXT,
+                doc_tin TEXT,
+                doc_philhealth TEXT,
+                doc_pagibig TEXT,
+                -- HR notes
+                admin_notes TEXT,
+                hr_feedback TEXT,
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours'))
+            );
+
+            CREATE TABLE IF NOT EXISTS attendance (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                clock_in TEXT,
+                clock_out TEXT,
+                date_logged TEXT NOT NULL,
+                is_on_break INTEGER DEFAULT 0,
+                late_flag INTEGER DEFAULT 0,
+                ip_address TEXT,
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS attendance_breaks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                att_id INTEGER NOT NULL,
+                break_start TEXT NOT NULL,
+                break_end TEXT,
+                FOREIGN KEY(att_id) REFERENCES attendance(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS work_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                client TEXT,
+                task_title TEXT NOT NULL,
+                hours_worked REAL DEFAULT 0,
+                notes TEXT,
+                file_path TEXT,
+                output_files TEXT,
+                status TEXT DEFAULT 'Todo',
+                priority TEXT DEFAULT 'Medium',
+                due_date TEXT,
+                hr_reviewed_by TEXT,
+                admin_approved_by TEXT,
+                reviewer_name TEXT,
+                started_at TEXT,
+                is_running INTEGER DEFAULT 0,
+                timestamp TEXT DEFAULT (datetime('now', '+8 hours')),
+                date_logged TEXT DEFAULT (date('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            -- ── OT requests ───────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS overtime_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                ot_date TEXT NOT NULL,
+                ot_start TEXT NOT NULL,
+                ot_end TEXT NOT NULL,
+                ot_type TEXT DEFAULT 'Regular',
+                reason TEXT,
+                status TEXT DEFAULT 'Pending',
+                approved_by TEXT,
+                approved_at TEXT,
+                denied_reason TEXT,
+                hours_computed REAL DEFAULT 0,
+                filed_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            -- ── Leave requests ────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS leave_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                leave_type TEXT NOT NULL,
+                start_date TEXT NOT NULL,
+                end_date TEXT NOT NULL,
+                days_count REAL DEFAULT 1,
+                reason TEXT,
+                status TEXT DEFAULT 'Pending',
+                approved_by TEXT,
+                approved_at TEXT,
+                denied_reason TEXT,
+                filed_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            -- ── Announcements ─────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS announcements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                posted_by INTEGER NOT NULL,
+                posted_by_name TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                is_pinned INTEGER DEFAULT 0,
+                audience TEXT DEFAULT 'All',
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(posted_by) REFERENCES employees(id)
+            );
+
+            -- ── Notifications ─────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                link TEXT,
+                is_read INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(user_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            -- ── Audit log ─────────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                user_name TEXT,
+                action TEXT NOT NULL,
+                target_table TEXT,
+                target_id INTEGER,
+                old_value TEXT,
+                new_value TEXT,
+                ip_address TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours'))
+            );
+
+            -- ── Login history ─────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS login_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                ip_address TEXT,
+                user_agent TEXT,
+                success INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            -- ── TV poster loop ────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS tv_posters (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                caption TEXT,
+                display_order INTEGER DEFAULT 0,
+                duration_secs INTEGER DEFAULT 8,
+                is_active INTEGER DEFAULT 1,
+                uploaded_by INTEGER,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(uploaded_by) REFERENCES employees(id)
+            );
+
+            -- ── Chat (group channel + DMs) ───────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                room TEXT NOT NULL,
+                sender_id INTEGER NOT NULL,
+                sender_name TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(sender_id) REFERENCES employees(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_reads (
+                user_id INTEGER NOT NULL,
+                room TEXT NOT NULL,
+                last_read_msg_id INTEGER DEFAULT 0,
+                PRIMARY KEY (user_id, room)
+            );
+
+            -- ── Payroll runs ──────────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS payroll_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                emp_id INTEGER NOT NULL,
+                emp_name TEXT,
+                regular_hours REAL DEFAULT 0,
+                overtime_hours REAL DEFAULT 0,
+                hourly_rate REAL DEFAULT 0,
+                regular_pay REAL DEFAULT 0,
+                overtime_pay REAL DEFAULT 0,
+                gross_pay REAL DEFAULT 0,
+                sss_deduction REAL DEFAULT 0,
+                philhealth_deduction REAL DEFAULT 0,
+                pagibig_deduction REAL DEFAULT 0,
+                tax_deduction REAL DEFAULT 0,
+                total_deductions REAL DEFAULT 0,
+                net_pay REAL DEFAULT 0,
+                total_pay REAL DEFAULT 0,
+                status TEXT DEFAULT 'Pending',
+                hr_approved_by TEXT,
+                hr_approved_at TEXT,
+                approved_by TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id)
+            );
+
+            -- ── Clients & notes ───────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS clients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT UNIQUE NOT NULL,
+                hex_color TEXT DEFAULT '#3b82f6',
+                monthly_retainer REAL DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours'))
+            );
+
+            CREATE TABLE IF NOT EXISTS client_notes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                content TEXT NOT NULL,
+                author_name TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(client_id) REFERENCES clients(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS card_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL,
+                author_name TEXT NOT NULL,
+                comment_text TEXT NOT NULL,
+                timestamp TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(card_id) REFERENCES work_logs(id) ON DELETE CASCADE
+            );
+
+            -- ── Card activity timeline ────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS card_activities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                card_id INTEGER NOT NULL,
+                actor_name TEXT NOT NULL,
+                activity_type TEXT NOT NULL,
+                detail TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(card_id) REFERENCES work_logs(id) ON DELETE CASCADE
+            );
+
+            -- ── Timesheet submissions ─────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS timesheet_submissions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                status TEXT DEFAULT 'Draft',
+                submitted_at TEXT,
+                reviewed_by TEXT,
+                reviewed_at TEXT,
+                hr_notes TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE,
+                UNIQUE(emp_id, week_start)
+            );
+
+            CREATE TABLE IF NOT EXISTS timesheet_entries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                submission_id INTEGER NOT NULL,
+                date TEXT NOT NULL,
+                time_in TEXT,
+                time_out TEXT,
+                computed_hours REAL DEFAULT 0,
+                manual_hours REAL DEFAULT 0,
+                ot_hours REAL DEFAULT 0,
+                ot_approved INTEGER DEFAULT 0,
+                leave_hours REAL DEFAULT 0,
+                leave_type TEXT,
+                total_hours REAL DEFAULT 0,
+                FOREIGN KEY(submission_id) REFERENCES timesheet_submissions(id) ON DELETE CASCADE
+            );
+
+            -- ── Shift Schedules ──────────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS schedules (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                week_start TEXT NOT NULL,
+                mon TEXT DEFAULT 'Morning',
+                tue TEXT DEFAULT 'Morning',
+                wed TEXT DEFAULT 'Morning',
+                thu TEXT DEFAULT 'Morning',
+                fri TEXT DEFAULT 'Morning',
+                sat TEXT DEFAULT 'Off',
+                sun TEXT DEFAULT 'Off',
+                notes TEXT,
+                created_by INTEGER,
+                updated_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                UNIQUE(emp_id, week_start),
+                FOREIGN KEY(emp_id) REFERENCES employees(id)
+            );
+
+            -- ── Performance Reviews ───────────────────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS performance_reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                period TEXT NOT NULL,
+                period_start TEXT NOT NULL,
+                period_end TEXT NOT NULL,
+                self_rating INTEGER,
+                self_comments TEXT,
+                self_submitted_at TEXT,
+                hr_rating INTEGER,
+                hr_comments TEXT,
+                hr_reviewed_by TEXT,
+                hr_reviewed_at TEXT,
+                status TEXT DEFAULT 'Pending Self-Review',
+                created_by INTEGER,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id)
+            );
+        """)
+
+        # ── Seed employees ────────────────────────────────────────────────────────
+        count = conn.execute("SELECT COUNT(*) FROM employees").fetchone()[0]
+        if count == 0:
+            seeds = [
+                ("Alex Mercer",    "alex@company.com",  hash_password("password123"), "Employee",   250.0, "Morning", "Automation Specialist"),
+                ("Sarah Connor",   "sarah@company.com", hash_password("password123"), "Employee",   300.0, "Night",   "UI Designer"),
+                ("Maria Santos",   "maria@company.com", hash_password("password123"), "Employee",   275.0, "Morning", "Content Writer"),
+                ("HR Manager",     "hr@company.com",    hash_password("password123"), "HR Manager",   0.0, "Morning", "HR Compliance"),
+                ("Admin Director", "admin@company.com", hash_password("password123"), "Admin",        0.0, "Morning", "Management"),
+            ]
+            conn.executemany(
+                "INSERT INTO employees (name, email, password, role, hourly_rate, shift_type, capabilities) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                seeds,
+            )
+        else:
+            # Migrate plaintext passwords
+            for row in conn.execute("SELECT id, password FROM employees").fetchall():
+                if not row["password"].startswith("$2"):
+                    conn.execute("UPDATE employees SET password=? WHERE id=?",
+                                 (hash_password(row["password"]), row["id"]))
+
+        conn.execute("UPDATE work_logs SET status='Todo' WHERE status='To Do'")
+        conn.execute("UPDATE work_logs SET status='In Progress' WHERE status='Doing'")
+
+        # ── Column migrations — employees ────────────────────────────────────────
+        _ecols = {r[1] for r in conn.execute("PRAGMA table_info(employees)").fetchall()}
+        for col, typ in [
+            ("birthday", "TEXT"), ("marital_status", "TEXT"), ("gender", "TEXT"),
+            ("emergency_contact", "TEXT"), ("emergency_phone", "TEXT"),
+            ("admin_notes", "TEXT"), ("hr_feedback", "TEXT"),
+            ("sss_no", "TEXT"), ("philhealth_no", "TEXT"),
+            ("tin_no", "TEXT"), ("pagibig_no", "TEXT"),
+            ("bank_name", "TEXT"), ("bank_account", "TEXT"),
+            ("sss_enrolled", "INTEGER DEFAULT 1"),
+            ("philhealth_enrolled", "INTEGER DEFAULT 1"),
+            ("pagibig_enrolled", "INTEGER DEFAULT 1"),
+            ("tax_enrolled", "INTEGER DEFAULT 1"),
+            ("vl_enabled", "INTEGER DEFAULT 1"),
+            ("sl_enabled", "INTEGER DEFAULT 1"),
+            ("vl_days_per_year", "INTEGER DEFAULT 15"),
+            ("sl_days_per_year", "INTEGER DEFAULT 15"),
+            ("doc_nbi_expiry", "TEXT"),
+            ("doc_sss_expiry", "TEXT"),
+            ("doc_tin_expiry", "TEXT"),
+            ("doc_philhealth_expiry", "TEXT"),
+            ("doc_pagibig_expiry", "TEXT"),
+            ("employment_type", "TEXT DEFAULT 'Full-time'"),
+            ("department", "TEXT"),
+        ]:
+            col_name = col.split()[0]
+            if col_name not in _ecols:
+                conn.execute(f"ALTER TABLE employees ADD COLUMN {col} {typ}")
+
+        # username backfill
+        if "username" not in _ecols:
+            conn.execute("ALTER TABLE employees ADD COLUMN username TEXT")
+            conn.execute(
+                "UPDATE employees SET username = LOWER(REPLACE(SUBSTR(email,1,INSTR(email,'@')-1),'.','_')) WHERE username IS NULL AND email IS NOT NULL AND INSTR(email,'@')>0"
+            )
+
+        # ── Column migrations — attendance ────────────────────────────────────────
+        _att = {r[1] for r in conn.execute("PRAGMA table_info(attendance)").fetchall()}
+        for col, typ in [
+            ("is_on_break", "INTEGER DEFAULT 0"),
+            ("late_flag", "INTEGER DEFAULT 0"),
+            ("ip_address", "TEXT"),
+        ]:
+            if col not in _att:
+                conn.execute(f"ALTER TABLE attendance ADD COLUMN {col} {typ}")
+
+        # ── Column migrations — work_logs ─────────────────────────────────────────
+        _wcols = {r[1] for r in conn.execute("PRAGMA table_info(work_logs)").fetchall()}
+        for col, typ in [
+            ("output_files", "TEXT"), ("started_at", "TEXT"),
+            ("is_running", "INTEGER DEFAULT 0"), ("reviewer_name", "TEXT"),
+            ("priority", "TEXT DEFAULT 'Medium'"), ("due_date", "TEXT"),
+            ("is_archived", "INTEGER DEFAULT 0"),
+        ]:
+            col_name = col.split()[0]
+            if col_name not in _wcols:
+                conn.execute(f"ALTER TABLE work_logs ADD COLUMN {col} {typ}")
+
+        # ── Column migrations — payroll_runs ──────────────────────────────────────
+        _pcols = {r[1] for r in conn.execute("PRAGMA table_info(payroll_runs)").fetchall()}
+        for col, typ in [
+            ("hr_approved_by", "TEXT"), ("hr_approved_at", "TEXT"),
+            ("gross_pay", "REAL DEFAULT 0"),
+            ("sss_deduction", "REAL DEFAULT 0"),
+            ("philhealth_deduction", "REAL DEFAULT 0"),
+            ("pagibig_deduction", "REAL DEFAULT 0"),
+            ("tax_deduction", "REAL DEFAULT 0"),
+            ("total_deductions", "REAL DEFAULT 0"),
+            ("net_pay", "REAL DEFAULT 0"),
+        ]:
+            if col not in _pcols:
+                conn.execute(f"ALTER TABLE payroll_runs ADD COLUMN {col} {typ}")
+
+        # ── Column migrations — clients ───────────────────────────────────────────
+        _clcols = {r[1] for r in conn.execute("PRAGMA table_info(clients)").fetchall()}
+        if "monthly_retainer" not in _clcols:
+            conn.execute("ALTER TABLE clients ADD COLUMN monthly_retainer REAL DEFAULT 0")
+
+        # ── Seed clients ──────────────────────────────────────────────────────────
+        if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:
+            conn.executemany(
+                "INSERT INTO clients (name, hex_color, sort_order) VALUES (?, ?, ?)",
+                [
+                    ("Byron",         "#2563eb", 1),
+                    ("Pej",           "#7c3aed", 2),
+                    ("CHD",           "#ea580c", 3),
+                    ("Waren Digital", "#0891b2", 4),
+                    ("Syllabi",       "#db2777", 5),
+                    ("MBQ",           "#16a34a", 6),
+                    ("Internal",      "#64748b", 7),
+                    ("Other",         "#ca8a04", 8),
+                ],
+            )
+
+
+# ── Time helpers ──────────────────────────────────────────────────────────────
+
+def get_today_date(shift_type: str = "Morning") -> str:
+    now = get_pht_now()
+    if shift_type == "Night" and now.hour < 7:
+        return (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    return now.strftime("%Y-%m-%d")
+
+
+def get_week_range(ref_date: date = None):
+    if ref_date is None:
+        ref_date = date.today()
+    monday = ref_date - timedelta(days=ref_date.weekday())
+    saturday = monday + timedelta(days=5)
+    return monday.strftime("%Y-%m-%d"), saturday.strftime("%Y-%m-%d")
+
+
+def calculate_hours(clock_in: str, clock_out: str) -> float:
+    if not clock_in or not clock_out:
+        return 0.0
+    try:
+        fmt = "%H:%M:%S"
+        ci = datetime.strptime(clock_in, fmt)
+        co = datetime.strptime(clock_out, fmt)
+        if co < ci:
+            co += timedelta(days=1)
+        return round((co - ci).total_seconds() / 3600, 2)
+    except Exception:
+        return 0.0
+
+
+def get_break_minutes(att_id: int) -> float:
+    with get_db() as conn:
+        breaks = conn.execute(
+            "SELECT break_start, break_end FROM attendance_breaks WHERE att_id=? AND break_end IS NOT NULL",
+            (att_id,)
+        ).fetchall()
+    total = 0.0
+    for b in breaks:
+        try:
+            fmt = "%H:%M:%S"
+            bs = datetime.strptime(b["break_start"], fmt)
+            be = datetime.strptime(b["break_end"], fmt)
+            if be < bs:
+                be += timedelta(days=1)
+            total += (be - bs).total_seconds() / 60
+        except Exception:
+            pass
+    return round(total, 2)
+
+
+def get_clients():
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            "SELECT * FROM clients WHERE is_active=1 ORDER BY sort_order, name"
+        ).fetchall()]
+
+
+def get_compliance_status(emp: dict) -> tuple[str, int]:
+    docs = [emp.get("doc_resume"), emp.get("doc_nbi"), emp.get("doc_sss"),
+            emp.get("doc_tin"), emp.get("doc_philhealth"), emp.get("doc_pagibig")]
+    count = sum(1 for d in docs if d)
+    if count == 6:
+        return "compliant", count
+    elif count > 0:
+        return "partial", count
+    return "missing", count
+
+
+# ── Deduction helpers ─────────────────────────────────────────────────────────
+
+def compute_sss(monthly_equiv: float) -> float:
+    """Employee SSS share — 4.5% of monthly salary credit, min ₱135, max ₱900."""
+    contrib = round(monthly_equiv * SSS_EMPLOYEE_RATE, 2)
+    return max(135.0, min(contrib, 900.0))
+
+
+def compute_philhealth(monthly_equiv: float) -> float:
+    """Employee PhilHealth share — 2.5% of basic salary, min ₱250, max ₱2,500."""
+    contrib = round(monthly_equiv * PHILHEALTH_RATE, 2)
+    return max(250.0, min(contrib, 2500.0)) / 2  # divided by 2 because semi-monthly
+
+
+def compute_pagibig(monthly_equiv: float) -> float:
+    """Employee Pag-IBIG share — 2%, max ₱100 per month (₱50 per semi-monthly)."""
+    contrib = round(monthly_equiv * PAGIBIG_RATE, 2)
+    return min(contrib, PAGIBIG_MAX) / 2
+
+
+def compute_withholding_tax(taxable_income: float) -> float:
+    """
+    Simplified semi-monthly withholding tax (BIR 2023 tax table).
+    taxable_income = gross semi-monthly pay after mandatory deductions.
+    """
+    ann = taxable_income * 24  # annualize
+    if ann <= 250_000:
+        return 0.0
+    elif ann <= 400_000:
+        t = (ann - 250_000) * 0.15
+    elif ann <= 800_000:
+        t = 22_500 + (ann - 400_000) * 0.20
+    elif ann <= 2_000_000:
+        t = 102_500 + (ann - 800_000) * 0.25
+    elif ann <= 8_000_000:
+        t = 402_500 + (ann - 2_000_000) * 0.30
+    else:
+        t = 2_202_500 + (ann - 8_000_000) * 0.35
+    return round(t / 24, 2)  # de-annualize back to semi-monthly
+
+
+def get_approved_ot_hours(emp_id: int, week_start: str, week_end: str) -> float:
+    """Returns total approved OT hours for an employee in a given period."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT hours_computed FROM overtime_requests
+               WHERE emp_id=? AND ot_date BETWEEN ? AND ? AND status='Approved'""",
+            (emp_id, week_start, week_end)
+        ).fetchall()
+    return round(sum(r["hours_computed"] for r in rows), 2)
+
+
+# ── Payroll computation ───────────────────────────────────────────────────────
+
+def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) -> dict:
+    with get_db() as conn:
+        emp = conn.execute("SELECT * FROM employees WHERE id=?", (emp_id,)).fetchone()
+        if not emp:
+            return {}
+        emp = dict(emp)
+
+        # Prefer approved timesheet hours over raw attendance
+        approved_ts = conn.execute(
+            """SELECT ts.id FROM timesheet_submissions ts
+               WHERE ts.emp_id=? AND ts.week_start=? AND ts.status='Approved'
+               LIMIT 1""",
+            (emp_id, week_start),
+        ).fetchone()
+
+        if approved_ts:
+            entries = conn.execute(
+                "SELECT * FROM timesheet_entries WHERE submission_id=?",
+                (approved_ts["id"],),
+            ).fetchall()
+            regular_hours = sum(e["manual_hours"] or 0 for e in entries)
+            approved_ot   = sum(e["ot_hours"] or 0 for e in entries)
+        else:
+            records = conn.execute(
+                "SELECT * FROM attendance WHERE emp_id=? AND date_logged BETWEEN ? AND ?",
+                (emp_id, week_start, week_end),
+            ).fetchall()
+            regular_hours = 0.0
+            for rec in records:
+                break_mins = get_break_minutes(rec["id"])
+                raw_hours = calculate_hours(rec["clock_in"], rec["clock_out"])
+                daily = max(0.0, raw_hours - break_mins / 60)
+                regular_hours += min(daily, 8.0)
+            approved_ot = get_approved_ot_hours(emp_id, week_start, week_end)
+
+    rate = emp["hourly_rate"]
+    ot_rate = rate * OT_MULTIPLIER_REGULAR
+
+    regular_pay = round(regular_hours * rate, 2)
+    overtime_pay = round(approved_ot * ot_rate, 2)
+    gross_pay = round(regular_pay + overtime_pay, 2)
+
+    # Estimate monthly equivalent (assume 2 payroll periods/month)
+    monthly_equiv = gross_pay * 2
+
+    sss   = compute_sss(monthly_equiv)   if emp.get("sss_enrolled", 1)       else 0.0
+    phic  = compute_philhealth(monthly_equiv) if emp.get("philhealth_enrolled", 1) else 0.0
+    hdmf  = compute_pagibig(monthly_equiv)    if emp.get("pagibig_enrolled", 1)    else 0.0
+
+    taxable = gross_pay - sss - phic - hdmf
+    tax   = compute_withholding_tax(taxable) if emp.get("tax_enrolled", 1) else 0.0
+
+    total_deductions = round(sss + phic + hdmf + tax, 2)
+    net_pay = round(gross_pay - total_deductions, 2)
+
+    return {
+        "emp_id":              emp_id,
+        "emp_name":            emp["name"],
+        "shift_type":          emp["shift_type"],
+        "hourly_rate":         rate,
+        "regular_hours":       round(regular_hours, 2),
+        "overtime_hours":      approved_ot,
+        "regular_pay":         regular_pay,
+        "overtime_pay":        overtime_pay,
+        "gross_pay":           gross_pay,
+        "sss_deduction":       sss,
+        "philhealth_deduction": phic,
+        "pagibig_deduction":   hdmf,
+        "tax_deduction":       tax,
+        "total_deductions":    total_deductions,
+        "net_pay":             net_pay,
+        "total_pay":           gross_pay,  # kept for backwards compat
+        "sss_enrolled":        bool(emp.get("sss_enrolled", 1)),
+        "philhealth_enrolled": bool(emp.get("philhealth_enrolled", 1)),
+        "pagibig_enrolled":    bool(emp.get("pagibig_enrolled", 1)),
+        "tax_enrolled":        bool(emp.get("tax_enrolled", 1)),
+        "run_id":              None,
+    }
+
+
+# ── Notification helper ───────────────────────────────────────────────────────
+
+def push_notification(conn, user_id: int, title: str, body: str = "", link: str = ""):
+    conn.execute(
+        "INSERT INTO notifications (user_id, title, body, link) VALUES (?, ?, ?, ?)",
+        (user_id, title, body, link)
+    )
+
+
+def get_unread_count(user_id: int) -> int:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0",
+            (user_id,)
+        ).fetchone()
+    return row[0] if row else 0
+
+
+# ── Chat ─────────────────────────────────────────────────────────────────────
+
+def dm_room(id1: int, id2: int) -> str:
+    a, b = sorted([int(id1), int(id2)])
+    return f"dm_{a}_{b}"
+
+
+def get_chat_unread_count(user_id: int) -> int:
+    """Total unread messages across the group channel and all DM threads."""
+    with get_db() as conn:
+        rooms = conn.execute(
+            """SELECT DISTINCT room FROM chat_messages
+               WHERE room = 'group' OR room LIKE 'dm_%'"""
+        ).fetchall()
+        total = 0
+        for r in rooms:
+            room = r["room"]
+            if room != "group" and not _user_in_dm_room(room, user_id):
+                continue
+            last_read = conn.execute(
+                "SELECT last_read_msg_id FROM chat_reads WHERE user_id=? AND room=?",
+                (user_id, room)
+            ).fetchone()
+            last_read_id = last_read["last_read_msg_id"] if last_read else 0
+            cnt = conn.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE room=? AND id>? AND sender_id!=?",
+                (room, last_read_id, user_id)
+            ).fetchone()[0]
+            total += cnt
+    return total
+
+
+def _user_in_dm_room(room: str, user_id: int) -> bool:
+    if not room.startswith("dm_"):
+        return False
+    parts = room.split("_")
+    return str(user_id) in parts[1:3]
+
+
+# ── Audit logging ─────────────────────────────────────────────────────────────
+
+def audit(conn, user_id, user_name: str, action: str,
+          target_table: str = None, target_id: int = None,
+          old_value: str = None, new_value: str = None, ip: str = None):
+    conn.execute(
+        """INSERT INTO audit_log
+           (user_id, user_name, action, target_table, target_id, old_value, new_value, ip_address)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, user_name, action, target_table, target_id, old_value, new_value, ip)
+    )
+
+
+def log_card_activity(conn, card_id: int, actor_name: str,
+                      activity_type: str, detail: str = None):
+    conn.execute(
+        "INSERT INTO card_activities (card_id, actor_name, activity_type, detail) VALUES (?,?,?,?)",
+        (card_id, actor_name, activity_type, detail)
+    )

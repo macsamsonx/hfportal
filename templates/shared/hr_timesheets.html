@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% block title %}Timesheets{% endblock %}
+{% block page_title %}Timesheet Approvals{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Timesheet Approvals</h2>
+    <p>{{ submitted_this_week }} of {{ total_employees }} submitted for week of {{ week }}</p>
+  </div>
+  <a href="/export/timesheets.csv?status={{ filter_status }}" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+</div>
+
+{# ── Submission progress bar ────────────────────────────────────────────────── #}
+{% if total_employees > 0 %}
+<div class="card mb-16" style="padding:16px 20px;">
+  <div class="flex gap-12" style="align-items:center; margin-bottom:8px;">
+    <span style="font-size:.82rem; font-weight:600; color:var(--text);">Submission Progress — Week of {{ week }}</span>
+    <span style="font-size:.82rem; font-weight:700; color:var(--primary);">{{ submitted_this_week }}/{{ total_employees }}</span>
+    {% if counts['Not Submitted'] > 0 %}
+      <span class="badge badge-red" style="font-size:.68rem;">{{ counts['Not Submitted'] }} missing</span>
+    {% else %}
+      <span class="badge badge-green" style="font-size:.68rem;">All submitted ✓</span>
+    {% endif %}
+  </div>
+  <div style="height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden;">
+    <div style="height:100%; width:{{ ((submitted_this_week / total_employees) * 100) | round(0) }}%; background:var(--primary); border-radius:4px; transition:width .4s;"></div>
+  </div>
+</div>
+{% endif %}
+
+{# ── Status tabs ───────────────────────────────────────────────────────────── #}
+<div class="flex gap-6 mb-20" style="border-bottom:1px solid var(--border); flex-wrap:wrap;">
+  {% for s, label, badge_color in [
+      ('Submitted',     'Pending',       'yellow'),
+      ('Approved',      'Approved',      'green'),
+      ('Rejected',      'Returned',      'red'),
+      ('Draft',         'Draft',         'gray'),
+      ('Not Submitted', 'Not Submitted', 'red'),
+  ] %}
+  <a href="/hr-timesheets?status={{ s }}&week={{ week }}"
+     class="tab-link {% if filter_status == s %}active{% endif %}"
+     style="padding:8px 16px; font-size:.83rem; font-weight:600; border-bottom:2px solid {% if filter_status == s %}var(--primary){% else %}transparent{% endif %}; color:{% if filter_status == s %}var(--primary){% else %}var(--muted){% endif %}; white-space:nowrap;">
+    {{ label }}
+    {% if counts.get(s, 0) > 0 %}
+      <span class="badge badge-{{ badge_color }}" style="margin-left:4px; font-size:.65rem;">{{ counts[s] }}</span>
+    {% endif %}
+  </a>
+  {% endfor %}
+</div>
+
+{# ── Week nav for Not Submitted tab ────────────────────────────────────────── #}
+{% if filter_status == 'Not Submitted' %}
+<div class="flex gap-8 mb-16" style="align-items:center;">
+  <a href="/hr-timesheets?status=Not+Submitted&week={{ prev_week }}" class="btn btn-outline btn-sm">← Prev</a>
+  <span style="font-size:.82rem; font-weight:600; color:var(--text);">Week of {{ week }}</span>
+  <a href="/hr-timesheets?status=Not+Submitted&week={{ next_week }}" class="btn btn-outline btn-sm">Next →</a>
+</div>
+
+{% if not missing_employees %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">🎉</div>
+    <p>All employees have submitted their timesheets for this week!</p>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="card-header">
+    <h3>Missing Timesheets</h3>
+    <span class="badge badge-red">{{ missing_employees | length }} not submitted</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Employee</th><th>Shift</th><th>Status</th></tr>
+      </thead>
+      <tbody>
+        {% for emp in missing_employees %}
+        <tr>
+          <td>
+            <div class="flex-center gap-8">
+              {% if emp.profile_pic_path %}
+                <img src="/uploads/{{ emp.profile_pic_path }}"
+                     style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid var(--border);">
+              {% else %}
+                <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#5b21b6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800;color:#fff;flex-shrink:0;">{{ emp.name[0] }}</div>
+              {% endif %}
+              <span class="fw-600">{{ emp.name }}</span>
+            </div>
+          </td>
+          <td><span class="badge badge-gray">{{ emp.shift_type }}</span></td>
+          <td><span class="badge badge-red">Not Submitted</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endif %}
+
+{% if filter_status != 'Not Submitted' %}
+{% if not subs %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">📋</div>
+    <p>No
+      {% if filter_status == 'Submitted' %}pending{% elif filter_status == 'Approved' %}approved
+      {% elif filter_status == 'Rejected' %}returned{% else %}draft{% endif %}
+      timesheets.</p>
+  </div>
+</div>
+
+{% else %}
+<div style="display:flex; flex-direction:column; gap:16px;">
+  {% for sub in subs %}
+  <div class="card" id="sub-{{ sub.id }}">
+    {# Card header #}
+    <div class="card-header" style="flex-wrap:wrap; gap:10px;">
+      <div class="flex gap-10" style="align-items:center; flex-wrap:wrap;">
+        {# Avatar #}
+        {% if sub.profile_pic_path %}
+          <img src="/uploads/{{ sub.profile_pic_path }}"
+               style="width:34px;height:34px;border-radius:50%;object-fit:cover;border:2px solid var(--border);"
+               alt="{{ sub.emp_name }}">
+        {% else %}
+          <div style="width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#5b21b6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:.85rem;font-weight:800;color:#fff;flex-shrink:0;">
+            {{ sub.emp_name[0] }}
+          </div>
+        {% endif %}
+        <div>
+          <div class="fw-700" style="font-size:.92rem;">{{ sub.emp_name }}</div>
+          <div class="text-xs text-muted">
+            Week of {{ sub.week_start }} – {{ sub.week_end }}
+          </div>
+        </div>
+        {% if sub.has_unapproved_ot %}
+          <span class="badge badge-yellow" title="Contains unapproved OT hours">⚠ Unapproved OT</span>
+        {% endif %}
+      </div>
+
+      <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
+        {# Summary pills #}
+        <span class="badge badge-gray" style="font-size:.72rem;">Regular: {{ sub.total_manual }}h</span>
+        <span class="badge badge-purple" style="font-size:.72rem;">OT: {{ sub.total_ot }}h</span>
+        <span class="badge badge-blue" style="font-size:.72rem;">Leave: {{ sub.total_leave }}h</span>
+        <span class="fw-800" style="font-size:.9rem; color:var(--primary);">
+          Total: {{ (sub.total_manual + sub.total_ot + sub.total_leave) | round(2) }}h
+        </span>
+
+        {# Toggle detail #}
+        <button class="btn btn-outline btn-sm" onclick="toggleDetail('{{ sub.id }}')">
+          View Days
+        </button>
+      </div>
+    </div>
+
+    {# Per-day breakdown (hidden by default) #}
+    <div id="detail-{{ sub.id }}" style="display:none;">
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Day</th>
+              <th>Date</th>
+              <th style="text-align:center;">In</th>
+              <th style="text-align:center;">Out</th>
+              <th style="text-align:center;">Computed</th>
+              <th style="text-align:center;">Manual Hrs</th>
+              <th style="text-align:center;">OT Hrs</th>
+              <th style="text-align:center;">Leave</th>
+              <th style="text-align:right;">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for e in sub.entries %}
+            <tr style="{% if e.leave_hours > 0 %}background:#eff6ff;{% endif %}">
+              <td class="fw-600 text-sm">
+                {% set weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}
+                {# compute weekday from date string #}
+                {{ e.date }}
+              </td>
+              <td class="text-muted text-sm">{{ e.date[5:] | replace('-', '/') }}</td>
+              <td class="text-center text-sm">{{ e.time_in or '—' }}</td>
+              <td class="text-center text-sm">{{ e.time_out or '—' }}</td>
+              <td class="text-center text-muted text-sm">
+                {% if e.computed_hours > 0 %}{{ e.computed_hours }}h{% else %}—{% endif %}
+              </td>
+              <td class="text-center fw-600">
+                {% if e.leave_hours > 0 %}—
+                {% else %}{{ e.manual_hours }}h{% endif %}
+              </td>
+              <td class="text-center fw-600">
+                {% if e.ot_hours > 0 %}
+                  {{ e.ot_hours }}h
+                  {% if e.ot_approved %}
+                    <span class="badge badge-green" style="font-size:.6rem; margin-left:2px;">✓</span>
+                  {% else %}
+                    <span class="badge badge-yellow" style="font-size:.6rem; margin-left:2px;" title="No approved OT request">!</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-center">
+                {% if e.leave_hours > 0 %}
+                  <span class="badge badge-blue" style="font-size:.68rem;">{{ e.leave_type }} · 8h</span>
+                {% else %}—{% endif %}
+              </td>
+              <td class="text-right fw-700" style="color:var(--primary);">{{ e.total_hours }}h</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+          <tfoot>
+            <tr style="background:var(--surface-2); border-top:2px solid var(--border);">
+              <td class="fw-800" colspan="5">Totals</td>
+              <td class="text-center fw-800">{{ sub.total_manual }}h</td>
+              <td class="text-center fw-800" style="color:var(--primary);">{{ sub.total_ot }}h</td>
+              <td class="text-center fw-700" style="color:#2563eb;">{{ sub.total_leave }}h</td>
+              <td class="text-right fw-800" style="color:var(--primary);">
+                {{ (sub.total_manual + sub.total_ot + sub.total_leave) | round(2) }}h
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+
+    {# Submission meta + actions #}
+    <div class="card-body-sm" style="border-top:1px solid var(--border); background:var(--surface-2); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+      <div class="text-xs text-muted">
+        {% if sub.submitted_at %}Submitted {{ sub.submitted_at[:16] }}{% endif %}
+        {% if sub.reviewed_by %} · Reviewed by {{ sub.reviewed_by }} {{ sub.reviewed_at[:10] if sub.reviewed_at else '' }}{% endif %}
+        {% if sub.hr_notes %} · Note: <em>{{ sub.hr_notes }}</em>{% endif %}
+      </div>
+
+      {% if filter_status == 'Submitted' %}
+      <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
+        <form method="post" action="/hr-timesheets/{{ sub.id }}/approve">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button class="btn btn-success btn-sm" type="submit">✓ Approve</button>
+        </form>
+
+        <button class="btn btn-danger btn-sm" onclick="openReject('{{ sub.id }}')">
+          ✗ Return
+        </button>
+      </div>
+      {% elif filter_status == 'Approved' %}
+        <span class="badge badge-green">Approved by {{ sub.reviewed_by }}</span>
+      {% elif filter_status == 'Rejected' %}
+        <span class="badge badge-red">Returned to employee</span>
+      {% endif %}
+    </div>
+
+  </div>
+
+  {# Reject modal for this submission #}
+  <div class="modal-overlay" id="reject-modal-{{ sub.id }}">
+    <div class="modal" style="max-width:420px;">
+      <div class="modal-header">
+        <h3>Return Timesheet</h3>
+        <button class="modal-close" onclick="closeModal('reject-modal-{{ sub.id }}')">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="text-sm text-muted mb-12">
+          Explain what the employee needs to correct before resubmitting.
+        </p>
+        <form method="post" action="/hr-timesheets/{{ sub.id }}/reject">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="form-group">
+            <label class="form-label">Reason / Notes</label>
+            <textarea name="hr_notes" class="form-textarea" rows="3"
+                      placeholder="e.g. Please correct Tuesday OT — no approved request found."></textarea>
+          </div>
+          <div class="flex gap-8" style="justify-content:flex-end; margin-top:12px;">
+            <button type="button" class="btn btn-outline btn-sm"
+                    onclick="closeModal('reject-modal-{{ sub.id }}')">Cancel</button>
+            <button type="submit" class="btn btn-danger btn-sm">Return to Employee</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  {% endfor %}
+</div>
+{% endif %}
+{% endif %}{# end filter_status != 'Not Submitted' #}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleDetail(id) {
+  const el = document.getElementById('detail-' + id);
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+function openReject(id) {
+  openModal('reject-modal-' + id);
+}
+</script>
+{% endblock %}

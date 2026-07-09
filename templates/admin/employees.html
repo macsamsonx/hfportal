@@ -1,0 +1,365 @@
+{% extends "base.html" %}
+{% block title %}Employee Management{% endblock %}
+{% block page_title %}Employee Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Employee Management</h2>
+    <p>{{ employees | length }} total accounts</p>
+  </div>
+  {% if user.role == 'Admin' %}
+  <button class="btn btn-primary" onclick="openModal('add-emp-modal')">+ Add Employee</button>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>All Accounts</h3>
+    <input type="text" id="emp-search" class="form-input" style="width:220px" placeholder="Search employees…">
+  </div>
+  <div class="table-wrapper">
+    <table id="emp-table">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Shift</th>
+          <th>Rate / hr</th>
+          <th>Skills</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+        <tr data-name="{{ emp.name | lower }}">
+          <td>
+            <div class="flex-center gap-8">
+              {% if emp.profile_pic_path %}
+                <img src="/uploads/{{ emp.profile_pic_path }}"
+                     style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border);">
+              {% else %}
+                <div class="emp-initial"
+                     style="background:{{ '#dbeafe' if emp.role=='Employee' else '#fef3c7' if emp.role=='HR Manager' else '#dcfce7' }}">
+                  {{ emp.name[0] }}
+                </div>
+              {% endif %}
+              <div>
+                <div class="fw-600">{{ emp.name }}</div>
+                <div class="text-xs text-muted">{{ emp.email or emp.username }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            {% if emp.role == 'Employee' %}<span class="badge badge-blue">Employee</span>
+            {% elif emp.role == 'HR Manager' %}<span class="badge badge-yellow">HR Manager</span>
+            {% else %}<span class="badge badge-green">Admin</span>{% endif %}
+          </td>
+          <td>{{ emp.shift_type }}</td>
+          <td class="fw-600">{% if emp.hourly_rate %}₱{{ "%.2f"|format(emp.hourly_rate) }}/hr{% else %}—{% endif %}</td>
+          <td class="text-sm text-muted truncate" style="max-width:140px">{{ emp.capabilities or '—' }}</td>
+          <td>
+            {% if emp.is_active %}<span class="badge badge-green">Active</span>
+            {% else %}<span class="badge badge-red">Inactive</span>{% endif %}
+          </td>
+          <td>
+            <div class="flex gap-8">
+              <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline btn-sm">View</a>
+
+              {% if user.role == 'Admin' %}
+              <button class="btn btn-outline btn-sm" onclick="openEditEmployee(
+                  {{ emp.id }},
+                  '{{ emp.name | replace("'","\\'")|e }}',
+                  '{{ emp.username or "" }}',
+                  '{{ emp.email or "" }}',
+                  '{{ emp.role }}',
+                  {{ emp.hourly_rate or 0 }},
+                  '{{ emp.shift_type }}',
+                  '{{ (emp.capabilities or '') | replace("'","\\'")|e }}',
+                  '{{ emp.employment_type or "Full-time" }}',
+                  '{{ (emp.department or "") | replace("'","\\'")|e }}'
+                )">Edit</button>
+              <form method="post" action="/api/employees/{{ emp.id }}/toggle" style="display:inline">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        data-confirm="{{ 'Deactivate this employee?' if emp.is_active else 'Reactivate this employee?' }}">
+                  {{ 'Deactivate' if emp.is_active else 'Reactivate' }}
+                </button>
+              </form>
+
+              {% elif user.role == 'HR Manager' and emp.role == 'Employee' %}
+              <button class="btn btn-outline btn-sm" onclick="openHrEdit(
+                  {{ emp.id }},
+                  '{{ emp.name | replace("'","\\'")|e }}',
+                  '{{ emp.shift_type }}',
+                  {{ emp.hourly_rate or 0 }},
+                  '{{ (emp.capabilities or '') | replace("'","\\'")|e }}'
+                )">Edit</button>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:32px;">No employees found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Admin: Add Employee Modal ─────────────────────────────────────────────── -->
+{% if user.role == 'Admin' %}
+<div class="modal-overlay" id="add-emp-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add New Employee</span>
+      <button class="modal-close" onclick="closeModal('add-emp-modal')">×</button>
+    </div>
+    <form method="post" action="/api/employees">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" name="name" class="form-input" required placeholder="Juan dela Cruz">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Username * <span class="text-muted text-xs">(for login)</span></label>
+            <input type="text" name="username" class="form-input" required placeholder="juan"
+                   pattern="[a-zA-Z0-9_]+" title="Letters, numbers, underscore only">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Email <span class="text-muted text-xs">(optional)</span></label>
+            <input type="email" name="email" class="form-input" placeholder="juan@company.com">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Temporary Password *</label>
+            <input type="password" name="password" class="form-input" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select name="role" class="form-select">
+              <option value="Employee">Employee</option>
+              <option value="HR Manager">HR Manager</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shift</label>
+            <select name="shift_type" class="form-select">
+              <option value="Morning">Morning</option>
+              <option value="Mid-shift">Mid-shift</option>
+              <option value="Night">Night</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Employment Type</label>
+            <select name="employment_type" class="form-select">
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Contractual">Contractual</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input type="text" name="department" class="form-input" placeholder="e.g. Marketing, IT">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Hourly Rate (₱)</label>
+            <input type="number" name="hourly_rate" class="form-input" min="0" step="0.50" value="250.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Skills / Capabilities</label>
+            <input type="text" name="capabilities" class="form-input" placeholder="e.g. Web Design, SEO">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('add-emp-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Account</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Admin: Edit Employee Modal (full) -->
+<div class="modal-overlay" id="edit-emp-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Edit Employee</span>
+      <button class="modal-close" onclick="closeModal('edit-emp-modal')">×</button>
+    </div>
+    <form method="post" id="edit-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" id="edit-name" name="name" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Username *</label>
+            <input type="text" id="edit-username" name="username" class="form-input" required>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" id="edit-email" name="email" class="form-input">
+          </div>
+          <div class="form-group">
+            <label class="form-label">New Password <span class="text-muted text-xs">(blank = unchanged)</span></label>
+            <input type="password" name="new_password" class="form-input" placeholder="(unchanged)">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select id="edit-role" name="role" class="form-select">
+              <option value="Employee">Employee</option>
+              <option value="HR Manager">HR Manager</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shift</label>
+            <select id="edit-shift" name="shift_type" class="form-select">
+              <option value="Morning">Morning</option>
+              <option value="Mid-shift">Mid-shift</option>
+              <option value="Night">Night</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Employment Type</label>
+            <select id="edit-emptype" name="employment_type" class="form-select">
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Contractual">Contractual</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input type="text" id="edit-dept" name="department" class="form-input" placeholder="e.g. Marketing, IT">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Hourly Rate (₱)</label>
+            <input type="number" id="edit-rate" name="hourly_rate" class="form-input" min="0" step="0.50">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Skills / Capabilities</label>
+            <input type="text" id="edit-caps" name="capabilities" class="form-input">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('edit-emp-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── HR Manager: Edit Employee Modal (limited fields) ───────────────────── -->
+{% if user.role == 'HR Manager' %}
+<div class="modal-overlay" id="hr-edit-modal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <span class="modal-title">Edit Employee — <span id="hr-edit-name-label"></span></span>
+      <button class="modal-close" onclick="closeModal('hr-edit-modal')">×</button>
+    </div>
+    <form id="hr-edit-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Full Name *</label>
+          <input type="text" id="hr-edit-name" name="name" class="form-input" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Shift</label>
+            <select id="hr-edit-shift" name="shift_type" class="form-select">
+              <option value="Morning">Morning</option>
+              <option value="Mid-shift">Mid-shift</option>
+              <option value="Night">Night</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Hourly Rate (₱)</label>
+            <input type="number" id="hr-edit-rate" name="hourly_rate"
+                   class="form-input" min="0" step="0.50" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Skills / Capabilities</label>
+          <input type="text" id="hr-edit-caps" name="capabilities" class="form-input"
+                 placeholder="e.g. Web Design, SEO, Copywriting">
+        </div>
+        <p class="form-hint" style="margin-top:12px;">
+          HR can update name, shift, rate, and skills. To change role or username, contact an Admin.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('hr-edit-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  // Search
+  const empSearch = document.getElementById('emp-search');
+  if (empSearch) {
+    empSearch.addEventListener('input', () => {
+      const val = empSearch.value.toLowerCase();
+      document.querySelectorAll('#emp-table tbody tr[data-name]').forEach(tr => {
+        tr.style.display = tr.dataset.name.includes(val) ? '' : 'none';
+      });
+    });
+  }
+
+  // Admin: open full edit modal
+  function openEditEmployee(id, name, username, email, role, rate, shift, caps, emptype, dept) {
+    document.getElementById('edit-name').value        = name;
+    document.getElementById('edit-username').value    = username || '';
+    document.getElementById('edit-email').value       = email || '';
+    document.getElementById('edit-role').value        = role;
+    document.getElementById('edit-rate').value        = rate;
+    document.getElementById('edit-shift').value       = shift;
+    document.getElementById('edit-caps').value        = caps || '';
+    document.getElementById('edit-emptype').value     = emptype || 'Full-time';
+    document.getElementById('edit-dept').value        = dept || '';
+    document.getElementById('edit-form').action       = `/api/employees/${id}/update`;
+    openModal('edit-emp-modal');
+  }
+
+  // HR: open limited edit modal
+  function openHrEdit(id, name, shift, rate, caps) {
+    document.getElementById('hr-edit-name-label').textContent = name;
+    document.getElementById('hr-edit-name').value  = name;
+    document.getElementById('hr-edit-shift').value = shift;
+    document.getElementById('hr-edit-rate').value  = rate;
+    document.getElementById('hr-edit-caps').value  = caps || '';
+    document.getElementById('hr-edit-form').action = `/api/employees/${id}/hr-update`;
+    openModal('hr-edit-modal');
+  }
+</script>
+{% endblock %}

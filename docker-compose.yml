@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  portal:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SESSION_SECRET=${SESSION_SECRET:-change-this-in-production}
+      - WORKERS=2
+    volumes:
+      # Persist the database outside the container
+      - ./data/enterprise_ledger.db:/app/enterprise_ledger.db
+      # Persist uploaded files
+      - ./data/secure_vault:/app/secure_vault
+    restart: unless-stopped

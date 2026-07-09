@@ -1,0 +1,326 @@
+{% extends "base.html" %}
+{% block title %}Payroll{% endblock %}
+{% block page_title %}Payroll{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>💰 Payroll</h2>
+    <p>Period: <strong>{{ week_start }}</strong> — <strong>{{ week_end }}</strong>
+      {% if existing_run %}<span class="badge badge-blue" style="margin-left:8px;">Saved Run</span>
+      {% else %}<span class="badge badge-gray" style="margin-left:8px;">Preview</span>{% endif %}
+    </p>
+  </div>
+  <div class="flex gap-8 flex-wrap">
+    {% if user.role in ('HR Manager', 'Admin') and existing_run %}
+      {% if existing_run.hr_approved_by %}
+        <span class="badge badge-green" style="padding:6px 12px;">✓ HR: {{ existing_run.hr_approved_by }}</span>
+      {% else %}
+        <form method="post" action="/api/payroll/{{ existing_run.id }}/hr-approve">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button class="btn btn-warning btn-sm">✓ Mark HR Checked</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    {% if user.role == 'Admin' and existing_run %}
+      {% if existing_run.status == 'Approved' %}
+        <span class="badge badge-green" style="padding:6px 12px;">✓ Approved — {{ existing_run.approved_by }}</span>
+      {% else %}
+        <form method="post" action="/api/payroll/{{ existing_run.id }}/approve">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button class="btn btn-success btn-sm">✓ Admin Approve</button>
+        </form>
+      {% endif %}
+    {% endif %}
+    <a href="/export/payroll.csv?week_start={{ week_start }}&week_end={{ week_end }}"
+       class="btn btn-outline btn-sm">⬇ Export CSV</a>
+  </div>
+</div>
+
+<!-- Period selector -->
+<div class="card mb-16">
+  <div class="card-body-sm">
+    <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
+
+      <!-- Standard week picker -->
+      <div>
+        <label class="form-label" style="font-size:.72rem;">Standard Week</label>
+        <form method="get" action="/payroll" style="display:flex; gap:8px; align-items:center;">
+          <select name="week" class="form-select" style="width:auto; font-size:.82rem;"
+                  onchange="this.form.submit()">
+            {% for opt in week_options %}
+              <option value="{{ opt.value }}" {% if not is_custom and opt.value == selected_week %}selected{% endif %}>
+                {{ opt.label }}
+              </option>
+            {% endfor %}
+          </select>
+        </form>
+      </div>
+
+      <!-- Divider -->
+      <div style="color:var(--muted); font-size:.8rem; padding-bottom:8px;">— or —</div>
+
+      <!-- Custom date range -->
+      <div>
+        <label class="form-label" style="font-size:.72rem;">Custom Cut-off Period</label>
+        <form method="get" action="/payroll" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <input type="date" name="start" class="form-input" style="width:140px; font-size:.82rem;"
+                 value="{{ custom_start or week_start }}">
+          <span style="color:var(--muted); font-size:.8rem;">to</span>
+          <input type="date" name="end" class="form-input" style="width:140px; font-size:.82rem;"
+                 value="{{ custom_end or week_end }}">
+          <button type="submit" class="btn btn-primary btn-sm">Apply</button>
+        </form>
+      </div>
+
+      <!-- Generate / Regenerate -->
+      {% if user.role in ('Admin', 'HR Manager') %}
+      <div style="margin-left:auto;">
+        <label class="form-label" style="font-size:.72rem;">Actions</label>
+        <form method="post" action="/api/payroll/generate" style="display:flex; gap:8px;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <input type="hidden" name="week_start" value="{{ week_start }}">
+          <input type="hidden" name="week_end" value="{{ week_end }}">
+          <button class="btn btn-primary btn-sm"
+                  {% if existing_run and existing_run.status == 'Approved' %}
+                    onclick="return confirm('This payroll is already approved. Regenerate anyway?')"
+                  {% endif %}>
+            {{ '🔄 Regenerate' if existing_run else '📊 Generate Payroll Run' }}
+          </button>
+        </form>
+      </div>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+
+<!-- Approval status banner -->
+{% if existing_run %}
+<div class="card mb-16" style="padding:10px 20px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+  <span class="text-sm fw-600">Approval Status:</span>
+  {% if existing_run.hr_approved_by %}
+    <span class="badge badge-green">✓ HR Checked — {{ existing_run.hr_approved_by }}
+      {% if existing_run.hr_approved_at %} · {{ (existing_run.hr_approved_at or '')[:16] }}{% endif %}
+    </span>
+  {% else %}
+    <span class="badge badge-yellow">⏳ Awaiting HR Check</span>
+  {% endif %}
+  {% if existing_run.status == 'Approved' %}
+    <span class="badge badge-blue">✓ Admin Approved — {{ existing_run.approved_by }}</span>
+  {% else %}
+    <span class="badge badge-gray">⏳ Awaiting Admin Approval</span>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- Summary stats -->
+<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:20px; flex-wrap:wrap;" class="mb-20">
+  {% set total_reg_hrs = payroll_data | sum(attribute='regular_hours') %}
+  {% set total_ot_hrs  = payroll_data | sum(attribute='overtime_hours') %}
+  <div class="stat-card">
+    <div class="stat-icon blue">👥</div>
+    <div><div class="stat-label">Employees</div><div class="stat-value">{{ payroll_data | length }}</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">⏱</div>
+    <div><div class="stat-label">Regular Hours</div><div class="stat-value">{{ total_reg_hrs | round(1) }}</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon yellow">⚡</div>
+    <div><div class="stat-label">Overtime Hours</div><div class="stat-value">{{ total_ot_hrs | round(1) }}</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">💰</div>
+    <div>
+      <div class="stat-label">Total Gross Pay</div>
+      <div class="stat-value payroll-total">₱{{ "%.2f"|format(total_gross) }}</div>
+    </div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-icon blue">🏦</div>
+    <div>
+      <div class="stat-label">Total Net Pay</div>
+      <div class="stat-value payroll-total" style="color:var(--success);">₱{{ "%.2f"|format(total_net) }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Payroll table -->
+<div class="card">
+  <div class="card-header">
+    <h3>Payroll Breakdown — {{ week_start }} to {{ week_end }}</h3>
+    {% if not existing_run %}
+      <span class="badge badge-yellow">Preview only — generate to save</span>
+    {% endif %}
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Rate/hr</th>
+          <th>Reg Hrs</th>
+          <th>OT Hrs</th>
+          <th>Gross Pay</th>
+          <th style="color:var(--muted);">SSS</th>
+          <th style="color:var(--muted);">PhilHealth</th>
+          <th style="color:var(--muted);">Pag-IBIG</th>
+          <th style="color:var(--muted);">Tax</th>
+          <th style="color:var(--muted);">Deductions</th>
+          <th class="text-right" style="color:var(--success);">Net Pay</th>
+          {% if existing_run and user.role in ('HR Manager', 'Admin') %}<th>Actions</th>{% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% if payroll_data %}
+          {% for p in payroll_data %}
+          {% set gross = p.get('gross_pay') or p.get('total_pay', 0) %}
+          {% set sss   = p.get('sss_deduction', 0) %}
+          {% set phic  = p.get('philhealth_deduction', 0) %}
+          {% set hdmf  = p.get('pagibig_deduction', 0) %}
+          {% set tax   = p.get('tax_deduction', 0) %}
+          {% set tded  = p.get('total_deductions', 0) %}
+          {% set net   = p.get('net_pay') or gross %}
+          <tr>
+            <td class="fw-600">{{ p.emp_name }}</td>
+            <td>₱{{ "%.2f"|format(p.hourly_rate) }}</td>
+            <td>{{ p.regular_hours }}h</td>
+            <td>
+              {% if p.overtime_hours > 0 %}
+                <span class="badge badge-yellow">+{{ p.overtime_hours }}h</span>
+              {% else %}<span class="text-muted">—</span>{% endif %}
+            </td>
+            <td class="fw-700">₱{{ "%.2f"|format(gross) }}</td>
+            <td class="text-sm text-muted">{% if sss > 0 %}₱{{ "%.0f"|format(sss) }}{% else %}—{% endif %}</td>
+            <td class="text-sm text-muted">{% if phic > 0 %}₱{{ "%.0f"|format(phic) }}{% else %}—{% endif %}</td>
+            <td class="text-sm text-muted">{% if hdmf > 0 %}₱{{ "%.0f"|format(hdmf) }}{% else %}—{% endif %}</td>
+            <td class="text-sm text-muted">{% if tax > 0 %}₱{{ "%.0f"|format(tax) }}{% else %}—{% endif %}</td>
+            <td class="text-sm" style="color:var(--danger);">
+              {% if tded > 0 %}— ₱{{ "%.2f"|format(tded) }}{% else %}—{% endif %}
+            </td>
+            <td class="text-right fw-700" style="color:var(--success);">₱{{ "%.2f"|format(net) }}</td>
+            {% if existing_run and user.role in ('HR Manager', 'Admin') %}
+            <td>
+              <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                <button class="btn btn-outline btn-sm"
+                        onclick="openHrsEdit({{ p.run_id or p.id or 0 }}, {{ p.regular_hours }}, {{ p.overtime_hours }})">
+                  Edit Hrs
+                </button>
+                <button class="btn btn-outline btn-sm"
+                        onclick="openRateEdit({{ p.run_id or p.id or 0 }}, {{ p.hourly_rate }}, '{{ p.emp_name | e }}')">
+                  Edit Rate
+                </button>
+              </div>
+            </td>
+            {% endif %}
+          </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="12" class="text-center text-muted" style="padding:32px">
+            No attendance records found for this period.
+          </td></tr>
+        {% endif %}
+      </tbody>
+      {% if payroll_data %}
+      <tfoot>
+        <tr>
+          <td colspan="2" class="fw-700">TOTALS</td>
+          <td class="fw-700">{{ total_reg_hrs | round(1) }}h</td>
+          <td class="fw-700">{{ total_ot_hrs | round(1) }}h</td>
+          <td class="fw-700">₱{{ "%.2f"|format(total_gross) }}</td>
+          <td colspan="4"></td>
+          <td class="fw-700" style="color:var(--danger);">
+            — ₱{{ "%.2f"|format(total_gross - total_net) }}
+          </td>
+          <td class="text-right fw-700 payroll-total" style="font-size:1rem; color:var(--success);">
+            ₱{{ "%.2f"|format(total_net) }}
+          </td>
+          {% if existing_run and user.role in ('HR Manager', 'Admin') %}<td></td>{% endif %}
+        </tr>
+      </tfoot>
+      {% endif %}
+    </table>
+  </div>
+</div>
+<p class="text-xs text-muted mt-8">* Regular ≤ 8h/day · OT = approved filed hours only · Deductions apply to enrolled employees only (SSS 4.5% · PhilHealth 2.5% · Pag-IBIG 2% max ₱100 · BIR 2023 brackets) · Regenerate to recalculate deductions</p>
+
+<!-- Edit Hours Modal -->
+<div class="modal-overlay" id="hrs-edit-modal">
+  <div class="modal" style="max-width:380px;">
+    <div class="modal-header">
+      <span class="modal-title">Edit Hours</span>
+      <button class="modal-close" onclick="closeModal('hrs-edit-modal')">×</button>
+    </div>
+    <form id="hrs-edit-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm text-muted mb-12">HR can manually adjust hours for this pay period.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Regular Hours</label>
+            <input type="number" id="hrs-regular" name="regular_hours"
+                   class="form-input" min="0" step="0.25">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Overtime Hours</label>
+            <input type="number" id="hrs-ot" name="overtime_hours"
+                   class="form-input" min="0" step="0.25" value="0">
+          </div>
+        </div>
+        <p class="form-hint">Pay will be recalculated at the employee's current hourly rate.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('hrs-edit-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Hours</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Rate Modal -->
+<div class="modal-overlay" id="rate-edit-modal">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <span class="modal-title">Edit Rate — <span id="rate-edit-name"></span></span>
+      <button class="modal-close" onclick="closeModal('rate-edit-modal')">×</button>
+    </div>
+    <form id="rate-edit-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm text-muted mb-12">Update the hourly rate for this payroll record. This only affects this pay run.</p>
+        <div class="form-group">
+          <label class="form-label">Hourly Rate (₱)</label>
+          <input type="number" id="rate-input" name="hourly_rate"
+                 class="form-input" min="0" step="0.50">
+        </div>
+        <p class="form-hint">Pay totals will be recalculated automatically.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('rate-edit-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Rate</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openHrsEdit(runId, regHrs, otHrs) {
+    if (!runId) { alert('Generate payroll first to edit hours.'); return; }
+    document.getElementById('hrs-edit-form').action = '/api/payroll/' + runId + '/edit-hours';
+    document.getElementById('hrs-regular').value = regHrs;
+    document.getElementById('hrs-ot').value = otHrs;
+    openModal('hrs-edit-modal');
+  }
+
+  function openRateEdit(runId, rate, empName) {
+    if (!runId) { alert('Generate payroll first to edit rate.'); return; }
+    document.getElementById('rate-edit-form').action = '/api/payroll/' + runId + '/edit-rate';
+    document.getElementById('rate-input').value = rate;
+    document.getElementById('rate-edit-name').textContent = empName;
+    openModal('rate-edit-modal');
+  }
+</script>
+{% endblock %}

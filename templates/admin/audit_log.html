@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>System Audit Log</h2>
+    <p>{{ total }} record{{ 's' if total != 1 }} · page {{ page }} of {{ total_pages }}</p>
+  </div>
+  <a href="/admin-dashboard" class="btn btn-outline btn-sm">← Dashboard</a>
+</div>
+
+<!-- Filters -->
+<form method="get" class="card" style="padding:16px 20px; margin-bottom:16px;">
+  <div style="display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+    <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+      <label class="form-label">User</label>
+      <input type="text" name="user_name" class="form-input" placeholder="Name…" value="{{ user_name }}">
+    </div>
+    <div class="form-group" style="margin:0; flex:1; min-width:160px;">
+      <label class="form-label">Action</label>
+      <select name="action" class="form-select">
+        <option value="">All actions</option>
+        {% for a in distinct_actions %}
+          <option value="{{ a }}" {% if action == a %}selected{% endif %}>{{ a | replace('_',' ') | title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group" style="margin:0; min-width:140px;">
+      <label class="form-label">From</label>
+      <input type="date" name="date_from" class="form-input" value="{{ date_from }}">
+    </div>
+    <div class="form-group" style="margin:0; min-width:140px;">
+      <label class="form-label">To</label>
+      <input type="date" name="date_to" class="form-input" value="{{ date_to }}">
+    </div>
+    <div style="display:flex; gap:8px;">
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+      <a href="/admin/audit-log" class="btn btn-outline btn-sm">Reset</a>
+    </div>
+  </div>
+</form>
+
+<div class="card">
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:140px;">Timestamp</th>
+          <th>User</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>Before</th>
+          <th>After</th>
+          <th>IP</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="text-xs text-muted nowrap">
+            {{ r.created_at[:10] if r.created_at else '—' }}<br>
+            <span style="font-size:.68rem;">{{ r.created_at[11:19] if r.created_at and r.created_at|length > 11 else '' }}</span>
+          </td>
+          <td class="fw-600">{{ r.user_name or '—' }}</td>
+          <td>
+            <span class="badge
+              {% if 'approve' in (r.action or '') %}badge-green
+              {% elif 'reject' in (r.action or '') or 'delete' in (r.action or '') or 'deny' in (r.action or '') %}badge-red
+              {% elif 'login' in (r.action or '') %}badge-blue
+              {% elif 'reset' in (r.action or '') or 'change' in (r.action or '') %}badge-yellow
+              {% else %}badge-gray{% endif %}">
+              {{ (r.action or '—') | replace('_',' ') | title }}
+            </span>
+          </td>
+          <td class="text-sm text-muted">
+            {{ r.target_table or '—' }}{% if r.target_id %} <span class="text-xs">#{{ r.target_id }}</span>{% endif %}
+          </td>
+          <td class="text-xs text-muted" style="max-width:140px; word-break:break-all;">{{ r.old_value or '—' }}</td>
+          <td class="text-xs text-muted" style="max-width:140px; word-break:break-all;">{{ r.new_value or '—' }}</td>
+          <td class="text-xs text-muted">{{ r.ip_address or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted" style="padding:32px;">No audit records match your filters.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div style="padding:12px 20px; border-top:1px solid var(--border); display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+    {% set qs = [] %}
+    {% if user_name %}{% set _ = qs.append('user_name=' ~ user_name) %}{% endif %}
+    {% if action %}{% set _ = qs.append('action=' ~ action) %}{% endif %}
+    {% if date_from %}{% set _ = qs.append('date_from=' ~ date_from) %}{% endif %}
+    {% if date_to %}{% set _ = qs.append('date_to=' ~ date_to) %}{% endif %}
+    {% set base_qs = ('&' ~ qs | join('&')) if qs else '' %}
+
+    {% if page > 1 %}
+      <a href="/admin/audit-log?page={{ page - 1 }}{{ base_qs }}" class="btn btn-outline btn-sm">← Prev</a>
+    {% endif %}
+
+    {% for p in range([1, page - 2] | max, [total_pages + 1, page + 3] | min) %}
+      <a href="/admin/audit-log?page={{ p }}{{ base_qs }}"
+         class="btn btn-sm {% if p == page %}btn-primary{% else %}btn-outline{% endif %}">{{ p }}</a>
+    {% endfor %}
+
+    {% if page < total_pages %}
+      <a href="/admin/audit-log?page={{ page + 1 }}{{ base_qs }}" class="btn btn-outline btn-sm">Next →</a>
+    {% endif %}
+
+    <span class="text-xs text-muted" style="margin-left:8px;">{{ total }} total</span>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

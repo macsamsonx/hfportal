@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Chat{% endblock %}
+{% block page_title %}Chat{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Chat</h2>
+    <p>Team channel and direct messages</p>
+  </div>
+</div>
+
+<div class="chat-shell">
+  <!-- Contacts sidebar -->
+  <div class="chat-contacts">
+    <a href="/chat?room=group" class="chat-contact {% if room == 'group' %}active{% endif %}">
+      <div class="chat-contact-avatar group">#</div>
+      <div class="chat-contact-info">
+        <div class="chat-contact-name">Team Channel</div>
+        <div class="chat-contact-sub">Everyone</div>
+      </div>
+    </a>
+    <div class="chat-contacts-label">Direct Messages</div>
+    {% for c in contacts %}
+    <a href="/chat?room={{ c.room }}" class="chat-contact {% if room == c.room %}active{% endif %}">
+      {% if c.profile_pic_path %}
+        <img src="/uploads/{{ c.profile_pic_path }}" class="chat-contact-avatar" alt="{{ c.name }}">
+      {% else %}
+        <div class="chat-contact-avatar">{{ c.name[0] }}</div>
+      {% endif %}
+      <div class="chat-contact-info">
+        <div class="chat-contact-name">{{ c.name }}</div>
+        <div class="chat-contact-sub">{{ c.role }}</div>
+      </div>
+      {% if c.unread > 0 %}
+        <span class="nav-badge">{{ c.unread }}</span>
+      {% endif %}
+    </a>
+    {% endfor %}
+  </div>
+
+  <!-- Message thread -->
+  <div class="chat-thread">
+    <div class="chat-thread-header">
+      {% if room == 'group' %}
+        <div class="chat-contact-avatar group">#</div>
+        <div>
+          <div class="chat-contact-name">Team Channel</div>
+          <div class="chat-contact-sub">Everyone in the company</div>
+        </div>
+      {% elif other_user %}
+        {% if other_user.profile_pic_path %}
+          <img src="/uploads/{{ other_user.profile_pic_path }}" class="chat-contact-avatar" alt="{{ other_user.name }}">
+        {% else %}
+          <div class="chat-contact-avatar">{{ other_user.name[0] }}</div>
+        {% endif %}
+        <div>
+          <div class="chat-contact-name">{{ other_user.name }}</div>
+          <div class="chat-contact-sub">{{ other_user.role }}</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="chat-messages" id="chat-messages">
+      {% for m in messages %}
+        <div class="chat-msg {% if m.sender_id == user.id %}mine{% endif %}" data-id="{{ m.id }}">
+          {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}</div>{% endif %}
+          <div class="chat-msg-bubble">{{ m.body }}</div>
+          <div class="chat-msg-time">{{ m.created_at[11:16] if m.created_at|length > 11 else m.created_at }}</div>
+        </div>
+      {% else %}
+        <div class="empty-state">
+          <div class="emoji">💬</div>
+          <p>No messages yet. Say hello!</p>
+        </div>
+      {% endfor %}
+    </div>
+
+    <form id="chat-form" class="chat-input-row" autocomplete="off">
+      <div class="chat-emoji-wrap">
+        <button type="button" class="btn btn-ghost btn-sm" id="emoji-toggle">😊</button>
+        <div class="chat-emoji-picker" id="emoji-picker">
+          {% for e in ['😀','😂','😍','😎','👍','🙏','🎉','🔥','❤️','😢','😡','🤔','👏','🙌','💪','✅','❌','⏰','📌','🚀'] %}
+          <span class="chat-emoji" data-emoji="{{ e }}">{{ e }}</span>
+          {% endfor %}
+        </div>
+      </div>
+      <input type="text" id="chat-input" class="form-input" placeholder="Type a message…" maxlength="2000" autocomplete="off">
+      <button type="submit" class="btn btn-primary">Send</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  const room = {{ room | tojson }};
+  const myId = {{ user.id }};
+  const messagesEl = document.getElementById('chat-messages');
+  const form = document.getElementById('chat-form');
+  const input = document.getElementById('chat-input');
+  let lastId = 0;
+  const idEls = messagesEl.querySelectorAll('.chat-msg[data-id]');
+  if (idEls.length) lastId = parseInt(idEls[idEls.length - 1].dataset.id, 10);
+
+  function scrollToBottom() {
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  scrollToBottom();
+
+  function renderMessage(m) {
+    const div = document.createElement('div');
+    div.className = 'chat-msg' + (m.sender_id === myId ? ' mine' : '');
+    div.dataset.id = m.id;
+    const time = (m.created_at && m.created_at.length > 11) ? m.created_at.slice(11, 16) : (m.created_at || '');
+    div.innerHTML =
+      (m.sender_id !== myId ? '<div class="chat-msg-sender"></div>' : '') +
+      '<div class="chat-msg-bubble"></div>' +
+      '<div class="chat-msg-time"></div>';
+    if (m.sender_id !== myId) div.querySelector('.chat-msg-sender').textContent = m.sender_name;
+    div.querySelector('.chat-msg-bubble').textContent = m.body;
+    div.querySelector('.chat-msg-time').textContent = time;
+    return div;
+  }
+
+  function startSSE() {
+    const url = `/api/chat/stream?room=${encodeURIComponent(room)}&after_id=${lastId}`;
+    const es = new EventSource(url);
+    es.onmessage = function(e) {
+      const m = JSON.parse(e.data);
+      lastId = m.id;
+      const empty = messagesEl.querySelector('.empty-state');
+      if (empty) empty.remove();
+      messagesEl.appendChild(renderMessage(m));
+      scrollToBottom();
+    };
+    es.onerror = function() {
+      es.close();
+      setTimeout(startSSE, 3000);
+    };
+    return es;
+  }
+
+  let sse = startSSE();
+
+  form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const body = input.value.trim();
+    if (!body) return;
+    input.value = '';
+    const fd = new FormData();
+    fd.append('room', room);
+    fd.append('body', body);
+    await fetch('/api/chat/send', { method: 'POST', body: fd, headers: {'X-Requested-With':'fetch'} });
+  });
+
+  const emojiToggle = document.getElementById('emoji-toggle');
+  const emojiPicker = document.getElementById('emoji-picker');
+  emojiToggle.addEventListener('click', function() {
+    emojiPicker.classList.toggle('open');
+  });
+  document.querySelectorAll('.chat-emoji').forEach(function(el) {
+    el.addEventListener('click', function() {
+      input.value += el.dataset.emoji;
+      emojiPicker.classList.remove('open');
+      input.focus();
+    });
+  });
+  document.addEventListener('click', function(e) {
+    if (!emojiPicker.contains(e.target) && e.target !== emojiToggle) {
+      emojiPicker.classList.remove('open');
+    }
+  });
+})();
+</script>
+{% endblock %}

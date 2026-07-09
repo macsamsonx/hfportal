@@ -1,0 +1,539 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}My Dashboard{% endblock %}
+
+{% block content %}
+
+{# ── Client colour map ─────────────────────────────────────────────────────── #}
+{% set cc = {} %}
+{% for c in clients %}
+  {% set _ = cc.update({c.name: c.hex_color}) %}
+{% endfor %}
+
+{# ── Date filters ──────────────────────────────────────────────────────────── #}
+{% set tasks_today  = tasks_month | selectattr('date_logged', 'eq', today)  | list %}
+{% set tasks_week   = tasks_month | selectattr('date_logged', 'ge', week_start) | selectattr('date_logged', 'le', week_end) | list %}
+
+{# ── TOP ROW: clock + stats + attendance ──────────────────────────────────── #}
+<div style="display:flex; gap:12px; align-items:stretch; margin-bottom:20px; flex-wrap:wrap;">
+
+  <!-- Live clock (PHT) -->
+  <div class="card" style="padding:14px 20px; text-align:center; flex:0 0 auto; min-width:160px;">
+    <div id="live-clock-big" style="font-size:1.6rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:var(--primary);"></div>
+    <div class="text-xs text-muted mt-4" id="live-date-big"></div>
+    <div class="mt-6"><span class="badge badge-blue">{{ user.shift_type }} Shift</span></div>
+    <div class="mt-4" style="font-size:.65rem; color:var(--muted);">Philippine Time</div>
+  </div>
+
+  <!-- Hours this week -->
+  <div class="stat-card" style="flex:1; min-width:140px;">
+    <div class="stat-icon blue">⏱</div>
+    <div>
+      <div class="stat-label">Hours This Week</div>
+      <div class="stat-value">{{ week_hours }}</div>
+      {% set ot = [week_hours - 40, 0] | max %}
+      <div class="stat-sub">{% if ot > 0 %}OT: +{{ ot }}h{% else %}Regular{% endif %}</div>
+    </div>
+  </div>
+
+  <!-- Done today -->
+  <div class="stat-card" style="flex:1; min-width:140px;">
+    <div class="stat-icon green">✅</div>
+    <div>
+      <div class="stat-label">Done Today</div>
+      <div class="stat-value">{{ tasks_today | selectattr('status', 'eq', 'Done') | list | length }}</div>
+      <div class="stat-sub">{{ tasks_today | length }} tasks today</div>
+    </div>
+  </div>
+
+  <!-- VL Balance -->
+  {% if vl_enabled %}
+  <div class="stat-card {% if vl_balance <= 3 %}yellow{% else %}green{% endif %}" style="flex:1; min-width:120px;">
+    <div class="stat-icon {% if vl_balance <= 3 %}yellow{% else %}green{% endif %}">🌴</div>
+    <div>
+      <div class="stat-label">VL Left</div>
+      <div class="stat-value">{{ vl_balance }}</div>
+      <div class="stat-sub">of {{ vl_total }} days</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- SL Balance -->
+  {% if sl_enabled %}
+  <div class="stat-card {% if sl_balance <= 3 %}yellow{% else %}blue{% endif %}" style="flex:1; min-width:120px;">
+    <div class="stat-icon {% if sl_balance <= 3 %}yellow{% else %}blue{% endif %}">🏥</div>
+    <div>
+      <div class="stat-label">SL Left</div>
+      <div class="stat-value">{{ sl_balance }}</div>
+      <div class="stat-sub">of {{ sl_total }} days</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Timesheet status widget -->
+  {% set ts_color = {'Draft':'yellow','Submitted':'blue','Approved':'green','Returned':'red'} %}
+  {% set ts_icon  = {'Draft':'📝','Submitted':'📤','Approved':'✅','Returned':'↩️'} %}
+  <a href="/my-timesheet" style="flex:1; min-width:120px; text-decoration:none;">
+    <div class="stat-card {% if timesheet_status == 'Approved' %}green{% elif timesheet_status == 'Returned' %}red{% elif timesheet_status == 'Submitted' %}blue{% elif timesheet_status %}yellow{% else %}gray{% endif %}">
+      <div class="stat-icon {% if timesheet_status == 'Approved' %}green{% elif timesheet_status == 'Returned' %}red{% elif timesheet_status == 'Submitted' %}blue{% elif timesheet_status %}yellow{% else %}gray{% endif %}">
+        {{ ts_icon.get(timesheet_status, '🗓️') }}
+      </div>
+      <div>
+        <div class="stat-label">Timesheet</div>
+        <div class="stat-value" style="font-size:1rem;">{{ timesheet_status or 'No Entry' }}</div>
+        <div class="stat-sub">this week</div>
+      </div>
+    </div>
+  </a>
+
+  <!-- Pending requests widget -->
+  {% set total_pending = (pending_ot_mine or 0) + (pending_leave_mine or 0) %}
+  {% if total_pending > 0 or for_review_mine > 0 %}
+  <div class="stat-card yellow" style="flex:1; min-width:120px;">
+    <div class="stat-icon yellow">⏳</div>
+    <div>
+      <div class="stat-label">Pending</div>
+      <div class="stat-value">{{ total_pending + for_review_mine }}</div>
+      <div class="stat-sub">
+        {% if pending_ot_mine %}{{ pending_ot_mine }} OT{% endif %}
+        {% if pending_leave_mine %}{% if pending_ot_mine %} · {% endif %}{{ pending_leave_mine }} Leave{% endif %}
+        {% if for_review_mine %}{% if total_pending %} · {% endif %}{{ for_review_mine }} Review{% endif %}
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Attendance / Clock in-out -->
+  <div class="card" style="flex:2.5; min-width:260px; padding:14px 18px;">
+    {% if not attendance %}
+      <div class="text-xs text-muted mb-8 fw-600">Not clocked in today</div>
+      <form method="post" action="/api/clock-in">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+          <div class="form-group" style="margin:0; flex:1;">
+            <label class="form-label">Clock In Time (PHT)</label>
+            <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:36px;">
+          </div>
+          <button type="submit" class="btn btn-success" style="height:36px; font-weight:600;">
+            ▶ Clock In
+          </button>
+        </div>
+      </form>
+
+    {% else %}
+      <div class="flex-between mb-10">
+        {% if not attendance.clock_out %}
+          {% if attendance.is_on_break %}
+            <div class="clock-status" style="background:#fef3c7; color:#d97706; font-size:.76rem; border-radius:99px; padding:4px 12px;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;"></span>
+              On Break{% if break_minutes %} · {{ break_minutes | int }}m taken{% endif %}
+            </div>
+            <form method="post" action="/api/break/end">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+              <button type="submit" class="btn btn-success btn-sm">▶ Resume Work</button>
+            </form>
+          {% else %}
+            <div class="clock-status in" style="font-size:.76rem;">
+              <div class="dot dot-green"></div>
+              Active{% if active_hours %} · {{ active_hours }}h{% endif %}
+            </div>
+            <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
+              <form method="post" action="/api/break/start">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-warning btn-sm">⏸ Break</button>
+              </form>
+              <form method="post" action="/api/clock-out" style="display:flex; gap:6px; align-items:center;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <input type="time" name="clock_time" value="{{ now.strftime('%H:%M') }}"
+                       class="form-input" style="width:100px; height:30px; padding:4px 8px; font-size:.8rem;">
+                <button type="submit" class="btn btn-danger btn-sm">■ Clock Out</button>
+              </form>
+            </div>
+          {% endif %}
+        {% else %}
+          <div class="clock-status out" style="font-size:.76rem;">
+            <div class="dot dot-gray"></div>
+            Shift Complete
+          </div>
+          {% if break_minutes > 0 %}
+            <span class="badge badge-yellow">{{ break_minutes | int }}m break taken</span>
+          {% endif %}
+        {% endif %}
+      </div>
+
+      <!-- Time adjustment -->
+      <form method="post" action="/api/attendance/edit" style="display:flex; gap:8px; align-items:flex-end;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div class="form-group" style="margin:0; flex:1;">
+          <label class="form-label">Time In</label>
+          <input type="time" name="clock_in_time" class="form-input"
+                 style="height:30px; padding:4px 8px; font-size:.8rem;"
+                 value="{{ attendance.clock_in[:5] if attendance.clock_in else '' }}">
+        </div>
+        <div class="form-group" style="margin:0; flex:1;">
+          <label class="form-label">Time Out</label>
+          <input type="time" name="clock_out_time" class="form-input"
+                 style="height:30px; padding:4px 8px; font-size:.8rem;"
+                 value="{{ attendance.clock_out[:5] if attendance.clock_out else '' }}">
+        </div>
+        <button type="submit" class="btn btn-outline btn-sm" style="height:30px;">Save</button>
+      </form>
+    {% endif %}
+  </div>
+
+</div>
+
+{# ── TWO-COLUMN BODY ──────────────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start;">
+
+  <!-- LEFT: Start Task form -->
+  <div class="card">
+    <div class="card-header">
+      <h3>▶ Log Task</h3>
+    </div>
+    <div class="card-body">
+      <form id="start-task-form" method="post" action="/api/tasks">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div class="form-group">
+          <label class="form-label">Client</label>
+          <select name="client" class="form-select" required>
+            {% for c in clients %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Task Title</label>
+          <input name="task_title" type="text" class="form-input"
+                 placeholder="What are you working on?" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Output Files (Drive Path)</label>
+          <input name="output_files" type="text" class="form-input"
+                 placeholder="Paste Google Drive link or file path…">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes (optional)</label>
+          <textarea name="notes" class="form-textarea" rows="2"
+                    placeholder="Steps, deliverables, links…"></textarea>
+        </div>
+        <button type="submit" id="start-task-btn" class="btn btn-success btn-full"
+                style="font-size:.9rem; padding:10px; font-weight:600;">
+          ▶ Start Task
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- RIGHT: Task logs with tabs -->
+  <div class="card">
+    <div class="card-header" style="flex-wrap:wrap; gap:8px;">
+      <h3>Task Logs</h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        {% set running_count = tasks_month | selectattr('is_running', 'eq', 1) | list | length %}
+        {% if running_count %}
+          <span class="badge badge-green pulse">{{ running_count }} running</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- Period tabs -->
+    <div style="padding:0 20px; border-bottom:1px solid var(--border);">
+      <div style="display:flex; gap:0;">
+        <button class="log-tab active" data-period="today" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--primary); border-bottom:2px solid var(--primary); margin-bottom:-1px;">
+          Today <span class="badge badge-blue" style="margin-left:4px;">{{ tasks_today | length }}</span>
+        </button>
+        <button class="log-tab" data-period="week" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px;">
+          This Week <span class="badge badge-gray" style="margin-left:4px;">{{ tasks_week | length }}</span>
+        </button>
+        <button class="log-tab" data-period="month" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px;">
+          This Month <span class="badge badge-gray" style="margin-left:4px;">{{ tasks_month | length }}</span>
+        </button>
+      </div>
+    </div>
+
+    {% if tasks_month %}
+      <div class="table-wrapper">
+        <table id="task-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Task</th>
+              <th>Client</th>
+              <th>Hours / Timer</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for task in tasks_month %}
+            {% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
+            {% set client_hex = cc.get(task.client, '#64748b') %}
+            {% set is_today = task.date_logged == today %}
+            {% set in_week = task.date_logged >= week_start and task.date_logged <= week_end %}
+            {% set running = task.is_running == 1 %}
+            <tr class="task-row"
+                data-period="{{ 'today' if is_today else '' }} {{ 'week' if in_week else '' }} month"
+                style="{% if running %}background:#f0fdf4; border-left:3px solid #22c55e;{% elif is_today %}background:#f8fafc;{% endif %}">
+              <td class="text-xs nowrap" style="color:var(--muted);">
+                {{ task.date_logged[5:] }}
+                {% if is_today %}<div style="color:var(--success);font-weight:700;font-size:.65rem;">TODAY</div>{% endif %}
+              </td>
+              <td class="fw-600" style="max-width:160px;">
+                <div class="truncate">{{ task.task_title }}</div>
+                {% if task.notes %}
+                  <div class="text-xs text-muted mt-2 truncate">{{ task.notes }}</div>
+                {% endif %}
+                {% if task.reviewer_name %}
+                  <div class="text-xs mt-2" style="color:var(--primary);">👤 {{ task.reviewer_name }}</div>
+                {% endif %}
+              </td>
+              <td>
+                <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;
+                             font-size:.68rem;font-weight:700;
+                             background:{{ client_hex }}22;color:{{ client_hex }};">
+                  {{ task.client or '—' }}
+                </span>
+              </td>
+              <td>
+                {% if running %}
+                  <span class="task-timer pulse" data-started="{{ task.started_at }}"
+                        style="font-size:.78rem; font-weight:700; color:var(--success);">
+                    starting…
+                  </span>
+                {% else %}
+                  <span style="font-weight:600;">{{ task.hours_worked }}h</span>
+                {% endif %}
+              </td>
+              <td>
+                <span class="badge badge-{{ sc[task.status] or 'gray' }}">{{ task.status }}</span>
+              </td>
+              <td>
+                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                  {% if running %}
+                    <form method="post" action="/api/tasks/{{ task.id }}/stop">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                      <button type="submit" class="btn btn-danger btn-sm">■ Stop</button>
+                    </form>
+                  {% else %}
+                    <button class="btn btn-outline btn-sm edit-task-btn"
+                            data-id="{{ task.id }}"
+                            data-client="{{ task.client | default('') | e }}"
+                            data-title="{{ task.task_title | e }}"
+                            data-hours="{{ task.hours_worked }}"
+                            data-output="{{ task.output_files | default('') | e }}"
+                            data-notes="{{ task.notes | default('') | e }}">
+                      Edit
+                    </button>
+                    <form method="post" action="/api/tasks/{{ task.id }}/delete"
+                          onsubmit="return confirm('Delete this task?')">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                      <button type="submit" class="btn btn-ghost btn-sm"
+                              style="color:var(--danger);">✕</button>
+                    </form>
+                  {% endif %}
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <div class="empty-state">
+        <div class="emoji">📭</div>
+        <p>No tasks this month. Use the form to start one.</p>
+      </div>
+    {% endif %}
+
+    <!-- Summary footer per period -->
+    <div id="period-summary" style="padding:10px 20px; border-top:1px solid var(--border); font-size:.78rem; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;">
+      <!-- filled by JS -->
+    </div>
+  </div>
+
+</div>
+
+{# ── Edit Task Modal ─────────────────────────────────────────────────────────── #}
+<div class="modal-overlay" id="editModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Edit Task</span>
+      <button class="modal-close" onclick="closeModal('editModal')">✕</button>
+    </div>
+    <form id="editTaskForm" method="post" action="#">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Client</label>
+            <select name="client" id="edit_client" class="form-select" required>
+              {% for c in clients %}
+                <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Hours Worked</label>
+            <input name="hours_worked" id="edit_hours" type="number"
+                   class="form-input" min="0.25" max="24" step="0.25" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Task Title</label>
+          <input name="task_title" id="edit_title" type="text" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Output Files (Drive Path)</label>
+          <input name="output_files" id="edit_output_files" type="text" class="form-input"
+                 placeholder="Paste Google Drive link or file path…">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea name="notes" id="edit_notes" class="form-textarea" rows="3"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('editModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Changes</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Task submit loading overlay -->
+<div id="task-loading" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9999;
+     align-items:center; justify-content:center; flex-direction:column; gap:16px;">
+  <div style="background:#fff; border-radius:16px; padding:32px 48px; text-align:center; box-shadow:0 20px 40px rgba(0,0,0,.3);">
+    <div style="font-size:2rem; margin-bottom:12px;">⏳</div>
+    <div style="font-weight:700; font-size:1rem; color:var(--text); margin-bottom:6px;">Saving task…</div>
+    <div style="font-size:.82rem; color:var(--muted);">Please wait a moment</div>
+    <div style="margin-top:16px; height:4px; background:var(--border); border-radius:99px; overflow:hidden; width:200px;">
+      <div id="task-loading-bar" style="height:100%; width:0%; background:var(--primary); border-radius:99px; transition:width 3s linear;"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── PHT Live clocks ────────────────────────────────────────────────────────────
+function tickPHT() {
+  const now = new Date();
+  const bigEl = document.getElementById('live-clock-big');
+  const dateEl = document.getElementById('live-date-big');
+  if (bigEl) bigEl.textContent = now.toLocaleTimeString('en-PH', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit'
+  });
+  if (dateEl) dateEl.textContent = now.toLocaleDateString('en-PH', {
+    timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+  });
+}
+setInterval(tickPHT, 1000);
+tickPHT();
+
+// Pre-fill clock-in time with PHT
+const clockInInput = document.getElementById('clock-in-input');
+if (clockInInput) {
+  const phtTime = new Date().toLocaleTimeString('en-PH', {
+    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false
+  });
+  clockInInput.value = phtTime;
+}
+
+// ── Running task timers ────────────────────────────────────────────────────────
+function updateTimers() {
+  document.querySelectorAll('.task-timer').forEach(function(el) {
+    const raw = el.dataset.started;
+    if (!raw) return;
+    const started = new Date(raw.replace(' ', 'T'));
+    const elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
+    if (elapsed < 0) { el.textContent = '0m 00s'; return; }
+    const h = Math.floor(elapsed / 3600);
+    const m = Math.floor((elapsed % 3600) / 60);
+    const s = elapsed % 60;
+    el.textContent = (h > 0 ? h + 'h ' : '') + m + 'm ' + String(s).padStart(2, '0') + 's';
+  });
+}
+setInterval(updateTimers, 1000);
+updateTimers();
+
+// ── 3-second loading on task submit ───────────────────────────────────────────
+document.getElementById('start-task-form').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const form = this;
+  const overlay = document.getElementById('task-loading');
+  const bar = document.getElementById('task-loading-bar');
+  overlay.style.display = 'flex';
+  setTimeout(() => { bar.style.width = '100%'; }, 50);
+  setTimeout(() => form.submit(), 3000);
+});
+
+// ── Log period tabs ────────────────────────────────────────────────────────────
+const tabs = document.querySelectorAll('.log-tab');
+const rows = document.querySelectorAll('.task-row');
+const summaryEl = document.getElementById('period-summary');
+
+function filterTasks(period) {
+  let visibleRows = 0;
+  let totalHours = 0;
+
+  rows.forEach(row => {
+    const periods = row.dataset.period || '';
+    const show = period === 'month' ? true : periods.includes(period);
+    row.style.display = show ? '' : 'none';
+    if (show) {
+      visibleRows++;
+      // Find hours in this row
+      const timerEl = row.querySelector('.task-timer');
+      if (!timerEl) {
+        const hoursCell = row.cells[3];
+        if (hoursCell) {
+          const text = hoursCell.textContent.trim().replace('h', '');
+          const h = parseFloat(text);
+          if (!isNaN(h)) totalHours += h;
+        }
+      }
+    }
+  });
+
+  if (summaryEl) {
+    summaryEl.innerHTML = `
+      <span><strong>${visibleRows}</strong> tasks</span>
+      <span><strong>${totalHours.toFixed(2)}h</strong> logged</span>
+    `;
+  }
+}
+
+tabs.forEach(tab => {
+  tab.addEventListener('click', () => {
+    tabs.forEach(t => {
+      t.style.color = 'var(--muted)';
+      t.style.borderBottom = '2px solid transparent';
+      t.classList.remove('active');
+    });
+    tab.style.color = 'var(--primary)';
+    tab.style.borderBottom = '2px solid var(--primary)';
+    tab.classList.add('active');
+    filterTasks(tab.dataset.period);
+  });
+});
+
+// Init with today
+filterTasks('today');
+
+// ── Edit task modal ────────────────────────────────────────────────────────────
+document.querySelectorAll('.edit-task-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.getElementById('editTaskForm').action = '/api/tasks/' + this.dataset.id + '/edit';
+    document.getElementById('edit_client').value       = this.dataset.client;
+    document.getElementById('edit_title').value        = this.dataset.title;
+    document.getElementById('edit_hours').value        = this.dataset.hours;
+    document.getElementById('edit_output_files').value = this.dataset.output;
+    document.getElementById('edit_notes').value        = this.dataset.notes;
+    openModal('editModal');
+  });
+});
+</script>
+{% endblock %}

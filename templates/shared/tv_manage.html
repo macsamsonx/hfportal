@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}TV Poster Management{% endblock %}
+{% block page_title %}TV Poster Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>TV Display Posters</h2>
+    <p>Images that loop on the TV board. PNG, JPG, GIF, WEBP supported.</p>
+  </div>
+  <div class="flex gap-8">
+    <a href="/tv" target="_blank" class="btn btn-outline">Preview TV →</a>
+    <button class="btn btn-primary" onclick="openModal('upload-poster-modal')">+ Upload Poster</button>
+  </div>
+</div>
+
+{% if not posters %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">🖼️</div>
+    <p>No posters uploaded yet. Upload your first image to display on the TV board.</p>
+  </div>
+</div>
+{% else %}
+<div class="grid-3">
+  {% for p in posters %}
+  <div class="card" style="{% if not p.is_active %}opacity:.5;{% endif %}">
+    <div style="aspect-ratio:16/9; overflow:hidden; background:#0d0b1e; border-radius:var(--radius-lg) var(--radius-lg) 0 0;">
+      <img src="/uploads/posters/{{ p.filename }}"
+           style="width:100%; height:100%; object-fit:contain;"
+           alt="{{ p.caption or p.filename }}">
+    </div>
+    <div class="card-body" style="padding:14px 16px;">
+      <div class="fw-700 truncate mb-4">{{ p.caption or p.filename }}</div>
+      <div class="flex-between">
+        <span class="text-xs text-muted">{{ p.duration_secs }}s · #{{ p.display_order }}</span>
+        {% if p.is_active %}
+          <span class="badge badge-green">Active</span>
+        {% else %}
+          <span class="badge badge-gray">Hidden</span>
+        {% endif %}
+      </div>
+      <div class="flex gap-8 mt-12">
+        <form method="post" action="/api/tv/posters/{{ p.id }}/toggle" style="flex:1;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-outline btn-sm btn-full">
+            {% if p.is_active %}Hide{% else %}Show{% endif %}
+          </button>
+        </form>
+        <form method="post" action="/api/tv/posters/{{ p.id }}/delete"
+              onsubmit="return confirm('Delete this poster?')" style="flex:1;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-danger btn-sm btn-full">Delete</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+<!-- Upload modal -->
+<div class="modal-overlay" id="upload-poster-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-header">
+      <span class="modal-title">Upload Poster</span>
+      <button class="modal-close" onclick="closeModal('upload-poster-modal')">×</button>
+    </div>
+    <form method="post" action="/api/tv/posters/upload" enctype="multipart/form-data">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Image File * <span class="text-muted text-xs">(PNG, JPG, GIF, WEBP)</span></label>
+          <input type="file" name="file" class="form-input" accept=".png,.jpg,.jpeg,.gif,.webp" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Caption <span class="text-muted text-xs">(optional)</span></label>
+          <input type="text" name="caption" class="form-input"
+                 placeholder="e.g. Employee of the Month — June 2026">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Display Duration (seconds)</label>
+          <input type="number" name="duration_secs" class="form-input"
+                 value="8" min="3" max="60">
+          <div class="form-hint">How long this image shows before switching to the next one.</div>
+        </div>
+        <div style="background:var(--primary-l); padding:10px 14px; border-radius:var(--radius); font-size:.78rem; color:var(--primary);">
+          💡 Best size: 1920×1080px (16:9 ratio). File will be displayed full-screen on TV.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('upload-poster-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Upload</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

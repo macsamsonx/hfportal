@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}{{ client.name }} — Client Dashboard{% endblock %}
+{% block page_title %}Client Dashboard{% endblock %}
+
+{% block extra_head %}
+<style>
+  .hours-bar { height: 8px; border-radius: 99px; background: var(--border); overflow: hidden; }
+  .hours-bar-fill { height: 100%; border-radius: 99px; background: {{ client.hex_color }}; }
+  .note-card { border-left: 3px solid {{ client.hex_color }}; padding: 12px 14px; background: var(--surface); border-radius: 0 8px 8px 0; }
+  .tab-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; font-size: .82rem; font-weight: 600; }
+  .tab-btn.active { background: {{ client.hex_color }}22; color: {{ client.hex_color }}; border-color: {{ client.hex_color }}; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div class="flex-center gap-12">
+    <a href="/clients" class="btn btn-outline btn-sm">← Clients</a>
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:{{ client.hex_color }};"></span>
+      <h2 style="margin:0;">{{ client.name }}</h2>
+    </div>
+  </div>
+</div>
+
+<!-- Stats row -->
+<div class="grid-4 mb-20">
+  <div class="stat-card">
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">⏱</div>
+    <div>
+      <div class="stat-label">All-Time Hours</div>
+      <div class="stat-value">{{ total_hours }}h</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📅</div>
+    <div>
+      <div class="stat-label">This Month</div>
+      <div class="stat-value">{{ month_hours }}h</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">🗓</div>
+    <div>
+      <div class="stat-label">This Week</div>
+      <div class="stat-value">{{ week_hours }}h</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📝</div>
+    <div>
+      <div class="stat-label">Total Tasks</div>
+      <div class="stat-value">{{ tasks | length }}</div>
+      <div class="stat-sub">{{ tasks | selectattr('status','eq','Done') | list | length }} done</div>
+    </div>
+  </div>
+</div>
+
+<!-- Tab buttons -->
+<div style="display:flex; gap:8px; margin-bottom:16px;">
+  <button class="tab-btn active" onclick="showTab('tasks',this)">📋 Tasks</button>
+  <button class="tab-btn" onclick="showTab('hours',this)">⏱ Hours by Day</button>
+  <button class="tab-btn" onclick="showTab('notes',this)">📌 Notes ({{ notes | length }})</button>
+</div>
+
+<!-- TASKS TAB -->
+<div id="tab-tasks">
+  <div class="card">
+    <div class="card-header">
+      <h3>All Tasks — {{ client.name }}</h3>
+      <input type="text" id="task-search" class="form-input" style="width:200px" placeholder="🔍 Search…">
+    </div>
+    <div class="table-wrapper">
+      <table id="task-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Employee</th>
+            <th>Task</th>
+            <th>Hours</th>
+            <th>Output Files</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
+          {% for t in tasks %}
+          <tr data-search="{{ (t.task_title ~ ' ' ~ t.emp_name) | lower }}">
+            <td class="text-xs text-muted nowrap">{{ t.date_logged }}</td>
+            <td class="fw-600">{{ t.emp_name }}</td>
+            <td>
+              {{ t.task_title }}
+              {% if t.notes %}<div class="text-xs text-muted truncate" style="max-width:220px;">{{ t.notes }}</div>{% endif %}
+            </td>
+            <td class="fw-600">{{ t.hours_worked }}h</td>
+            <td class="text-xs text-muted truncate" style="max-width:140px;">{{ t.output_files or '—' }}</td>
+            <td><span class="badge badge-{{ sc.get(t.status,'gray') }}">{{ t.status }}</span></td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-center text-muted" style="padding:24px">No tasks yet for this client.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- HOURS BY DAY TAB -->
+<div id="tab-hours" style="display:none;">
+  <div class="card">
+    <div class="card-header"><h3>Hours by Day (last 30 days)</h3></div>
+    {% if hours_by_day %}
+    {% set max_day_hrs = hours_by_day | map(attribute=1) | max %}
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>Date</th><th>Hours</th><th style="width:45%">Bar</th></tr></thead>
+        <tbody>
+          {% for day, hrs in hours_by_day %}
+          <tr>
+            <td class="text-sm fw-600 nowrap">{{ day }}</td>
+            <td class="fw-700" style="color:{{ client.hex_color }}">{{ "%.2f"|format(hrs) }}h</td>
+            <td>
+              <div class="hours-bar">
+                <div class="hours-bar-fill" style="width:{{ ((hrs / max_day_hrs) * 100)|int }}%"></div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+      <div class="empty-state"><div class="emoji">📊</div><p>No hours logged yet.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- NOTES TAB -->
+<div id="tab-notes" style="display:none;">
+  <div style="display:grid; grid-template-columns:1fr 360px; gap:20px; align-items:start;">
+
+    <!-- Notes list -->
+    <div>
+      {% if notes %}
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          {% for note in notes %}
+          <div class="note-card">
+            <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+              <div>
+                <div class="fw-700" style="font-size:.92rem;">{{ note.title }}</div>
+                <div class="text-xs text-muted mt-2">{{ note.author_name }} · {{ note.created_at[:16] }}</div>
+              </div>
+              <form method="post" action="/api/clients/{{ client.id }}/notes/{{ note.id }}/delete" style="flex-shrink:0;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-ghost btn-sm" data-confirm="Delete this note?"
+                        style="font-size:.7rem;padding:2px 8px;color:var(--muted);">✕</button>
+              </form>
+            </div>
+            <div style="margin-top:8px; font-size:.85rem; white-space:pre-wrap; line-height:1.5;">{{ note.content }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="empty-state"><div class="emoji">📌</div><p>No notes yet. Add the first one →</p></div>
+      {% endif %}
+    </div>
+
+    <!-- Add note form -->
+    <div class="card" style="position:sticky; top:20px;">
+      <div class="card-header"><h3>+ Add Note</h3></div>
+      <div class="card-body">
+        <form method="post" action="/api/clients/{{ client.id }}/notes">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="form-group">
+            <label class="form-label">Title</label>
+            <input type="text" name="title" class="form-input" required
+                   placeholder="e.g. Brand Fonts, Color Palette, Contact…">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Content</label>
+            <textarea name="content" class="form-textarea" rows="5" required
+                      placeholder="Font: Helvetica Neue&#10;Primary color: #2563EB&#10;Contact: Jane Doe…"></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary btn-full">Save Note</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function showTab(name, btn) {
+    ['tasks','hours','notes'].forEach(t => {
+      document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
+    });
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  const taskSearch = document.getElementById('task-search');
+  if (taskSearch) {
+    taskSearch.addEventListener('input', () => {
+      const v = taskSearch.value.toLowerCase();
+      document.querySelectorAll('#task-table tbody tr[data-search]').forEach(tr => {
+        tr.style.display = tr.dataset.search.includes(v) ? '' : 'none';
+      });
+    });
+  }
+</script>
+{% endblock %}

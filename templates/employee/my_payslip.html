@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}My Payslip{% endblock %}
+{% block page_title %}My Payslip{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>My Pay History</h2>
+    <p>Your approved payroll records</p>
+  </div>
+</div>
+
+{% if not runs %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">💰</div>
+    <p>No payroll records yet. Your payslip will appear here once HR processes payroll for your account.</p>
+  </div>
+</div>
+{% else %}
+
+<!-- Summary stats -->
+{% set total_gross = runs | sum(attribute='gross_pay') %}
+{% set total_net   = runs | sum(attribute='net_pay') %}
+<div class="grid-3 mb-20">
+  <div class="stat-card blue">
+    <div class="stat-icon blue">📋</div>
+    <div>
+      <div class="stat-label">Pay Periods</div>
+      <div class="stat-value">{{ runs | length }}</div>
+    </div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-icon purple">💰</div>
+    <div>
+      <div class="stat-label">Total Gross (All)</div>
+      <div class="stat-value" style="font-size:1rem;">₱{{ "%.2f"|format(total_gross) }}</div>
+    </div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon green">🏦</div>
+    <div>
+      <div class="stat-label">Total Net (All)</div>
+      <div class="stat-value" style="font-size:1rem; color:var(--success);">₱{{ "%.2f"|format(total_net) }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Payslip cards -->
+<div style="display:flex; flex-direction:column; gap:16px;">
+{% for r in runs %}
+{% set gross = r.get('gross_pay') or r.get('total_pay') or 0 %}
+{% set net   = r.get('net_pay') or gross %}
+{% set tded  = r.get('total_deductions') or 0 %}
+<div class="card">
+  <div class="card-header">
+    <div>
+      <span class="fw-700" style="font-size:1rem;">Pay Period: {{ r.week_start }} — {{ r.week_end }}</span>
+      {% if r.status == 'Approved' %}
+        <span class="badge badge-green ml-8">✓ Approved</span>
+      {% else %}
+        <span class="badge badge-yellow ml-8">Pending Approval</span>
+      {% endif %}
+    </div>
+    <div class="text-xs text-muted">{{ r.emp_name }}</div>
+  </div>
+  <div class="card-body">
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap:16px; margin-bottom:16px;">
+
+      <div style="background:var(--bg); border-radius:var(--radius); padding:12px 16px;">
+        <div class="text-xs text-muted fw-600 mb-4">HOURLY RATE</div>
+        <div class="fw-700">₱{{ "%.2f"|format(r.hourly_rate) }}</div>
+      </div>
+
+      <div style="background:var(--bg); border-radius:var(--radius); padding:12px 16px;">
+        <div class="text-xs text-muted fw-600 mb-4">REGULAR HOURS</div>
+        <div class="fw-700">{{ r.regular_hours }}h</div>
+        <div class="text-xs text-muted">₱{{ "%.2f"|format(r.regular_pay) }}</div>
+      </div>
+
+      <div style="background:var(--bg); border-radius:var(--radius); padding:12px 16px;">
+        <div class="text-xs text-muted fw-600 mb-4">OVERTIME</div>
+        {% if r.overtime_hours > 0 %}
+          <div class="fw-700" style="color:var(--warning);">+{{ r.overtime_hours }}h</div>
+          <div class="text-xs text-muted">₱{{ "%.2f"|format(r.overtime_pay) }}</div>
+        {% else %}
+          <div class="fw-700 text-muted">—</div>
+        {% endif %}
+      </div>
+
+      <div style="background:var(--bg); border-radius:var(--radius); padding:12px 16px;">
+        <div class="text-xs text-muted fw-600 mb-4">GROSS PAY</div>
+        <div class="fw-700">₱{{ "%.2f"|format(gross) }}</div>
+      </div>
+
+    </div>
+
+    <!-- Deductions breakdown -->
+    {% if tded > 0 %}
+    <div style="background:#fef2f2; border-radius:var(--radius); padding:12px 16px; margin-bottom:16px;">
+      <div class="text-xs fw-700 mb-8" style="color:var(--danger);">DEDUCTIONS</div>
+      <div style="display:flex; gap:20px; flex-wrap:wrap; font-size:.82rem;">
+        {% if r.get('sss_deduction') and r.sss_deduction > 0 %}
+          <div><span class="text-muted">SSS:</span> <span class="fw-600">₱{{ "%.2f"|format(r.sss_deduction) }}</span></div>
+        {% endif %}
+        {% if r.get('philhealth_deduction') and r.philhealth_deduction > 0 %}
+          <div><span class="text-muted">PhilHealth:</span> <span class="fw-600">₱{{ "%.2f"|format(r.philhealth_deduction) }}</span></div>
+        {% endif %}
+        {% if r.get('pagibig_deduction') and r.pagibig_deduction > 0 %}
+          <div><span class="text-muted">Pag-IBIG:</span> <span class="fw-600">₱{{ "%.2f"|format(r.pagibig_deduction) }}</span></div>
+        {% endif %}
+        {% if r.get('tax_deduction') and r.tax_deduction > 0 %}
+          <div><span class="text-muted">Tax (BIR):</span> <span class="fw-600">₱{{ "%.2f"|format(r.tax_deduction) }}</span></div>
+        {% endif %}
+        <div style="margin-left:auto; color:var(--danger);"><span class="text-muted">Total:</span> <span class="fw-700">— ₱{{ "%.2f"|format(tded) }}</span></div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Net pay highlight -->
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px;
+                background:var(--primary-l); border-radius:var(--radius); border-left:4px solid var(--primary);">
+      <span class="fw-700" style="color:var(--primary);">NET PAY</span>
+      <span class="fw-800" style="font-size:1.4rem; color:var(--primary);">₱{{ "%.2f"|format(net) }}</span>
+    </div>
+
+    {% if r.approved_by %}
+    <div class="text-xs text-muted mt-8" style="text-align:right;">
+      Approved by {{ r.approved_by }}{% if r.approved_at %} · {{ r.approved_at[:10] }}{% endif %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% endif %}
+{% endblock %}

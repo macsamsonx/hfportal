@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block title %}My Profile{% endblock %}
+{% block page_title %}My Profile{% endblock %}
+
+{% block extra_head %}
+<style>
+.profile-tabs { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:24px; }
+.profile-tab  { padding:10px 24px; font-size:.85rem; font-weight:700; cursor:pointer; border:none;
+                background:none; color:var(--muted); border-bottom:3px solid transparent;
+                margin-bottom:-2px; transition:color .15s, border-color .15s; letter-spacing:.01em; }
+.profile-tab.active   { color:var(--primary); border-bottom-color:var(--primary); }
+.profile-tab:hover:not(.active) { color:var(--text); }
+.tab-panel    { display:none; }
+.tab-panel.active { display:block; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Profile header -->
+<div class="card mb-20" style="padding:20px 24px;">
+  <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+    {% if emp.profile_pic_path %}
+      <img src="/uploads/{{ emp.profile_pic_path }}"
+           style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);flex-shrink:0;">
+    {% else %}
+      <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#5b21b6,#7c3aed);
+                  color:#fff;font-size:1.8rem;font-weight:800;display:flex;align-items:center;
+                  justify-content:center;flex-shrink:0;">{{ emp.name[0] }}</div>
+    {% endif %}
+    <div style="flex:1;">
+      <div class="fw-700" style="font-size:1.15rem;">{{ emp.name }}</div>
+      <div class="text-muted text-sm">{{ emp.email }}</div>
+      <div class="mt-6" style="display:flex; gap:6px; flex-wrap:wrap;">
+        <span class="badge badge-blue">{{ emp.role }}</span>
+        <span class="badge badge-gray">{{ emp.shift_type }} Shift</span>
+        {% if emp.employment_type %}<span class="badge badge-gray">{{ emp.employment_type }}</span>{% endif %}
+        {% if emp.department %}<span class="badge badge-gray">{{ emp.department }}</span>{% endif %}
+      </div>
+    </div>
+    <!-- Upload photo -->
+    <form method="post" action="/profile/avatar" enctype="multipart/form-data"
+          style="display:flex; align-items:center; gap:8px;">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <label class="btn btn-outline btn-sm" style="cursor:pointer; margin:0;">
+        📷 Change Photo
+        <input type="file" name="avatar" accept="image/*" style="display:none"
+               onchange="this.closest('form').submit()">
+      </label>
+    </form>
+  </div>
+</div>
+
+<!-- Compliance pill -->
+<div style="margin-bottom:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+  {% if compliance_status == 'compliant' %}
+    <span class="badge badge-green" style="font-size:.8rem; padding:5px 12px;">✓ Fully Compliant ({{ doc_count }}/6)</span>
+  {% elif compliance_status == 'partial' %}
+    <span class="badge badge-yellow" style="font-size:.8rem; padding:5px 12px;">⚠ {{ doc_count }}/6 Documents</span>
+  {% else %}
+    <span class="badge badge-red" style="font-size:.8rem; padding:5px 12px;">✗ No Documents Uploaded</span>
+  {% endif %}
+  <div style="flex:1; height:6px; background:var(--surface-2); border-radius:3px; max-width:200px; overflow:hidden;">
+    <div style="height:100%; width:{{ (doc_count / 6 * 100) | int }}%; background:{% if compliance_status == 'compliant' %}var(--success){% elif compliance_status == 'partial' %}var(--warning){% else %}var(--danger){% endif %}; border-radius:3px;"></div>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="profile-tabs">
+  <button class="profile-tab active" onclick="switchTab('personal', this)">👤 Personal Info</button>
+  <button class="profile-tab" onclick="switchTab('documents', this)">📁 Documents</button>
+  <button class="profile-tab" onclick="switchTab('bank', this)">🏦 Bank &amp; Government</button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 1: PERSONAL INFO
+═══════════════════════════════════════════════════════════ -->
+<div id="tab-personal" class="tab-panel active">
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+
+    <!-- Personal details form -->
+    <div class="card">
+      <div class="card-header"><h3>Personal Details</h3></div>
+      <div class="card-body">
+        <form method="post" action="/profile/update">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Gender</label>
+              <select name="gender" class="form-select">
+                <option value="">— Select —</option>
+                {% for g in ['Male', 'Female', 'Non-binary', 'Prefer not to say'] %}
+                  <option value="{{ g }}" {% if emp.gender == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Birthday</label>
+              <input type="date" name="birthday" class="form-input" value="{{ emp.birthday or '' }}">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Marital Status</label>
+              <select name="marital_status" class="form-select">
+                <option value="">— Select —</option>
+                {% for s in ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'] %}
+                  <option value="{{ s }}" {% if emp.marital_status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mobile Number</label>
+              <input type="tel" name="phone" class="form-input"
+                     value="{{ emp.phone or '' }}" placeholder="+63 9XX XXX XXXX">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Home Address</label>
+            <textarea name="address" class="form-textarea" rows="2"
+                      placeholder="Complete address">{{ emp.address or '' }}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Skills / Capabilities</label>
+            <input type="text" name="capabilities" class="form-input"
+                   value="{{ emp.capabilities or '' }}" placeholder="e.g. Web Design, SEO, Copywriting">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Save Changes</button>
+        </form>
+      </div>
+    </div>
+
+    <div>
+      <!-- Emergency contact -->
+      <div class="card mb-16">
+        <div class="card-header"><h3>Emergency Contact</h3></div>
+        <div class="card-body">
+          <form method="post" action="/profile/update">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <!-- carry non-emergency fields silently -->
+            <input type="hidden" name="gender"         value="{{ emp.gender or '' }}">
+            <input type="hidden" name="birthday"       value="{{ emp.birthday or '' }}">
+            <input type="hidden" name="marital_status" value="{{ emp.marital_status or '' }}">
+            <input type="hidden" name="phone"          value="{{ emp.phone or '' }}">
+            <input type="hidden" name="address"        value="{{ emp.address or '' }}">
+            <input type="hidden" name="capabilities"   value="{{ emp.capabilities or '' }}">
+            <div class="form-row">
+              <div class="form-group">
+                <label class="form-label">Contact Name</label>
+                <input type="text" name="emergency_contact" class="form-input"
+                       value="{{ emp.emergency_contact or '' }}" placeholder="Full name">
+              </div>
+              <div class="form-group">
+                <label class="form-label">Contact Phone</label>
+                <input type="tel" name="emergency_phone" class="form-input"
+                       value="{{ emp.emergency_phone or '' }}" placeholder="+63 9XX XXX XXXX">
+              </div>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Save</button>
+          </form>
+        </div>
+      </div>
+
+      <!-- Change password -->
+      <div class="card">
+        <div class="card-header"><h3>🔒 Change Password</h3></div>
+        <div class="card-body">
+          <form method="post" action="/api/profile/change-password">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <div class="form-group">
+              <label class="form-label">Current Password</label>
+              <input type="password" name="current_password" class="form-input" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">New Password</label>
+              <input type="password" name="new_password" class="form-input" required minlength="6">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Confirm New Password</label>
+              <input type="password" name="confirm_password" class="form-input" required>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Update Password</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 2: DOCUMENTS
+═══════════════════════════════════════════════════════════ -->
+<div id="tab-documents" class="tab-panel">
+  <div class="card">
+    <div class="card-header"><h3>📁 PH Compliance Documents</h3></div>
+    <div class="card-body">
+      <form method="post" action="/profile/documents" enctype="multipart/form-data">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        {% set doc_list = [
+          ('doc_resume',    '📄', 'Resume / CV',           None),
+          ('doc_nbi',       '🔍', 'NBI Clearance',         'doc_nbi_expiry'),
+          ('doc_sss',       '🆔', 'SSS Form / ID',         'doc_sss_expiry'),
+          ('doc_tin',       '🧾', 'TIN / BIR 1902',        'doc_tin_expiry'),
+          ('doc_philhealth','💊', 'PhilHealth ID / MDR',   'doc_philhealth_expiry'),
+          ('doc_pagibig',   '🏦', 'Pag-IBIG / HDMF ID',   'doc_pagibig_expiry'),
+        ] %}
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          {% for field, icon, label, expiry_field in doc_list %}
+          {% set expiry_val = emp[expiry_field] if expiry_field and emp[expiry_field] else '' %}
+          <div style="display:flex; align-items:center; gap:12px; padding:12px 16px;
+                      background:var(--surface-2); border-radius:var(--radius); flex-wrap:wrap;">
+            <span style="font-size:1.3rem; flex-shrink:0;">{{ icon }}</span>
+            <div style="flex:1; min-width:120px;">
+              <div class="fw-600" style="font-size:.85rem;">{{ label }}</div>
+              {% if emp[field] %}
+                <div style="color:var(--success); font-size:.75rem; font-weight:600; margin-top:2px;">✓ Uploaded</div>
+              {% else %}
+                <div style="color:var(--danger); font-size:.75rem; font-weight:600; margin-top:2px;">✗ Missing</div>
+              {% endif %}
+              {% if expiry_field and expiry_val %}
+                {% if expiry_val < now.strftime('%Y-%m-%d') %}
+                  <div class="text-xs" style="color:var(--danger); margin-top:2px;">⚠ Expired {{ expiry_val }}</div>
+                {% else %}
+                  <div class="text-xs text-muted" style="margin-top:2px;">Expires {{ expiry_val }}</div>
+                {% endif %}
+              {% endif %}
+            </div>
+            {% if expiry_field %}
+            <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+              <label class="form-label" style="margin:0; font-size:.7rem; white-space:nowrap;">Expiry:</label>
+              <input type="date" name="{{ expiry_field }}" class="form-input"
+                     style="height:30px; padding:4px 8px; font-size:.78rem; width:130px;"
+                     value="{{ expiry_val }}"
+                     onchange="document.getElementById('save-docs-btn').disabled=false">
+            </div>
+            {% endif %}
+            <div style="flex-shrink:0;">
+              {% if emp[field] %}
+                <a href="/uploads/{{ emp[field] }}" target="_blank" class="btn btn-outline btn-sm">View</a>
+              {% endif %}
+              <label class="btn btn-outline btn-sm" style="cursor:pointer; margin-left:4px;">
+                {{ 'Replace' if emp[field] else 'Upload' }}
+                <input type="file" name="{{ field }}" accept=".pdf"
+                       style="display:none" onchange="document.getElementById('save-docs-btn').disabled=false">
+              </label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div style="margin-top:18px; display:flex; align-items:center; gap:12px;">
+          <button type="submit" class="btn btn-primary" id="save-docs-btn" disabled>Save Documents</button>
+          <span class="form-hint">PDF files only. Select at least one file or expiry date to save.</span>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════
+     TAB 3: BANK AND GOVERNMENT
+═══════════════════════════════════════════════════════════ -->
+<div id="tab-bank" class="tab-panel">
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:start;">
+
+    <!-- Government IDs -->
+    <div class="card">
+      <div class="card-header"><h3>🆔 Government Numbers</h3></div>
+      <div class="card-body">
+        <form method="post" action="/api/profile/gov-ids">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="form-group">
+            <label class="form-label">SSS Number</label>
+            <input type="text" name="sss_no" class="form-input"
+                   value="{{ emp.sss_no or '' }}" placeholder="XX-XXXXXXX-X">
+          </div>
+          <div class="form-group">
+            <label class="form-label">PhilHealth Number</label>
+            <input type="text" name="philhealth_no" class="form-input"
+                   value="{{ emp.philhealth_no or '' }}" placeholder="XXXX-XXXX-XX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">TIN (BIR)</label>
+            <input type="text" name="tin_no" class="form-input"
+                   value="{{ emp.tin_no or '' }}" placeholder="XXX-XXX-XXX-XXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pag-IBIG / HDMF</label>
+            <input type="text" name="pagibig_no" class="form-input"
+                   value="{{ emp.pagibig_no or '' }}" placeholder="XXXX-XXXX-XXXX">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Save IDs</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Bank account -->
+    <div class="card">
+      <div class="card-header"><h3>🏦 Bank Account for Payroll</h3></div>
+      <div class="card-body">
+        <form method="post" action="/api/profile/gov-ids">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <!-- carry government IDs silently -->
+          <input type="hidden" name="sss_no"        value="{{ emp.sss_no or '' }}">
+          <input type="hidden" name="philhealth_no" value="{{ emp.philhealth_no or '' }}">
+          <input type="hidden" name="tin_no"        value="{{ emp.tin_no or '' }}">
+          <input type="hidden" name="pagibig_no"    value="{{ emp.pagibig_no or '' }}">
+          <div class="form-group">
+            <label class="form-label">Bank Name</label>
+            <input type="text" name="bank_name" class="form-input"
+                   value="{{ emp.bank_name or '' }}" placeholder="e.g. BDO, BPI, GCash">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Account Number</label>
+            <input type="text" name="bank_account" class="form-input"
+                   value="{{ emp.bank_account or '' }}" placeholder="Account or wallet number">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm">Save Bank Info</button>
+        </form>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.profile-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+  localStorage.setItem('profile_tab', name);
+}
+// Restore last tab on reload
+(function() {
+  const saved = localStorage.getItem('profile_tab');
+  if (saved) {
+    const btn = document.querySelector(`.profile-tab[onclick*="'${saved}'"]`);
+    if (btn) switchTab(saved, btn);
+  }
+})();
+</script>
+{% endblock %}

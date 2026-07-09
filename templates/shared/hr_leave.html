@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}Leave Requests{% endblock %}
+{% block page_title %}Leave Requests{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Leave Requests</h2>
+    <p>{{ pending | length }} pending approval</p>
+  </div>
+</div>
+
+{% if pending %}
+<div class="card mb-16">
+  <div class="card-header">
+    <h3>Pending Approval</h3>
+    <span class="badge badge-yellow">{{ pending | length }}</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type</th>
+          <th>From</th>
+          <th>To</th>
+          <th>Days</th>
+          <th>Reason</th>
+          <th>Filed</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in pending %}
+        <tr>
+          <td class="fw-600">{{ r.emp_name }}</td>
+          <td>
+            {% if 'Vacation' in r.leave_type %}<span class="badge badge-green">{{ r.leave_type }}</span>
+            {% elif 'Sick' in r.leave_type %}<span class="badge badge-blue">{{ r.leave_type }}</span>
+            {% elif 'Emergency' in r.leave_type %}<span class="badge badge-red">{{ r.leave_type }}</span>
+            {% else %}<span class="badge badge-gray">{{ r.leave_type }}</span>{% endif %}
+          </td>
+          <td class="fw-600">{{ r.start_date }}</td>
+          <td class="fw-600">{{ r.end_date }}</td>
+          <td class="fw-700" style="color:var(--primary);">{{ r.days_count }}d</td>
+          <td class="text-sm text-muted truncate" style="max-width:140px;">{{ r.reason or '—' }}</td>
+          <td class="text-xs text-muted">{{ r.filed_at[:10] }}</td>
+          <td>
+            <div class="flex gap-8">
+              <form method="post" action="/api/leave/{{ r.id }}/approve">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-success btn-sm">✓ Approve</button>
+              </form>
+              <button class="btn btn-danger btn-sm"
+                      onclick="openDenyModal({{ r.id }}, '{{ r.emp_name | e }}', '{{ r.leave_type }}')">
+                ✗ Deny
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card mb-16">
+  <div class="empty-state">
+    <div class="emoji">🌴</div>
+    <p>No pending leave requests.</p>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-header"><h3>Recent History</h3></div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type</th>
+          <th>Dates</th>
+          <th>Days</th>
+          <th>Status</th>
+          <th>Actioned By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in history %}
+        <tr>
+          <td class="fw-600">{{ r.emp_name }}</td>
+          <td><span class="badge badge-gray">{{ r.leave_type }}</span></td>
+          <td class="text-sm">{{ r.start_date }} – {{ r.end_date }}</td>
+          <td>{{ r.days_count }}d</td>
+          <td>
+            {% if r.status == 'Approved' %}<span class="status-pill status-approved">✓ Approved</span>
+            {% else %}<span class="status-pill status-denied">✗ Denied</span>{% endif %}
+          </td>
+          <td class="text-sm text-muted">
+            {{ r.approved_by or '—' }}
+            {% if r.denied_reason %}<div class="text-xs" style="color:var(--danger);">{{ r.denied_reason }}</div>{% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-muted" style="padding:24px;">No history yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Deny modal -->
+<div class="modal-overlay" id="deny-leave-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">Deny Leave Request</span>
+      <button class="modal-close" onclick="closeModal('deny-leave-modal')">×</button>
+    </div>
+    <form id="deny-leave-form" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <p class="text-sm mb-12" id="deny-leave-label"></p>
+        <div class="form-group">
+          <label class="form-label">Reason for denial</label>
+          <textarea name="denied_reason" class="form-textarea" rows="3"
+                    placeholder="Reason shown to employee…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('deny-leave-modal')">Cancel</button>
+        <button type="submit" class="btn btn-danger">Confirm Deny</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function openDenyModal(id, name, type) {
+  document.getElementById('deny-leave-label').textContent = `Deny ${type} for ${name}?`;
+  document.getElementById('deny-leave-form').action = `/api/leave/${id}/deny`;
+  openModal('deny-leave-modal');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,283 @@
+{% extends "base.html" %}
+{% block title %}Executive Dashboard{% endblock %}
+{% block page_title %}Executive Dashboard{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Executive Overview</h2>
+    <p>{{ week_start }} — {{ week_end }}</p>
+  </div>
+  <div class="flex gap-8 flex-wrap">
+    {% if pending_ot > 0 %}
+      <a href="/hr-ot" class="btn btn-warning btn-sm">⏰ {{ pending_ot }} OT Pending</a>
+    {% endif %}
+    {% if pending_leave > 0 %}
+      <a href="/hr-leave" class="btn btn-warning btn-sm">🌴 {{ pending_leave }} Leave Pending</a>
+    {% endif %}
+    {% if for_review > 0 %}
+      <a href="/kanban" class="btn btn-outline btn-sm">📋 {{ for_review }} For Review</a>
+    {% endif %}
+  </div>
+</div>
+
+<!-- Key metrics -->
+<div class="grid-4 mb-20">
+  <div class="stat-card green">
+    <div class="stat-icon green">👥</div>
+    <div>
+      <div class="stat-label">Clocked In Now</div>
+      <div class="stat-value">{{ active_employees }}</div>
+      <div class="stat-sub">of {{ total_employees }} employees</div>
+    </div>
+  </div>
+  <div class="stat-card purple">
+    <div class="stat-icon purple">💰</div>
+    <div>
+      <div class="stat-label">Est. Week Labor Cost</div>
+      <div class="stat-value" style="font-size:1.1rem;">₱{{ "{:,.0f}".format(week_cost) }}</div>
+      <div class="stat-sub">gross, before deductions</div>
+    </div>
+  </div>
+  <div class="stat-card blue">
+    <div class="stat-icon blue">✅</div>
+    <div>
+      <div class="stat-label">Tasks Done Today</div>
+      <div class="stat-value">{{ tasks_today }}</div>
+    </div>
+  </div>
+  <div class="stat-card {% if pending_ot > 0 or pending_leave > 0 %}yellow{% else %}green{% endif %}">
+    <div class="stat-icon {% if pending_ot > 0 or pending_leave > 0 %}yellow{% else %}green{% endif %}">
+      {% if pending_ot > 0 or pending_leave > 0 %}⚠️{% else %}✅{% endif %}
+    </div>
+    <div>
+      <div class="stat-label">Pending Approvals</div>
+      <div class="stat-value">{{ pending_ot + pending_leave }}</div>
+      <div class="stat-sub">{{ pending_ot }} OT · {{ pending_leave }} Leave</div>
+    </div>
+  </div>
+</div>
+
+<!-- Secondary metrics row -->
+<div style="display:flex; gap:12px; flex-wrap:wrap; margin-bottom:20px;">
+  <a href="/hr-timesheets?status=Submitted" style="flex:1; min-width:150px; text-decoration:none;">
+    <div class="stat-card {% if pending_timesheets > 0 %}yellow{% else %}green{% endif %}">
+      <div class="stat-icon {% if pending_timesheets > 0 %}yellow{% else %}green{% endif %}">🗓️</div>
+      <div>
+        <div class="stat-label">Timesheets to Review</div>
+        <div class="stat-value">{{ pending_timesheets }}</div>
+        <div class="stat-sub">submitted</div>
+      </div>
+    </div>
+  </a>
+  <a href="/admin/audit-log" style="flex:1; min-width:150px; text-decoration:none;">
+    <div class="stat-card blue">
+      <div class="stat-icon blue">📜</div>
+      <div>
+        <div class="stat-label">Audit Log</div>
+        <div class="stat-value" style="font-size:1rem;">View All</div>
+        <div class="stat-sub">full system history</div>
+      </div>
+    </div>
+  </a>
+  {% if doc_expiry_alerts %}
+  <a href="/employees" style="flex:1; min-width:150px; text-decoration:none;">
+    <div class="stat-card red">
+      <div class="stat-icon red">📄</div>
+      <div>
+        <div class="stat-label">Doc Expiry Alert</div>
+        <div class="stat-value">{{ doc_expiry_alerts | length }}</div>
+        <div class="stat-sub">employee{{ 's' if doc_expiry_alerts|length != 1 }} need attention</div>
+      </div>
+    </div>
+  </a>
+  {% endif %}
+</div>
+
+<div class="grid-2">
+
+  <!-- Client hours this month -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Hours per Client (This Month)</h3>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr><th>Client</th><th>Hours</th><th>Share</th></tr>
+        </thead>
+        <tbody>
+          {% set total_ch = client_hours | sum(attribute='total_hours') %}
+          {% for ch in client_hours %}
+          <tr>
+            <td class="fw-600">{{ ch.client or 'Unassigned' }}</td>
+            <td class="fw-700">{{ ch.total_hours | round(1) }}h</td>
+            <td style="width:120px;">
+              {% set pct = (ch.total_hours / total_ch * 100) | round(0) | int if total_ch else 0 %}
+              <div style="display:flex; align-items:center; gap:6px;">
+                <div style="flex:1; height:6px; background:var(--border); border-radius:99px; overflow:hidden;">
+                  <div style="width:{{ pct }}%; height:100%; background:var(--primary); border-radius:99px;"></div>
+                </div>
+                <span class="text-xs text-muted">{{ pct }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-center text-muted" style="padding:24px;">No data this month.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Security flags -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Security Flags Today</h3>
+      <span class="badge {% if login_flags %}badge-red{% else %}badge-green{% endif %}">
+        {% if login_flags %}{{ login_flags | length }} flag(s){% else %}All Clear{% endif %}
+      </span>
+    </div>
+    {% if login_flags %}
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>Employee</th><th>Distinct IPs Today</th></tr></thead>
+        <tbody>
+          {% for f in login_flags %}
+          <tr>
+            <td class="fw-600" style="color:var(--danger);">⚠️ {{ f.name }}</td>
+            <td>
+              <span class="badge badge-red">{{ f.ip_count }} different IPs</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:24px;">
+      <div class="emoji" style="font-size:1.5rem;">🔒</div>
+      <p>No suspicious login activity detected today.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Top performers + doc expiry row -->
+<div class="grid-2" style="margin-bottom:16px;">
+
+  <!-- Top performers this month -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Top Performers (This Month)</h3>
+      <span class="badge badge-green">Done tasks</span>
+    </div>
+    {% if top_performers %}
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>#</th><th>Employee</th><th>Hours</th><th>Tasks</th></tr></thead>
+        <tbody>
+          {% for p in top_performers %}
+          <tr>
+            <td class="text-muted text-sm">{{ loop.index }}</td>
+            <td class="fw-600">{{ p.name }}</td>
+            <td class="fw-700" style="color:var(--primary);">{{ p.total_hours | round(1) }}h</td>
+            <td class="text-sm text-muted">{{ p.task_count }} tasks</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:24px;">
+      <div class="emoji" style="font-size:1.5rem;">📊</div>
+      <p>No completed tasks this month yet.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Document expiry alerts -->
+  <div class="card">
+    <div class="card-header">
+      <h3>Document Expiry Alerts</h3>
+      <span class="badge {% if doc_expiry_alerts %}badge-red{% else %}badge-green{% endif %}">
+        {% if doc_expiry_alerts %}{{ doc_expiry_alerts | length }} employee{{ 's' if doc_expiry_alerts|length != 1 }}{% else %}All Clear{% endif %}
+      </span>
+    </div>
+    {% if doc_expiry_alerts %}
+    <div class="table-wrapper">
+      <table>
+        <thead><tr><th>Employee</th><th>Document</th><th>Expires</th></tr></thead>
+        <tbody>
+          {% for a in doc_expiry_alerts %}
+            {% set doc_map = [
+              ('NBI', a.doc_nbi_expiry),
+              ('SSS', a.doc_sss_expiry),
+              ('TIN', a.doc_tin_expiry),
+              ('PhilHealth', a.doc_philhealth_expiry),
+              ('Pag-IBIG', a.doc_pagibig_expiry),
+            ] %}
+            {% for doc_name, exp in doc_map %}
+              {% if exp %}
+              <tr>
+                <td class="fw-600">{{ a.name }}</td>
+                <td class="text-sm">{{ doc_name }}</td>
+                <td>
+                  <span class="badge {% if exp < today_str %}badge-red{% else %}badge-yellow{% endif %}">
+                    {{ exp }}{% if exp < today_str %} ⚠ Expired{% endif %}
+                  </span>
+                </td>
+              </tr>
+              {% endif %}
+            {% endfor %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state" style="padding:24px;">
+      <div class="emoji" style="font-size:1.5rem;">✅</div>
+      <p>No documents expiring in the next 30 days.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Recent audit log -->
+<div class="card mt-16">
+  <div class="card-header">
+    <h3>Recent Activity Log</h3>
+    <span class="text-xs text-muted">Last 10 system actions</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr><th>Time</th><th>User</th><th>Action</th><th>Target</th><th>IP</th></tr>
+      </thead>
+      <tbody>
+        {% for a in recent_audit %}
+        <tr>
+          <td class="text-xs text-muted nowrap">{{ a.created_at[11:16] if a.created_at else '—' }}</td>
+          <td class="fw-600">{{ a.user_name or '—' }}</td>
+          <td>
+            <span class="badge
+              {% if 'approve' in a.action %}badge-green
+              {% elif 'deny' in a.action or 'delete' in a.action %}badge-red
+              {% elif 'login' in a.action %}badge-blue
+              {% else %}badge-gray{% endif %}">
+              {{ a.action | replace('_',' ') | title }}
+            </span>
+          </td>
+          <td class="text-sm text-muted">{{ a.target_table or '—' }}{% if a.target_id %} #{{ a.target_id }}{% endif %}</td>
+          <td class="text-xs text-muted">{{ a.ip_address or '—' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center text-muted" style="padding:24px;">No audit events yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Overtime Filing{% endblock %}
+{% block page_title %}Overtime Filing{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Overtime Filing</h2>
+    <p>File your OT hours for HR approval. Only approved OT is included in payroll.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('file-ot-modal')">+ File OT</button>
+</div>
+
+<!-- Summary cards -->
+{% set approved = ot_requests | selectattr('status','eq','Approved') | list %}
+{% set pending  = ot_requests | selectattr('status','eq','Pending')  | list %}
+<div class="grid-3 mb-20">
+  <div class="stat-card blue">
+    <div class="stat-icon blue">⏰</div>
+    <div>
+      <div class="stat-label">Total Filed</div>
+      <div class="stat-value">{{ ot_requests | length }}</div>
+    </div>
+  </div>
+  <div class="stat-card green">
+    <div class="stat-icon green">✅</div>
+    <div>
+      <div class="stat-label">Approved Hours</div>
+      <div class="stat-value">{{ approved | sum(attribute='hours_computed') | round(1) }}h</div>
+    </div>
+  </div>
+  <div class="stat-card yellow">
+    <div class="stat-icon yellow">⏳</div>
+    <div>
+      <div class="stat-label">Pending</div>
+      <div class="stat-value">{{ pending | length }}</div>
+    </div>
+  </div>
+</div>
+
+<!-- OT history table -->
+<div class="card">
+  <div class="card-header">
+    <h3>My OT Requests</h3>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Time</th>
+          <th>Hours</th>
+          <th>Type</th>
+          <th>Reason</th>
+          <th>Status</th>
+          <th>Approved By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ot_requests %}
+        <tr>
+          <td class="fw-600">{{ r.ot_date }}</td>
+          <td>{{ r.ot_start }} – {{ r.ot_end }}</td>
+          <td class="fw-700">{{ r.hours_computed }}h</td>
+          <td><span class="badge badge-gray">{{ r.ot_type }}</span></td>
+          <td class="text-muted text-sm truncate" style="max-width:180px;">{{ r.reason or '—' }}</td>
+          <td>
+            {% if r.status == 'Approved' %}<span class="status-pill status-approved">✓ Approved</span>
+            {% elif r.status == 'Denied' %}<span class="status-pill status-denied">✗ Denied</span>
+            {% else %}<span class="status-pill status-pending">⏳ Pending</span>{% endif %}
+          </td>
+          <td class="text-sm text-muted">
+            {{ r.approved_by or '—' }}
+            {% if r.status == 'Denied' and r.denied_reason %}
+              <div class="text-xs" style="color:var(--danger);">{{ r.denied_reason }}</div>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted" style="padding:32px;">No OT requests yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- File OT Modal -->
+<div class="modal-overlay" id="file-ot-modal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <span class="modal-title">File Overtime Request</span>
+      <button class="modal-close" onclick="closeModal('file-ot-modal')">×</button>
+    </div>
+    <form method="post" action="/api/ot/file">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Date OT was worked *</label>
+          <input type="date" name="ot_date" class="form-input" required
+                 max="{{ now.strftime('%Y-%m-%d') if now else '' }}">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">OT Start Time *</label>
+            <input type="time" name="ot_start" class="form-input" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">OT End Time *</label>
+            <input type="time" name="ot_end" class="form-input" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">OT Type</label>
+          <select name="ot_type" class="form-select">
+            <option value="Regular">Regular OT (×1.25)</option>
+            <option value="Rest Day">Rest Day OT (×1.30)</option>
+            <option value="Holiday">Holiday OT (×2.00)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Reason / Work Done</label>
+          <textarea name="reason" class="form-textarea" rows="3"
+                    placeholder="Briefly describe what you worked on during OT…"></textarea>
+        </div>
+        <div style="background:var(--primary-l); border-radius:var(--radius); padding:10px 14px; font-size:.78rem; color:var(--primary);">
+          ℹ️ Hours are computed from the start/end times you enter. HR will verify against your attendance record before approving.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('file-ot-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Submit OT Request</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

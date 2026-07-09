@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Attendance{% endblock %}
+{% block page_title %}Attendance Records{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🕒 Attendance Records</h2>
+    <p>{{ records | length }} records · {{ start }} to {{ end }}</p>
+  </div>
+  <a href="/export/attendance.csv?date_from={{ start }}&date_to={{ end }}"
+     class="btn btn-outline btn-sm">⬇ Export CSV</a>
+</div>
+
+<!-- Date filter -->
+<div class="card mb-16">
+  <div class="card-body-sm">
+    <form method="get" action="/attendance" class="flex-center gap-12">
+      <label class="form-label" style="margin:0">From:</label>
+      <input type="date" name="start" value="{{ start }}" class="form-input" style="width:auto">
+      <label class="form-label" style="margin:0">To:</label>
+      <input type="date" name="end" value="{{ end }}" class="form-input" style="width:auto">
+      <button type="submit" class="btn btn-primary btn-sm">Filter</button>
+    </form>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>Time Logs</h3>
+    <span class="badge badge-blue">{{ records | length }} records</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Shift</th>
+          <th>Date</th>
+          <th>Clock In</th>
+          <th>Clock Out</th>
+          <th>Hours</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rec in records %}
+        {% set hrs = namespace(val=0) %}
+        {% if rec.clock_in and rec.clock_out %}
+          {# hours calculated server side, show computed value #}
+        {% endif %}
+        <tr>
+          <td class="fw-600">{{ rec.name }}</td>
+          <td><span class="badge badge-gray">{{ rec.shift_type }}</span></td>
+          <td class="nowrap">{{ rec.date_logged }}</td>
+          <td class="nowrap">{{ rec.clock_in or '—' }}</td>
+          <td class="nowrap">{{ rec.clock_out or '—' }}</td>
+          <td>
+            {% if rec.clock_in and rec.clock_out %}
+              <span class="fw-600">
+                {# Simple display — actual calc in server #}
+                Logged
+              </span>
+            {% elif rec.clock_in %}
+              <span class="badge badge-green">Active</span>
+            {% else %}
+              <span class="text-muted">—</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if rec.clock_out %}
+              <span class="badge badge-gray">Done</span>
+            {% elif rec.clock_in %}
+              <span class="badge badge-green">In Progress</span>
+            {% else %}
+              <span class="badge badge-red">No Record</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="7" class="text-center text-muted" style="padding:24px">
+            No attendance records found for this period.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

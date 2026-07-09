@@ -1,0 +1,330 @@
+{% extends "base.html" %}
+{% block title %}Employee Roster{% endblock %}
+{% block page_title %}Employee Roster{% endblock %}
+
+{% block extra_head %}
+<style>
+/* ── Composition dashboard ─────────────────────────────────────────────── */
+.comp-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:14px; margin-bottom:20px; }
+@media(max-width:900px) { .comp-grid { grid-template-columns: repeat(2, 1fr); } }
+@media(max-width:500px) { .comp-grid { grid-template-columns: 1fr; } }
+
+.comp-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px; }
+.comp-card-title { font-size:.68rem; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin-bottom:12px; }
+
+.bar-row { display:flex; align-items:center; gap:8px; margin-bottom:8px; cursor:pointer; border-radius:4px; padding:2px 4px; transition:background .15s; }
+.bar-row:hover { background:var(--surface-2); }
+.bar-row.active-filter { background:var(--primary-l, #dbeafe); }
+.bar-label { font-size:.75rem; font-weight:600; width:90px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; flex-shrink:0; }
+.bar-track { flex:1; height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden; }
+.bar-fill  { height:100%; border-radius:4px; transition:width .4s ease; }
+.bar-count { font-size:.72rem; color:var(--muted); width:28px; text-align:right; flex-shrink:0; }
+
+.skill-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+.skill-tag { font-size:.7rem; padding:3px 10px; border-radius:20px; background:var(--surface-2); border:1px solid var(--border); color:var(--text); cursor:pointer; transition:background .15s, border-color .15s; }
+.skill-tag:hover, .skill-tag.active-filter { background:var(--primary-l, #dbeafe); border-color:var(--primary); color:var(--primary); }
+
+/* ── Filter pill ───────────────────────────────────────────────────────── */
+#active-filter-badge { display:none; align-items:center; gap:8px; background:var(--primary-l, #dbeafe); color:var(--primary); border-radius:20px; padding:4px 14px; font-size:.78rem; font-weight:600; margin-bottom:14px; width:fit-content; }
+#active-filter-badge button { background:none; border:none; cursor:pointer; font-size:1rem; color:var(--primary); line-height:1; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Employee Roster</h2>
+    <p>{{ total }} active employees · Compliance &amp; attendance overview</p>
+  </div>
+  {% if user.role == 'Admin' %}
+    <a href="/employees" class="btn btn-primary btn-sm">⚙️ Manage Employees</a>
+  {% endif %}
+</div>
+
+<!-- ── Composition dashboard ─────────────────────────────────────────── -->
+{% set gs = comp_stats.gender %}
+{% set es = comp_stats.employment %}
+{% set ss = comp_stats.shift %}
+
+<div class="comp-grid">
+
+  <!-- Gender -->
+  <div class="comp-card">
+    <div class="comp-card-title">Gender</div>
+    {% for label, color in [('Male','#3b82f6'),('Female','#ec4899'),('Unspecified','#94a3b8')] %}
+    {% set cnt = gs.get(label, 0) %}
+    {% if cnt > 0 %}
+    <div class="bar-row" onclick="applyFilter('gender','{{ label }}')">
+      <span class="bar-label">{{ label }}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:{{ ((cnt / total) * 100) | round(0) }}%; background:{{ color }};"></div>
+      </div>
+      <span class="bar-count">{{ cnt }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% for label, cnt in gs.items() %}
+    {% if label not in ('Male','Female','Unspecified') and cnt > 0 %}
+    <div class="bar-row" onclick="applyFilter('gender','{{ label }}')">
+      <span class="bar-label">{{ label }}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:{{ ((cnt / total) * 100) | round(0) }}%; background:#94a3b8;"></div>
+      </div>
+      <span class="bar-count">{{ cnt }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Employment Type -->
+  <div class="comp-card">
+    <div class="comp-card-title">Employment Type</div>
+    {% for label, color in [('Full-time','#10b981'),('Part-time','#f59e0b'),('Contractual','#8b5cf6')] %}
+    {% set cnt = es.get(label, 0) %}
+    {% if cnt > 0 %}
+    <div class="bar-row" onclick="applyFilter('employment',  '{{ label }}')">
+      <span class="bar-label">{{ label }}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:{{ ((cnt / total) * 100) | round(0) }}%; background:{{ color }};"></div>
+      </div>
+      <span class="bar-count">{{ cnt }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Shift Type -->
+  <div class="comp-card">
+    <div class="comp-card-title">Shift Type</div>
+    {% for label, color in [('Morning','#3b82f6'),('Night','#6366f1'),('WFH','#10b981'),('Mid-shift','#f59e0b'),('Off','#94a3b8')] %}
+    {% set cnt = ss.get(label, 0) %}
+    {% if cnt > 0 %}
+    <div class="bar-row" onclick="applyFilter('shift', '{{ label }}')">
+      <span class="bar-label">{{ label }}</span>
+      <div class="bar-track">
+        <div class="bar-fill" style="width:{{ ((cnt / total) * 100) | round(0) }}%; background:{{ color }};"></div>
+      </div>
+      <span class="bar-count">{{ cnt }}</span>
+    </div>
+    {% endif %}
+    {% endfor %}
+  </div>
+
+  <!-- Top Skills -->
+  <div class="comp-card">
+    <div class="comp-card-title">Top Skills</div>
+    {% if top_skills %}
+    <div class="skill-tags">
+      {% for skill, cnt in top_skills %}
+      <span class="skill-tag" onclick="applyFilter('skill', '{{ skill | replace("'","\\'") }}')" title="{{ cnt }} employee{{ 's' if cnt != 1 else '' }}">
+        {{ skill }} <span style="font-weight:400; color:var(--muted);">{{ cnt }}</span>
+      </span>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-muted text-sm">No skills data yet. Add skills to employee profiles.</p>
+    {% endif %}
+  </div>
+</div>
+
+<!-- ── Active filter pill ──────────────────────────────────────────── -->
+<div id="active-filter-badge">
+  <span id="filter-label">Filtered by: —</span>
+  <button onclick="clearFilter()" title="Clear filter">×</button>
+</div>
+
+<!-- ── Quick stats row ─────────────────────────────────────────────── -->
+<div class="grid-4 mb-20">
+  {% set compliant_count = roster | selectattr('compliance', 'eq', 'compliant') | list | length %}
+  {% set clocked_in_count = roster | selectattr('today_attendance') | selectattr('today_attendance.clock_out', 'none') | list | length %}
+
+  <div class="stat-card">
+    <div class="stat-icon blue">👥</div>
+    <div>
+      <div class="stat-label">Total Employees</div>
+      <div class="stat-value">{{ total }}</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">🟢</div>
+    <div>
+      <div class="stat-label">Clocked In Now</div>
+      <div class="stat-value">{{ clocked_in_count }}</div>
+      <div class="stat-sub">of {{ total }} today</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">✅</div>
+    <div>
+      <div class="stat-label">Fully Compliant</div>
+      <div class="stat-value">{{ compliant_count }}</div>
+      <div class="stat-sub">{{ total - compliant_count }} need docs</div>
+    </div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon yellow">⏱</div>
+    <div>
+      <div class="stat-label">Avg Hours This Week</div>
+      {% set total_wh = roster | sum(attribute='week_hours') %}
+      <div class="stat-value">
+        {% if total > 0 %}{{ (total_wh / total) | round(1) }}h{% else %}0h{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Employee table ──────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header">
+    <h3>All Employees</h3>
+    <input type="text" id="roster-search" class="form-input" style="width:220px"
+           placeholder="🔍 Search by name…">
+  </div>
+  <div class="table-wrapper">
+    <table id="roster-table">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type / Shift</th>
+          <th>Rate</th>
+          <th>Today</th>
+          <th>Week Hrs</th>
+          <th>Documents</th>
+          <th>Profile</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in roster %}
+        {% set is_in = emp.today_attendance and not emp.today_attendance.clock_out %}
+        {% set is_out = emp.today_attendance and emp.today_attendance.clock_out %}
+        <tr data-name="{{ emp.name | lower }}"
+            data-gender="{{ emp.gender or 'Unspecified' }}"
+            data-employment="{{ emp.employment_type or 'Full-time' }}"
+            data-shift="{{ emp.shift_type or 'Morning' }}"
+            data-skills="{{ emp.capabilities or '' }}">
+          <td>
+            <div class="flex-center gap-8">
+              {% if emp.profile_pic_path %}
+                <img src="/uploads/{{ emp.profile_pic_path }}"
+                     style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--border);flex-shrink:0;">
+              {% else %}
+                <div class="emp-initial">{{ emp.name[0] }}</div>
+              {% endif %}
+              <div>
+                <div class="fw-600">{{ emp.name }}</div>
+                <div class="text-xs text-muted">{{ emp.department or emp.email or '—' }}</div>
+              </div>
+            </div>
+          </td>
+          <td>
+            <span class="badge badge-gray">{{ emp.employment_type or 'Full-time' }}</span><br>
+            <span class="badge badge-blue" style="margin-top:3px;">{{ emp.shift_type }}</span>
+          </td>
+          <td class="fw-600">₱{{ emp.hourly_rate }}/hr</td>
+          <td>
+            {% if is_in %}
+              <span class="flex-center gap-8">
+                <span class="attendance-dot in"></span>
+                <span class="text-sm">In {{ emp.today_attendance.clock_in }}</span>
+              </span>
+            {% elif is_out %}
+              <span class="flex-center gap-8">
+                <span class="attendance-dot out"></span>
+                <span class="text-sm text-muted">Done</span>
+              </span>
+            {% else %}
+              <span class="flex-center gap-8">
+                <span class="attendance-dot out"></span>
+                <span class="text-sm text-muted">Not clocked</span>
+              </span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="fw-600">{{ emp.week_hours }}h</span>
+            {% if emp.week_hours > 40 %}
+              <span class="badge badge-yellow">+OT</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if emp.compliance == 'compliant' %}
+              <span class="badge badge-green">✓ 6/6</span>
+            {% elif emp.compliance == 'partial' %}
+              <span class="badge badge-yellow">⚠ {{ emp.doc_count }}/6</span>
+            {% else %}
+              <span class="badge badge-red">✗ 0/6</span>
+            {% endif %}
+          </td>
+          <td>
+            <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline btn-sm">View</a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="7" class="text-center text-muted">No employees found.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div id="no-match-msg" style="display:none; padding:24px; text-align:center; color:var(--muted); font-size:.85rem;">
+    No employees match this filter. <a href="#" onclick="clearFilter(); return false;" style="color:var(--primary);">Clear filter</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Text search ──────────────────────────────────────────────────────────
+const searchInput = document.getElementById('roster-search');
+let currentFilter = null;
+
+if (searchInput) {
+  searchInput.addEventListener('input', () => applyAll());
+}
+
+// ── Composition filter ───────────────────────────────────────────────────
+function applyFilter(type, value) {
+  // Toggle off if clicking same filter
+  if (currentFilter && currentFilter.type === type && currentFilter.value === value) {
+    clearFilter(); return;
+  }
+  currentFilter = { type, value };
+
+  // Highlight active bar/tag
+  document.querySelectorAll('.bar-row, .skill-tag').forEach(el => el.classList.remove('active-filter'));
+  document.querySelectorAll(`.bar-row[onclick*="${CSS.escape(value)}"], .skill-tag[onclick*="${CSS.escape(value)}"]`).forEach(el => el.classList.add('active-filter'));
+
+  // Show filter badge
+  const badge = document.getElementById('active-filter-badge');
+  document.getElementById('filter-label').textContent = `Filtered by: ${value}`;
+  badge.style.display = 'flex';
+
+  applyAll();
+}
+
+function clearFilter() {
+  currentFilter = null;
+  document.querySelectorAll('.bar-row, .skill-tag').forEach(el => el.classList.remove('active-filter'));
+  document.getElementById('active-filter-badge').style.display = 'none';
+  applyAll();
+}
+
+function applyAll() {
+  const q = (searchInput ? searchInput.value.toLowerCase() : '');
+  let visible = 0;
+  document.querySelectorAll('#roster-table tbody tr[data-name]').forEach(tr => {
+    const matchSearch = !q || tr.dataset.name.includes(q);
+    let matchFilter = true;
+    if (currentFilter) {
+      const { type, value } = currentFilter;
+      if (type === 'gender')     matchFilter = tr.dataset.gender === value;
+      if (type === 'employment') matchFilter = tr.dataset.employment === value;
+      if (type === 'shift')      matchFilter = tr.dataset.shift === value;
+      if (type === 'skill')      matchFilter = (tr.dataset.skills || '').split(',').map(s => s.trim()).includes(value);
+    }
+    const show = matchSearch && matchFilter;
+    tr.style.display = show ? '' : 'none';
+    if (show) visible++;
+  });
+  document.getElementById('no-match-msg').style.display = (visible === 0) ? 'block' : 'none';
+}
+</script>
+{% endblock %}

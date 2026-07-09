@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Archived Cards{% endblock %}
+{% block page_title %}Card Archive{% endblock %}
+
+{% block content %}
+
+{# Client colour map #}
+{% set cc = {} %}
+{% for c in clients %}
+  {% set _ = cc.update({c.name: c.hex_color}) %}
+{% endfor %}
+
+<div class="page-header">
+  <div>
+    <h2>🗄️ Archived Cards</h2>
+    <p>{{ cards | length }} archived card{{ 's' if cards | length != 1 }}. Click a card to view details or unarchive.</p>
+  </div>
+  <a href="/kanban" class="btn btn-outline btn-sm">← Back to Board</a>
+</div>
+
+{% if not cards %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">🗄️</div>
+    <p>No archived cards yet.</p>
+  </div>
+</div>
+
+{% else %}
+<div class="table-wrapper card">
+  <table>
+    <thead>
+      <tr>
+        <th>Task</th>
+        <th>Employee</th>
+        <th>Client</th>
+        <th>Hours</th>
+        <th>Last Status</th>
+        <th>Date</th>
+        <th style="width:80px;"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for card in cards %}
+      {% set client_hex = cc.get(card.client, '#64748b') %}
+      <tr style="cursor:pointer;" onclick="openCardModal({{ card.id }})">
+        <td>
+          <div class="fw-600" style="font-size:.87rem;">{{ card.task_title }}</div>
+          {% if card.notes %}
+            <div class="text-xs text-muted truncate" style="max-width:240px;">{{ card.notes }}</div>
+          {% endif %}
+        </td>
+        <td class="text-sm">{{ card.emp_name }}</td>
+        <td>
+          {% if card.client %}
+            <span style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;font-weight:700;color:{{ client_hex }};">
+              <span style="width:6px;height:6px;border-radius:50%;background:{{ client_hex }};display:inline-block;"></span>
+              {{ card.client }}
+            </span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="fw-600" style="color:var(--primary);">{{ card.hours_worked }}h</td>
+        <td>
+          {% if card.status == 'Done' %}<span class="badge badge-green">Done</span>
+          {% elif card.status == 'In Progress' %}<span class="badge badge-blue">In Progress</span>
+          {% elif card.status == 'For Review' %}<span class="badge badge-yellow">For Review</span>
+          {% else %}<span class="badge badge-gray">{{ card.status }}</span>{% endif %}
+          {% if card.hr_reviewed_by %}
+            <span class="badge badge-green" style="font-size:.6rem; margin-left:2px;">✓ HR</span>
+          {% endif %}
+        </td>
+        <td class="text-sm text-muted">{{ card.date_logged or '—' }}</td>
+        <td onclick="event.stopPropagation()">
+          <button class="btn btn-outline btn-sm" style="font-size:.72rem;"
+                  onclick="unarchiveCard({{ card.id }}, this)">
+            📤 Restore
+          </button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<!-- Card detail modal (reuses app.js openCardModal) -->
+<div class="modal-overlay" id="card-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <span class="modal-title" id="card-modal-title">Card Detail</span>
+      <button class="modal-close" onclick="closeModal('card-modal')">×</button>
+    </div>
+    <div class="modal-body" id="card-modal-body">
+      <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function unarchiveCard(taskId, btn) {
+  btn.disabled = true;
+  btn.textContent = '…';
+  const res = await fetch(`/api/tasks/${taskId}/archive`, { method: 'POST', headers: {'X-Requested-With':'fetch'} });
+  if (res.ok) {
+    btn.closest('tr').style.opacity = '.4';
+    showToast('Card restored to board.', 'success');
+    setTimeout(() => btn.closest('tr').remove(), 800);
+  } else {
+    btn.disabled = false;
+    btn.textContent = '📤 Restore';
+    showToast('Could not restore card.', 'error');
+  }
+}
+</script>
+{% endblock %}

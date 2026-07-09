@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+{% block page_title %}Client Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🏢 Clients</h2>
+    <p>Manage the client list used across task logs and the Kanban board.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('add-client-modal')">+ Add Client</button>
+</div>
+
+<div class="card">
+  <div class="card-header"><h3>All Clients ({{ clients | length }})</h3></div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px">Color</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clients %}
+        <tr>
+          <td>
+            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;
+                         background:{{ c.hex_color }};border:1px solid rgba(0,0,0,.12);"></span>
+          </td>
+          <td class="fw-600">{{ c.name }}</td>
+          <td>
+            {% if c.is_active %}
+              <span class="badge badge-green">Active</span>
+            {% else %}
+              <span class="badge badge-gray">Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="flex gap-8">
+              <a href="/clients/{{ c.id }}/dashboard" class="btn btn-primary btn-sm">📊 Dashboard</a>
+              <button class="btn btn-outline btn-sm"
+                      onclick="openEditClient({{ c.id }}, '{{ c.name | e }}', '{{ c.hex_color }}')">
+                Edit
+              </button>
+              {% if user.role == 'Admin' %}
+              <form method="post" action="/api/clients/{{ c.id }}/delete">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        data-confirm="Remove client '{{ c.name }}'?">Delete</button>
+              </form>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="text-center text-muted">No clients yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Client Modal -->
+<div class="modal-overlay" id="add-client-modal">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <span class="modal-title">Add Client</span>
+      <button class="modal-close" onclick="closeModal('add-client-modal')">×</button>
+    </div>
+    <form method="post" action="/api/clients">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Client Name *</label>
+          <input type="text" name="name" class="form-input" required placeholder="e.g. Acme Corp">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;" id="color-swatches-add">
+            {% set preset_colors = ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669'] %}
+            {% for col in preset_colors %}
+              <button type="button" class="color-swatch"
+                      style="width:24px;height:24px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
+                      data-color="{{ col }}" data-target="add-hex-color"
+                      onclick="pickColor(this,'add-hex-color')"></button>
+            {% endfor %}
+          </div>
+          <input type="color" name="hex_color" id="add-hex-color" value="#3b82f6" class="form-input" style="height:38px; padding:2px 4px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('add-client-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Add Client</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Client Modal -->
+<div class="modal-overlay" id="edit-client-modal">
+  <div class="modal" style="max-width:360px;">
+    <div class="modal-header">
+      <span class="modal-title">Edit Client</span>
+      <button class="modal-close" onclick="closeModal('edit-client-modal')">×</button>
+    </div>
+    <form method="post" id="edit-client-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Client Name *</label>
+          <input type="text" name="name" id="edit-client-name" class="form-input" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Color</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+            {% for col in ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669'] %}
+              <button type="button" class="color-swatch"
+                      style="width:24px;height:24px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
+                      data-color="{{ col }}" data-target="edit-hex-color"
+                      onclick="pickColor(this,'edit-hex-color')"></button>
+            {% endfor %}
+          </div>
+          <input type="color" name="hex_color" id="edit-hex-color" value="#3b82f6" class="form-input" style="height:38px; padding:2px 4px;">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('edit-client-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  function openEditClient(id, name, color) {
+    document.getElementById('edit-client-form').action = '/api/clients/' + id + '/update';
+    document.getElementById('edit-client-name').value = name;
+    document.getElementById('edit-hex-color').value = color;
+    openModal('edit-client-modal');
+  }
+  function pickColor(btn, targetId) {
+    document.getElementById(targetId).value = btn.dataset.color;
+    btn.closest('[style*="flex-wrap"]').querySelectorAll('.color-swatch').forEach(b => {
+      b.style.border = '2px solid transparent';
+    });
+    btn.style.border = '2px solid #000';
+  }
+</script>
+{% endblock %}

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Shift Schedule{% endblock %}
+{% block page_title %}Shift Schedule{% endblock %}
+
+{% block extra_head %}
+<style>
+.sched-table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+.sched-table th, .sched-table td { border: 1px solid var(--border); padding: 6px 8px; }
+.sched-table thead th { background: var(--surface-2); font-weight: 700; text-align: center; }
+.sched-table td:first-child { font-weight: 600; white-space: nowrap; min-width: 130px; }
+.shift-select { font-size: .75rem; padding: 3px 6px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--surface); color: var(--text); width: 100%; }
+.shift-Morning { background: #eff6ff; color: #1d4ed8; }
+.shift-Night   { background: #1e1b4b; color: #a5b4fc; }
+.shift-WFH     { background: #f0fdf4; color: #15803d; }
+.shift-Off     { background: var(--surface-2); color: var(--muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Shift Schedule</h2>
+    <p>Week of {{ week_start }}</p>
+  </div>
+  <div class="flex gap-8">
+    <a href="/hr-schedule?week={{ prev_week }}" class="btn btn-outline btn-sm">← Prev</a>
+    <a href="/hr-schedule" class="btn btn-outline btn-sm">This Week</a>
+    <a href="/hr-schedule?week={{ next_week }}" class="btn btn-outline btn-sm">Next →</a>
+  </div>
+</div>
+
+<!-- Legend -->
+<div class="flex gap-8 mb-16" style="flex-wrap:wrap;">
+  {% for st in shift_types %}
+  <span class="badge shift-{{ st }}" style="font-size:.72rem; padding:4px 10px;">{{ st }}</span>
+  {% endfor %}
+</div>
+
+<form method="post" action="/api/schedule/save">
+  <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+  <input type="hidden" name="week_start" value="{{ week_start }}">
+
+  <div class="card" style="overflow-x:auto;">
+    <table class="sched-table">
+      <thead>
+        <tr>
+          <th style="text-align:left;">Employee</th>
+          {% for label in day_labels %}
+          <th>
+            {{ label }}<br>
+            <span style="font-weight:400; font-size:.68rem; color:var(--muted);">{{ week_dates[loop.index0][5:] }}</span>
+          </th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+        {% set s = sched_map.get(emp.id, {}) %}
+        <tr>
+          <td>{{ emp.name }}</td>
+          {% for day in days %}
+          {% set current = s.get(day, emp.shift_type or 'Morning') %}
+          <td style="padding:4px;">
+            <select name="{{ emp.id }}_{{ day }}" class="shift-select shift-{{ current }}"
+                    onchange="this.className='shift-select shift-'+this.value">
+              {% for st in shift_types %}
+              <option value="{{ st }}" {% if current == st %}selected{% endif %}>{{ st }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          {% endfor %}
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted" style="padding:24px;">No active employees.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:12px; display:flex; justify-content:flex-end;">
+    <button type="submit" class="btn btn-primary">💾 Save Schedule</button>
+  </div>
+</form>
+{% endblock %}

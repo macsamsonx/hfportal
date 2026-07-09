@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}My Reviews{% endblock %}
+{% block page_title %}Performance Reviews{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Performance Reviews</h2>
+    <p>Your self-ratings and HR feedback by period</p>
+  </div>
+</div>
+
+{% if not reviews %}
+<div class="card">
+  <div class="empty-state">
+    <div class="emoji">⭐</div>
+    <p>No performance reviews yet. HR will notify you when one is ready.</p>
+  </div>
+</div>
+{% endif %}
+
+<div style="display:flex; flex-direction:column; gap:16px;">
+{% for r in reviews %}
+<div class="card">
+  <div class="card-header">
+    <div>
+      <h3 style="font-size:.95rem;">{{ r.period }}</h3>
+      <div class="text-xs text-muted">{{ r.period_start }} — {{ r.period_end }}</div>
+    </div>
+    <span class="badge
+      {% if r.status == 'Completed' %}badge-green
+      {% elif r.status == 'Pending HR Review' %}badge-blue
+      {% else %}badge-yellow{% endif %}">
+      {{ r.status }}
+    </span>
+  </div>
+  <div class="card-body">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; flex-wrap:wrap;">
+
+      <!-- Self review -->
+      <div>
+        <div class="fw-700 mb-8" style="font-size:.82rem; color:var(--text-2);">Your Self-Review</div>
+        {% if r.self_rating %}
+          <div style="font-size:1.4rem; margin-bottom:6px;">
+            {% for i in range(1,6) %}{{ '⭐' if i <= r.self_rating else '☆' }}{% endfor %}
+            <span class="text-xs text-muted" style="margin-left:6px;">{{ r.self_rating }}/5</span>
+          </div>
+          {% if r.self_comments %}
+            <div class="text-sm" style="color:var(--text-2); white-space:pre-wrap;">{{ r.self_comments }}</div>
+          {% endif %}
+          <div class="text-xs text-muted mt-8">Submitted {{ r.self_submitted_at[:10] if r.self_submitted_at else '' }}</div>
+        {% elif r.status == 'Pending Self-Review' %}
+          <form method="post" action="/api/reviews/{{ r.id }}/self-rate">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <div class="form-group">
+              <label class="form-label">Rating (1–5)</label>
+              <div style="display:flex; gap:8px; margin-bottom:10px;">
+                {% for i in range(1,6) %}
+                <label style="cursor:pointer; font-size:1.4rem; display:flex; flex-direction:column; align-items:center; gap:2px;">
+                  <input type="radio" name="self_rating" value="{{ i }}" style="margin:0;" required>
+                  <span>{{ i }}</span>
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Comments</label>
+              <textarea name="self_comments" class="form-textarea" rows="3"
+                        placeholder="Describe your achievements and areas for growth…"></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm">Submit Self-Review</button>
+          </form>
+        {% else %}
+          <div class="text-muted text-sm">Not yet submitted.</div>
+        {% endif %}
+      </div>
+
+      <!-- HR feedback -->
+      <div>
+        <div class="fw-700 mb-8" style="font-size:.82rem; color:var(--text-2);">HR Feedback</div>
+        {% if r.hr_rating %}
+          <div style="font-size:1.4rem; margin-bottom:6px;">
+            {% for i in range(1,6) %}{{ '⭐' if i <= r.hr_rating else '☆' }}{% endfor %}
+            <span class="text-xs text-muted" style="margin-left:6px;">{{ r.hr_rating }}/5</span>
+          </div>
+          {% if r.hr_comments %}
+            <div class="text-sm" style="color:var(--text-2); white-space:pre-wrap;">{{ r.hr_comments }}</div>
+          {% endif %}
+          <div class="text-xs text-muted mt-8">By {{ r.hr_reviewed_by }} · {{ r.hr_reviewed_at[:10] if r.hr_reviewed_at else '' }}</div>
+        {% else %}
+          <div class="text-muted text-sm">Awaiting HR review.</div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+</div>
+{% endfor %}
+</div>
+{% endblock %}
