@@ -153,6 +153,12 @@
         <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
           <span class="icon">⚙️</span> Employee Mgmt
         </a>
+        <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
+          <span class="icon">📝</span> Registrations
+          {% if pending_reg_count and pending_reg_count > 0 %}
+            <span class="nav-badge">{{ pending_reg_count }}</span>
+          {% endif %}
+        </a>
 
       {% elif user.role == 'Admin' %}
         <div class="nav-section">Operations</div>
@@ -210,6 +216,12 @@
         <div class="nav-section">Admin</div>
         <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
           <span class="icon">⚙️</span> Employee Mgmt
+        </a>
+        <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
+          <span class="icon">📝</span> Registrations
+          {% if pending_reg_count and pending_reg_count > 0 %}
+            <span class="nav-badge">{{ pending_reg_count }}</span>
+          {% endif %}
         </a>
         <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
           <span class="icon">🏢</span> Clients

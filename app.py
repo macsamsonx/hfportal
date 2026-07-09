@@ -190,6 +190,9 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
             ctx["for_review_count"] = conn.execute(
                 "SELECT COUNT(*) FROM work_logs WHERE status='For Review' AND COALESCE(is_archived,0)=0"
             ).fetchone()[0]
+            ctx["pending_reg_count"] = conn.execute(
+                "SELECT COUNT(*) FROM registration_requests WHERE status='Pending'"
+            ).fetchone()[0]
         elif role == "Employee":
             ctx["pending_ot_count"] = conn.execute(
                 "SELECT COUNT(*) FROM overtime_requests WHERE emp_id=? AND status='Pending'",
@@ -253,6 +256,177 @@ async def login_post(request: Request, username: str = Form(...), password: str 
 async def logout(request: Request):
     request.session.clear()
     return RedirectResponse("/login", status_code=302)
+
+
+# ── Self-Registration (public) ────────────────────────────────────────────────
+@app.get("/register", response_class=HTMLResponse)
+async def register_page(request: Request):
+    if current_user(request):
+        return RedirectResponse("/dashboard", status_code=302)
+    return templates.TemplateResponse(request, "register.html", {
+        "flash": get_flash(request),
+        "csrf_token": _get_csrf_token(request),
+    })
+
+
+@app.post("/api/register")
+async def register_submit(
+    request: Request,
+    name: str = Form(...),
+    email: str = Form(...),
+    phone: str = Form(""),
+    gender: str = Form(""),
+    birthday: str = Form(""),
+    address: str = Form(""),
+    position_applied: str = Form(""),
+    message: str = Form(""),
+    privacy_agreed: str = Form(""),
+    terms_agreed: str = Form(""),
+):
+    if not privacy_agreed or not terms_agreed:
+        flash(request, "You must agree to all required consents to proceed.", "error")
+        return RedirectResponse("/register", status_code=302)
+    with get_db() as conn:
+        dup_pending = conn.execute(
+            "SELECT id FROM registration_requests WHERE LOWER(email)=LOWER(?) AND status='Pending'",
+            (email.strip(),),
+        ).fetchone()
+        if dup_pending:
+            flash(request, "A registration with this email is already pending review.", "error")
+            return RedirectResponse("/register", status_code=302)
+        emp_exists = conn.execute(
+            "SELECT id FROM employees WHERE LOWER(email)=LOWER(?)", (email.strip(),)
+        ).fetchone()
+        if emp_exists:
+            flash(request, "An account with this email already exists. Please contact HR.", "error")
+            return RedirectResponse("/register", status_code=302)
+        conn.execute(
+            """INSERT INTO registration_requests
+               (name, email, phone, gender, birthday, address, position_applied, message, privacy_agreed, terms_agreed)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 1)""",
+            (name.strip(), email.strip(), phone.strip(), gender, birthday, address.strip(),
+             position_applied.strip(), message.strip()),
+        )
+        # Notify all HR and Admin
+        hr_ids = conn.execute(
+            "SELECT id FROM employees WHERE role IN ('HR Manager', 'Admin') AND is_active=1"
+        ).fetchall()
+        for hr in hr_ids:
+            push_notification(conn, hr["id"], "New Registration",
+                              f"{name.strip()} applied for access", "/hr-registrations")
+    return RedirectResponse("/register/success", status_code=302)
+
+
+@app.get("/register/success", response_class=HTMLResponse)
+async def register_success(request: Request):
+    return templates.TemplateResponse(request, "register_success.html", {})
+
+
+# ── HR: Registration Queue ────────────────────────────────────────────────────
+@app.get("/hr-registrations", response_class=HTMLResponse)
+async def hr_registrations(request: Request, status_filter: str = "Pending"):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        if status_filter == "All":
+            regs = conn.execute(
+                "SELECT * FROM registration_requests ORDER BY created_at DESC"
+            ).fetchall()
+        else:
+            regs = conn.execute(
+                "SELECT * FROM registration_requests WHERE status=? ORDER BY created_at DESC",
+                (status_filter,),
+            ).fetchall()
+        counts = {
+            "Pending":  conn.execute("SELECT COUNT(*) FROM registration_requests WHERE status='Pending'").fetchone()[0],
+            "Approved": conn.execute("SELECT COUNT(*) FROM registration_requests WHERE status='Approved'").fetchone()[0],
+            "Rejected": conn.execute("SELECT COUNT(*) FROM registration_requests WHERE status='Rejected'").fetchone()[0],
+        }
+    return templates.TemplateResponse(request, "shared/hr_registrations.html", {
+        "user": user,
+        "regs": [dict(r) for r in regs],
+        "status_filter": status_filter,
+        "counts": counts,
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/api/registrations/{reg_id}/approve")
+async def approve_registration(
+    request: Request,
+    reg_id: int,
+    username: str = Form(...),
+    password: str = Form(...),
+    role: str = Form("Employee"),
+    shift_type: str = Form("Morning"),
+    hourly_rate: float = Form(0.0),
+    employment_type: str = Form("Full-time"),
+    department: str = Form(""),
+    capabilities: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        reg = conn.execute(
+            "SELECT * FROM registration_requests WHERE id=?", (reg_id,)
+        ).fetchone()
+        if not reg or reg["status"] != "Pending":
+            flash(request, "Registration not found or already processed.", "error")
+            return RedirectResponse("/hr-registrations", status_code=302)
+        dup = conn.execute(
+            "SELECT id FROM employees WHERE LOWER(username)=LOWER(?)", (username.strip(),)
+        ).fetchone()
+        if dup:
+            flash(request, f"Username '{username}' is already taken. Choose another.", "error")
+            return RedirectResponse("/hr-registrations", status_code=302)
+        hashed = hash_password(password)
+        cursor = conn.execute(
+            """INSERT INTO employees
+               (name, email, phone, gender, birthday, address, username, password, role,
+                shift_type, hourly_rate, employment_type, department, capabilities, is_active)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""",
+            (reg["name"], reg["email"], reg["phone"] or "", reg["gender"] or "",
+             reg["birthday"] or "", reg["address"] or "",
+             username.strip(), hashed, role,
+             shift_type, hourly_rate, employment_type, department.strip(), capabilities.strip()),
+        )
+        emp_id = cursor.lastrowid
+        conn.execute(
+            """UPDATE registration_requests
+               SET status='Approved', reviewed_by=?, reviewed_at=datetime('now','+8 hours'), employee_id=?
+               WHERE id=?""",
+            (user["name"], emp_id, reg_id),
+        )
+        push_notification(conn, emp_id, "Account Approved",
+                          "Your registration has been approved. You can now log in.", "/dashboard")
+        audit(conn, user["id"], user["name"], "approve_registration",
+              target_table="registration_requests", target_id=reg_id, new_value=reg["email"])
+    flash(request, f"Account created for {reg['name']}. They can now log in as '{username}'.", "success")
+    return RedirectResponse("/hr-registrations", status_code=302)
+
+
+@app.post("/api/registrations/{reg_id}/reject")
+async def reject_registration(
+    request: Request,
+    reg_id: int,
+    rejection_reason: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        reg = conn.execute(
+            "SELECT * FROM registration_requests WHERE id=?", (reg_id,)
+        ).fetchone()
+        if not reg or reg["status"] != "Pending":
+            flash(request, "Registration not found or already processed.", "error")
+            return RedirectResponse("/hr-registrations", status_code=302)
+        conn.execute(
+            """UPDATE registration_requests
+               SET status='Rejected', reviewed_by=?, reviewed_at=datetime('now','+8 hours'), rejection_reason=?
+               WHERE id=?""",
+            (user["name"], rejection_reason.strip(), reg_id),
+        )
+        audit(conn, user["id"], user["name"], "reject_registration",
+              target_table="registration_requests", target_id=reg_id, new_value=reg["email"])
+    flash(request, f"Registration from {reg['name']} has been rejected.", "success")
+    return RedirectResponse("/hr-registrations", status_code=302)
 
 
 # ── Root redirect ──────────────────────────────────────────────────────────────

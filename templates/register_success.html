@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Application Submitted — Hundredfold Employee Portal</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .reg-page {
+      min-height: 100vh;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .success-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 52px 40px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+      text-align: center;
+    }
+    .success-icon {
+      font-size: 3.5rem;
+      margin-bottom: 16px;
+      display: block;
+    }
+    .success-card h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--text);
+      margin: 0 0 12px;
+    }
+    .success-card p {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.7;
+      margin: 0 0 10px;
+    }
+    .steps {
+      text-align: left;
+      background: var(--surface-2, #f8fafc);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      margin: 20px 0;
+      font-size: 0.82rem;
+      color: var(--text);
+    }
+    [data-theme="dark"] .steps { background: #1a1f2e; }
+    .steps li { padding: 4px 0; }
+    .steps li::marker { color: var(--primary); }
+  </style>
+</head>
+<body>
+<div class="reg-page">
+  <div class="success-card">
+    <span class="success-icon">✅</span>
+    <h1>Application Submitted!</h1>
+    <p>Thank you for applying for access to the Hundredfold Employee Portal. Your application has been received and is now pending HR review.</p>
+
+    <div class="steps">
+      <ol>
+        <li>Your application is now in the HR review queue.</li>
+        <li>HR will review your details and verify your information.</li>
+        <li>Once approved, HR will set up your account credentials.</li>
+        <li>You will be contacted via email with your login details.</li>
+      </ol>
+    </div>
+
+    <p>If you have questions about the status of your application, please reach out to HR directly.</p>
+
+    <a href="/login" class="btn btn-primary" style="margin-top:8px; display:inline-block;">
+      ← Back to Sign In
+    </a>
+  </div>
+</div>
+</body>
+</html>

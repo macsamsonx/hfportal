@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apply for Access — Hundredfold Employee Portal</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <style>
+    .reg-page {
+      min-height: 100vh;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px 60px;
+    }
+    .reg-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 680px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+    }
+    .reg-logo {
+      text-align: center;
+      margin-bottom: 28px;
+    }
+    .reg-logo img { height: 52px; margin-bottom: 8px; }
+    .reg-logo h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); margin: 0; }
+    .reg-logo p  { font-size: 0.85rem; color: var(--muted); margin: 4px 0 0; }
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 520px) { .form-grid-2 { grid-template-columns: 1fr; } }
+    .section-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 24px 0 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+    .privacy-box {
+      background: var(--surface-2, #f8fafc);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 18px 20px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      line-height: 1.6;
+      max-height: 280px;
+      overflow-y: auto;
+      margin-bottom: 16px;
+    }
+    [data-theme="dark"] .privacy-box { background: #1a1f2e; }
+    .privacy-box h3 { font-size: 0.82rem; font-weight: 700; color: var(--text); margin: 0 0 8px; }
+    .privacy-box h4 { font-size: 0.75rem; font-weight: 700; color: var(--text); margin: 12px 0 4px; }
+    .privacy-box p  { margin: 0 0 6px; }
+    .consent-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .consent-item:last-child { border-bottom: none; }
+    .consent-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; }
+    .consent-item label { font-size: 0.83rem; color: var(--text); cursor: pointer; line-height: 1.5; }
+    .consent-item label strong { color: var(--primary); }
+    .back-link {
+      display: inline-block;
+      margin-top: 16px;
+      font-size: 0.82rem;
+      color: var(--muted);
+      text-decoration: none;
+    }
+    .back-link:hover { color: var(--primary); }
+    .req-note { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+<div class="reg-page">
+  <div class="reg-card">
+    <div class="reg-logo">
+      <img src="/static/img/logo.png" alt="HF Logo"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+      <div style="display:none; font-size:2.4rem; margin-bottom:4px;">🏢</div>
+      <h1>Employee Portal Access Request</h1>
+      <p>Hundredfold Digital Marketing — Submit your application for HR review</p>
+    </div>
+
+    {% if flash %}
+      <div class="flash {{ flash.kind }}">
+        {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+        {{ flash.msg }}
+      </div>
+    {% endif %}
+
+    <form method="post" action="/api/register" id="reg-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+      <div class="section-title">Personal Information</div>
+      <p class="req-note">Fields marked with * are required.</p>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label class="form-label" for="name">Full Name *</label>
+          <input id="name" name="name" type="text" class="form-input"
+                 placeholder="Juan dela Cruz" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="email">Email Address *</label>
+          <input id="email" name="email" type="email" class="form-input"
+                 placeholder="juan@email.com" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="phone">Phone Number</label>
+          <input id="phone" name="phone" type="tel" class="form-input"
+                 placeholder="+63 912 345 6789">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="gender">Gender</label>
+          <select id="gender" name="gender" class="form-input">
+            <option value="">— Select —</option>
+            <option>Male</option>
+            <option>Female</option>
+            <option>Prefer not to say</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="birthday">Date of Birth</label>
+          <input id="birthday" name="birthday" type="date" class="form-input">
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="position_applied">Position Applied For</label>
+          <input id="position_applied" name="position_applied" type="text" class="form-input"
+                 placeholder="e.g. Content Writer, Web Designer">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="address">Home Address</label>
+        <input id="address" name="address" type="text" class="form-input"
+               placeholder="Street, Barangay, City, Province">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="message">Message / Cover Note (Optional)</label>
+        <textarea id="message" name="message" class="form-input" rows="3"
+                  placeholder="Briefly introduce yourself or mention anything HR should know..."></textarea>
+      </div>
+
+      <div class="section-title">Data Privacy Statement</div>
+
+      <div class="privacy-box" id="privacy-text">
+        <h3>Data Privacy Notice — Hundredfold Digital Marketing</h3>
+        <p>Pursuant to <strong>Republic Act No. 10173</strong> (Data Privacy Act of 2012) and its Implementing Rules and Regulations, Hundredfold Digital Marketing informs you of the following before collecting your personal data:</p>
+
+        <h4>1. Data Controller</h4>
+        <p>Hundredfold Digital Marketing is the Personal Information Controller responsible for your personal data collected through this form.</p>
+
+        <h4>2. Personal Data Collected</h4>
+        <p>We collect your full name, email address, phone number, date of birth, gender, home address, and any other information you voluntarily provide in this registration form.</p>
+
+        <h4>3. Purpose of Processing</h4>
+        <p>Your personal data is collected and processed for the following purposes: (a) evaluating your employment application; (b) creating and managing your employee account upon approval; (c) administering employment-related activities including payroll, attendance tracking, and performance management; and (d) compliance with applicable labor laws.</p>
+
+        <h4>4. Legal Basis</h4>
+        <p>Processing is necessary for the performance of, or in preparation for, an employment contract to which you are a party, and to comply with legal obligations applicable to the employer.</p>
+
+        <h4>5. Data Retention</h4>
+        <p>Your personal data will be retained for the duration of your employment and for a period required by applicable Philippine labor and tax laws after the termination of employment (typically 10 years). Applications that are not approved will be retained for 1 year and then deleted.</p>
+
+        <h4>6. Data Sharing</h4>
+        <p>Your personal data will not be sold or disclosed to unauthorized third parties. Data may be shared with government agencies (SSS, PhilHealth, PAG-IBIG, Bureau of Internal Revenue) as required by Philippine law, and with authorized HR personnel for employment administration purposes only.</p>
+
+        <h4>7. Your Rights as a Data Subject</h4>
+        <p>Under RA 10173, you have the following rights: (a) right to be informed; (b) right of access to your personal data; (c) right to correction of inaccurate data; (d) right to erasure or blocking, subject to applicable legal retention requirements; (e) right to object to processing; (f) right to lodge a complaint with the National Privacy Commission (NPC).</p>
+
+        <h4>8. Data Protection Officer</h4>
+        <p>For privacy-related concerns or to exercise your data subject rights, contact our HR Manager at the office or through the official company email.</p>
+
+        <h4>9. Security Measures</h4>
+        <p>We implement appropriate technical and organizational security measures to protect your personal data against unauthorized access, use, disclosure, or destruction.</p>
+      </div>
+
+      <div class="section-title">Required Agreements</div>
+
+      <div class="consent-item">
+        <input type="checkbox" id="privacy_agreed" name="privacy_agreed" value="1" required>
+        <label for="privacy_agreed">
+          <strong>I have read, understood, and agree to the Data Privacy Statement above.</strong>
+          I consent to the collection and processing of my personal data by Hundredfold Digital Marketing in accordance with Republic Act No. 10173 (Data Privacy Act of 2012) for the purposes stated above.
+        </label>
+      </div>
+
+      <div class="consent-item">
+        <input type="checkbox" id="terms_agreed" name="terms_agreed" value="1" required>
+        <label for="terms_agreed">
+          <strong>I confirm that all information I have provided is true and accurate.</strong>
+          I understand that any false or misleading information in this application may result in the rejection of my application or termination of employment if discovered after approval. I acknowledge that my application is subject to HR review and that approval is not guaranteed.
+        </label>
+      </div>
+
+      <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:24px"
+              id="submit-btn" disabled onclick="return validateForm()">
+        Submit Application →
+      </button>
+    </form>
+
+    <div style="text-align:center; margin-top:16px;">
+      <a href="/login" class="back-link">← Back to Sign In</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.flash').forEach(el => {
+    setTimeout(() => el.style.opacity = '0', 4000);
+  });
+
+  // Enable submit only when both checkboxes are checked
+  const cb1 = document.getElementById('privacy_agreed');
+  const cb2 = document.getElementById('terms_agreed');
+  const btn = document.getElementById('submit-btn');
+
+  function updateBtn() {
+    btn.disabled = !(cb1.checked && cb2.checked);
+  }
+  cb1.addEventListener('change', updateBtn);
+  cb2.addEventListener('change', updateBtn);
+
+  function validateForm() {
+    if (!cb1.checked || !cb2.checked) {
+      alert('Please agree to all required consents before submitting.');
+      return false;
+    }
+    return true;
+  }
+</script>
+</body>
+</html>

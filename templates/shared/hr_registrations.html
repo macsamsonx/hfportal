@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block title %}Registrations{% endblock %}
+{% block content %}
+<div class="page-content">
+  <div class="page-header">
+    <div>
+      <h2 class="page-title">Registration Queue</h2>
+      <p class="page-subtitle">Employee access applications pending HR review</p>
+    </div>
+    <a href="/register" target="_blank" class="btn btn-outline btn-sm">
+      View Registration Form ↗
+    </a>
+  </div>
+
+  <!-- Status tabs -->
+  <div style="display:flex; gap:8px; margin-bottom:20px; flex-wrap:wrap;">
+    <a href="/hr-registrations?status_filter=Pending"
+       class="btn btn-sm {% if status_filter == 'Pending' %}btn-primary{% else %}btn-outline{% endif %}">
+      Pending
+      {% if counts.Pending > 0 %}
+        <span class="nav-badge" style="position:static; margin-left:4px; background:{% if status_filter == 'Pending' %}rgba(255,255,255,0.3){% else %}var(--primary){% endif %}; color:{% if status_filter == 'Pending' %}#fff{% else %}#fff{% endif %};">
+          {{ counts.Pending }}
+        </span>
+      {% endif %}
+    </a>
+    <a href="/hr-registrations?status_filter=Approved"
+       class="btn btn-sm {% if status_filter == 'Approved' %}btn-primary{% else %}btn-outline{% endif %}">
+      Approved <span style="font-size:0.75rem; color:var(--muted); margin-left:4px;">{{ counts.Approved }}</span>
+    </a>
+    <a href="/hr-registrations?status_filter=Rejected"
+       class="btn btn-sm {% if status_filter == 'Rejected' %}btn-primary{% else %}btn-outline{% endif %}">
+      Rejected <span style="font-size:0.75rem; color:var(--muted); margin-left:4px;">{{ counts.Rejected }}</span>
+    </a>
+    <a href="/hr-registrations?status_filter=All"
+       class="btn btn-sm {% if status_filter == 'All' %}btn-primary{% else %}btn-outline{% endif %}">
+      All
+    </a>
+  </div>
+
+  {% if regs %}
+  <div class="card">
+    <div class="table-responsive">
+      <table>
+        <thead>
+          <tr>
+            <th>Applicant</th>
+            <th>Contact</th>
+            <th>Position Applied</th>
+            <th>Submitted</th>
+            <th>Status</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in regs %}
+          <tr>
+            <td>
+              <div style="font-weight:600;">{{ r.name }}</div>
+              <div style="font-size:0.78rem; color:var(--muted);">{{ r.gender or '—' }}, {{ r.birthday or '—' }}</div>
+            </td>
+            <td>
+              <div>{{ r.email }}</div>
+              <div style="font-size:0.78rem; color:var(--muted);">{{ r.phone or '—' }}</div>
+            </td>
+            <td>{{ r.position_applied or '—' }}</td>
+            <td style="font-size:0.8rem; color:var(--muted);">
+              {{ r.created_at[:16] if r.created_at else '—' }}
+            </td>
+            <td>
+              {% if r.status == 'Pending' %}
+                <span class="badge badge-warning">Pending</span>
+              {% elif r.status == 'Approved' %}
+                <span class="badge badge-success">Approved</span>
+                <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">by {{ r.reviewed_by }}</div>
+              {% else %}
+                <span class="badge badge-danger">Rejected</span>
+                <div style="font-size:0.72rem; color:var(--muted); margin-top:2px;">by {{ r.reviewed_by }}</div>
+              {% endif %}
+            </td>
+            <td>
+              <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                <button class="btn btn-xs btn-outline"
+                        data-name="{{ r.name|e }}"
+                        data-email="{{ r.email|e }}"
+                        data-phone="{{ r.phone or '' }}"
+                        data-gender="{{ r.gender or '' }}"
+                        data-birthday="{{ r.birthday or '' }}"
+                        data-address="{{ r.address or '' }}"
+                        data-position="{{ r.position_applied or '' }}"
+                        data-created="{{ (r.created_at or '')[:16] }}"
+                        data-status="{{ r.status }}"
+                        data-reviewer="{{ r.reviewed_by or '' }}"
+                        data-reviewed-at="{{ (r.reviewed_at or '')[:16] }}"
+                        data-reason="{{ r.rejection_reason or '' }}"
+                        data-message="{{ r.message or '' }}"
+                        data-privacy="{{ r.privacy_agreed }}"
+                        onclick="viewDetails(this)">
+                  View
+                </button>
+                {% if r.status == 'Pending' %}
+                  <button class="btn btn-xs btn-primary"
+                          onclick="openApprove({{ r.id }}, '{{ r.name|replace("'", "\\'") }}', '{{ r.email }}')">
+                    Approve
+                  </button>
+                  <button class="btn btn-xs btn-danger"
+                          onclick="openReject({{ r.id }}, '{{ r.name|replace("'", "\\'") }}')">
+                    Reject
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center; padding:48px 24px; color:var(--muted);">
+    <div style="font-size:2.5rem; margin-bottom:12px;">📭</div>
+    <div style="font-weight:600; margin-bottom:6px;">No {{ status_filter.lower() }} registrations</div>
+    <div style="font-size:0.85rem;">
+      {% if status_filter == 'Pending' %}
+        Share the registration link with applicants: <strong>/register</strong>
+      {% else %}
+        Nothing here yet.
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ── View Details Modal ─────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="view-modal" style="display:none" onclick="if(event.target===this)closeModal('view-modal')">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-header">
+      <h3 class="modal-title">Application Details</h3>
+      <button class="modal-close" onclick="closeModal('view-modal')">×</button>
+    </div>
+    <div class="modal-body" id="view-modal-body" style="font-size:0.88rem; line-height:1.7;">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline" onclick="closeModal('view-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Approve Modal ──────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="approve-modal" style="display:none" onclick="if(event.target===this)closeModal('approve-modal')">
+  <div class="modal" style="max-width:580px;">
+    <div class="modal-header">
+      <h3 class="modal-title">Approve Registration</h3>
+      <button class="modal-close" onclick="closeModal('approve-modal')">×</button>
+    </div>
+    <form method="post" id="approve-form" action="/api/registrations/0/approve">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="modal-body">
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:16px;">
+          Set the account credentials and employment details for
+          <strong id="approve-name"></strong>.
+        </p>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:14px;">
+          <div class="form-group">
+            <label class="form-label">Username *</label>
+            <input name="username" id="approve-username" type="text" class="form-input"
+                   required placeholder="e.g. juan.delacruz">
+            <span style="font-size:0.73rem; color:var(--muted);">Used to log in. Cannot be changed later without admin.</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Temporary Password *</label>
+            <div style="display:flex; gap:6px;">
+              <input name="password" id="approve-password" type="text" class="form-input"
+                     required placeholder="Temporary password">
+              <button type="button" class="btn btn-outline btn-sm" onclick="genPassword()"
+                      style="white-space:nowrap; flex-shrink:0;">Generate</button>
+            </div>
+            <span style="font-size:0.73rem; color:var(--muted);">Share this with the employee. They should change it on first login.</span>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select name="role" class="form-input">
+              <option value="Employee" selected>Employee</option>
+              <option value="HR Manager">HR Manager</option>
+              <option value="Admin">Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Shift Type</label>
+            <select name="shift_type" class="form-input">
+              <option value="Morning">Morning</option>
+              <option value="Mid">Mid</option>
+              <option value="Night">Night</option>
+              <option value="Custom">Custom / Flexible</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Hourly Rate (₱)</label>
+            <input name="hourly_rate" type="number" step="0.01" min="0" class="form-input"
+                   placeholder="0.00">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Employment Type</label>
+            <select name="employment_type" class="form-input">
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Probationary">Probationary</option>
+              <option value="Freelance">Freelance / Contract</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Department</label>
+            <input name="department" type="text" class="form-input"
+                   placeholder="e.g. Creative, Operations">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Skills / Capabilities</label>
+            <input name="capabilities" type="text" class="form-input"
+                   placeholder="e.g. Graphic Design, SEO, Copywriting">
+            <span style="font-size:0.73rem; color:var(--muted);">Separate with commas.</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('approve-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Account & Approve</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Reject Modal ───────────────────────────────────────────────────────── -->
+<div class="modal-overlay" id="reject-modal" style="display:none" onclick="if(event.target===this)closeModal('reject-modal')">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <h3 class="modal-title">Reject Registration</h3>
+      <button class="modal-close" onclick="closeModal('reject-modal')">×</button>
+    </div>
+    <form method="post" id="reject-form" action="/api/registrations/0/reject">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+      <div class="modal-body">
+        <p style="font-size:0.85rem; color:var(--muted); margin-bottom:12px;">
+          Rejecting application from <strong id="reject-name"></strong>. This action cannot be undone.
+        </p>
+        <div class="form-group">
+          <label class="form-label">Reason for Rejection (Optional)</label>
+          <textarea name="rejection_reason" class="form-input" rows="3"
+                    placeholder="e.g. Position is currently filled, incomplete information..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('reject-modal')">Cancel</button>
+        <button type="submit" class="btn btn-danger">Reject Application</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openApprove(id, name, email) {
+  document.getElementById('approve-name').textContent = name;
+  document.getElementById('approve-form').action = `/api/registrations/${id}/approve`;
+  // Auto-suggest username from email local part
+  const emailLocal = email.split('@')[0].replace(/[^a-z0-9._]/gi, '.').toLowerCase();
+  document.getElementById('approve-username').value = emailLocal;
+  openModal('approve-modal');
+}
+
+function openReject(id, name) {
+  document.getElementById('reject-name').textContent = name;
+  document.getElementById('reject-form').action = `/api/registrations/${id}/reject`;
+  openModal('reject-modal');
+}
+
+function viewDetails(btn) {
+  const d = btn.dataset;
+  const body = document.getElementById('view-modal-body');
+  const row = (label, val) => val ? `<tr><td style="color:var(--muted);padding:4px 8px 4px 0;width:140px;font-weight:500;">${label}</td><td style="padding:4px 0;">${val}</td></tr>` : '';
+  const reviewer = d.reviewer ? d.reviewer + (d.reviewedAt ? ' on ' + d.reviewedAt : '') : '';
+  body.innerHTML = `
+    <table style="width:100%; border-collapse:collapse;">
+      ${row('Name', d.name)}
+      ${row('Email', d.email)}
+      ${row('Phone', d.phone)}
+      ${row('Gender', d.gender)}
+      ${row('Birthday', d.birthday)}
+      ${row('Address', d.address)}
+      ${row('Position Applied', d.position)}
+      ${row('Submitted', d.created)}
+      ${row('Status', d.status)}
+      ${reviewer ? row('Reviewed By', reviewer) : ''}
+      ${d.reason ? row('Rejection Reason', d.reason) : ''}
+    </table>
+    ${d.message ? `<div style="margin-top:12px; padding:12px; background:var(--surface-2,#f8fafc); border-radius:6px; font-size:0.84rem; border:1px solid var(--border);">
+      <div style="font-weight:600; margin-bottom:4px; color:var(--muted);">Cover Note</div>
+      <div>${d.message.replace(/\n/g, '<br>')}</div>
+    </div>` : ''}
+    ${d.privacy === '1' ? '<div style="margin-top:10px; font-size:0.78rem; color:var(--muted);">✓ Data Privacy Statement agreed &nbsp;&nbsp; ✓ Terms confirmed</div>' : ''}
+  `;
+  openModal('view-modal');
+}
+
+function genPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#';
+  let pwd = '';
+  for (let i = 0; i < 10; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+  document.getElementById('approve-password').value = pwd;
+}
+</script>
+{% endblock %}

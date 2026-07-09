@@ -401,6 +401,27 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id)
             );
 
+            -- ── Registration requests (pre-employment applications) ────────────────────
+            CREATE TABLE IF NOT EXISTS registration_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                phone TEXT,
+                gender TEXT,
+                birthday TEXT,
+                address TEXT,
+                position_applied TEXT,
+                message TEXT,
+                privacy_agreed INTEGER DEFAULT 0,
+                terms_agreed INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'Pending',
+                reviewed_by TEXT,
+                reviewed_at TEXT,
+                rejection_reason TEXT,
+                employee_id INTEGER,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours'))
+            );
+
             -- ── Performance Reviews ───────────────────────────────────────────────────
             CREATE TABLE IF NOT EXISTS performance_reviews (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
