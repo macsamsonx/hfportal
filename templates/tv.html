@@ -15,7 +15,7 @@
       --border:    rgba(255,255,255,0.1);
       --text:      #e2e8f0;
       --muted:     #64748b;
-      --primary:   #7c3aed;
+      --primary:   #2563eb;
       --success:   #10b981;
       --warning:   #f59e0b;
       --danger:    #ef4444;
@@ -96,42 +96,36 @@
     .tv-dot-gray  { background: rgba(100,116,139,.15); color: var(--muted); }
     .tv-dot-idle  { background: rgba(245,158,11,.12); color: var(--warning); }
 
-    /* ── Poster slideshow ── */
-    .tv-poster-wrap {
-      position: relative;
+    /* ── Fullscreen poster overlay ── */
+    #tv-poster-overlay {
+      display: none;
+      position: fixed; inset: 0; z-index: 9999;
       background: #000;
-      border-right: 1px solid var(--border);
-      overflow: hidden;
-      display: none; /* shown via JS when posters exist */
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
     }
-    .tv-poster-img {
-      width: 100%; height: 100%;
+    #tv-poster-overlay.active { display: flex; }
+    #tv-poster-overlay img {
+      max-width: 100%; max-height: 100vh;
       object-fit: contain;
-      position: absolute; inset: 0;
-      opacity: 0;
-      transition: opacity .8s ease;
     }
-    .tv-poster-img.active { opacity: 1; }
-    .tv-poster-caption {
+    #tv-poster-caption-fs {
       position: absolute; bottom: 0; left: 0; right: 0;
-      background: linear-gradient(transparent, rgba(0,0,0,.7));
-      padding: 16px 14px 10px;
-      font-size: .75rem; color: rgba(255,255,255,.8);
-      font-weight: 600;
+      background: linear-gradient(transparent, rgba(0,0,0,.75));
+      padding: 40px 40px 24px;
+      font-size: 1.4rem; font-weight: 700;
+      color: rgba(255,255,255,.9);
+      text-align: center;
     }
-    .tv-poster-dots {
-      position: absolute; bottom: 6px; right: 10px;
-      display: flex; gap: 4px;
+    #tv-poster-counter {
+      position: absolute; top: 18px; right: 24px;
+      font-size: .75rem; color: rgba(255,255,255,.5);
+      font-weight: 600; letter-spacing: .05em;
     }
-    .tv-poster-dot {
-      width: 6px; height: 6px; border-radius: 50%;
-      background: rgba(255,255,255,.3);
-      transition: background .3s;
-    }
-    .tv-poster-dot.active { background: #fff; }
 
     /* ── Main content (kanban) ── */
-    .tv-main { padding: 14px 16px; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+    .tv-main { grid-column: 2; padding: 14px 16px; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
 
     .tv-kanban-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; flex: 1; }
     .tv-kanban-col {
@@ -233,13 +227,6 @@
     </div>
   </header>
 
-  <!-- Poster slideshow (shown when posters exist) -->
-  <div class="tv-poster-wrap" id="tv-poster-panel">
-    <div id="tv-poster-images"></div>
-    <div class="tv-poster-caption" id="tv-poster-caption"></div>
-    <div class="tv-poster-dots" id="tv-poster-dots"></div>
-  </div>
-
   <!-- Left: Attendance -->
   <aside class="tv-left">
     <div class="tv-panel-title">🟢 Live Attendance</div>
@@ -301,58 +288,50 @@
     <span class="tv-footer-brand">Attendance · 5s · Board · 10s · Hundredfold Digital Marketing</span>
   </footer>
 
+  <!-- Fullscreen poster overlay (covers entire TV when active) -->
+  <div id="tv-poster-overlay">
+    <img id="tv-poster-img-fs" src="" alt="">
+    <div id="tv-poster-caption-fs"></div>
+    <div id="tv-poster-counter"></div>
+  </div>
+
 </div>
 <script src="/static/js/tv.js"></script>
 <script>
-// ── Poster slideshow ──────────────────────────────────────────────────────────
+// ── Fullscreen poster cycle ───────────────────────────────────────────────────
+// Pattern: TV screen (30s) → poster fullscreen (duration_secs) → TV (30s) → next poster → …
+const TV_SCREEN_SECS = 30;
+
 (async function initPosters() {
   try {
     const res = await fetch('/api/tv/posters');
     const { posters } = await res.json();
     if (!posters || !posters.length) return;
 
-    const panel   = document.getElementById('tv-poster-panel');
-    const imgWrap = document.getElementById('tv-poster-images');
-    const caption = document.getElementById('tv-poster-caption');
-    const dotsEl  = document.getElementById('tv-poster-dots');
+    const overlay   = document.getElementById('tv-poster-overlay');
+    const imgEl     = document.getElementById('tv-poster-img-fs');
+    const captionEl = document.getElementById('tv-poster-caption-fs');
+    const counterEl = document.getElementById('tv-poster-counter');
 
-    // Reconfigure grid: add poster column before the left attendance panel
-    const root = document.querySelector('.tv-root');
-    root.style.gridTemplateColumns = '260px 280px 1fr';
+    let idx = 0;
 
-    panel.style.display = 'block';
+    function showPoster() {
+      const p = posters[idx % posters.length];
+      imgEl.src = `/uploads/posters/${p.filename}`;
+      captionEl.textContent = p.caption || '';
+      counterEl.textContent = `${(idx % posters.length) + 1} / ${posters.length}`;
+      overlay.classList.add('active');
 
-    // Build images
-    posters.forEach((p, i) => {
-      const img = document.createElement('img');
-      img.src = `/uploads/posters/${p.filename}`;
-      img.className = 'tv-poster-img' + (i === 0 ? ' active' : '');
-      img.alt = p.caption || '';
-      imgWrap.appendChild(img);
-
-      const dot = document.createElement('div');
-      dot.className = 'tv-poster-dot' + (i === 0 ? ' active' : '');
-      dotsEl.appendChild(dot);
-    });
-
-    let current = 0;
-    const imgs = imgWrap.querySelectorAll('.tv-poster-img');
-    const dots = dotsEl.querySelectorAll('.tv-poster-dot');
-
-    function showSlide(idx) {
-      imgs[current].classList.remove('active');
-      dots[current].classList.remove('active');
-      current = idx % posters.length;
-      imgs[current].classList.add('active');
-      dots[current].classList.add('active');
-      caption.textContent = posters[current].caption || '';
+      const durMs = (p.duration_secs || 8) * 1000;
+      setTimeout(() => {
+        overlay.classList.remove('active');
+        idx++;
+        setTimeout(showPoster, TV_SCREEN_SECS * 1000);
+      }, durMs);
     }
 
-    function advance() {
-      const duration = (posters[current].duration_secs || 8) * 1000;
-      setTimeout(() => { showSlide(current + 1); advance(); }, duration);
-    }
-    advance();
+    // Start first poster after one full TV-screen interval
+    setTimeout(showPoster, TV_SCREEN_SECS * 1000);
   } catch (e) {
     console.warn('Poster load failed:', e);
   }

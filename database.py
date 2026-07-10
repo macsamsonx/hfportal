@@ -648,6 +648,24 @@ def init_db():
         for s in default_skills:
             conn.execute("INSERT OR IGNORE INTO skills (name) VALUES (?)", (s,))
 
+        # ── Payslip logs ──────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS payslip_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                payroll_run_id INTEGER,
+                week_start TEXT NOT NULL,
+                week_end TEXT NOT NULL,
+                gross_pay REAL DEFAULT 0,
+                total_deductions REAL DEFAULT 0,
+                net_pay REAL DEFAULT 0,
+                generated_by TEXT,
+                generated_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                printed_by TEXT,
+                printed_at TEXT,
+                FOREIGN KEY(emp_id) REFERENCES employees(id)
+            )""")
+
         # ── Seed clients ──────────────────────────────────────────────────────────
         if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:
             conn.executemany(

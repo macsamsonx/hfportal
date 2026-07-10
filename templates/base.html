@@ -262,6 +262,29 @@
 
       <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
 
+      {# ── Attendance status pill (employees only) ── #}
+      {% if user.role == 'Employee' and att_status is defined %}
+      <div id="att-pill" style="
+        display:flex; align-items:center; gap:6px;
+        background:{% if att_status=='clocked_in' %}#16a34a{% elif att_status=='on_break' %}#d97706{% elif att_status=='clocked_out' %}#18181b{% else %}#64748b{% endif %};
+        color:#fff; padding:5px 13px; border-radius:9999px;
+        font-size:.73rem; font-weight:700; white-space:nowrap;
+        box-shadow:0 2px 8px rgba(0,0,0,.25); flex-shrink:0;">
+        {% if att_status == 'clocked_in' %}
+          <span style="width:7px;height:7px;border-radius:50%;background:#4ade80;display:inline-block;animation:pulse-dot 1.5s infinite;"></span>
+          <span>IN <span id="att-timer" data-ci="{{ att_clock_in }}"></span></span>
+        {% elif att_status == 'on_break' %}
+          <span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;animation:pulse-dot 1.5s infinite;"></span>
+          <span>BREAK <span id="att-timer" data-ci="{{ att_clock_in }}"></span></span>
+        {% elif att_status == 'clocked_out' %}
+          <span>🏁</span>
+          <span>{{ att_clock_in }} – {{ att_clock_out }}</span>
+        {% else %}
+          <span>–– not clocked in</span>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <div style="display:flex; align-items:center; gap:10px;">
         <!-- Dark mode toggle -->
         <button id="theme-toggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
@@ -340,21 +363,147 @@
       </div>
     </header>
 
-    <!-- Floating Chat Bubble -->
+    <!-- ── Messenger-style Floating Chat ──────────────────────────────────── -->
     {% if chat_unread_count is defined %}
-    <a href="/chat" id="chat-bubble"
-       style="position:fixed;bottom:24px;right:24px;z-index:1500;width:54px;height:54px;
-              border-radius:50%;background:var(--primary);display:flex;align-items:center;
-              justify-content:center;text-decoration:none;box-shadow:0 4px 20px rgba(0,0,0,.3);
-              transition:transform .15s ease;">
-      <span style="font-size:1.35rem;">💬</span>
-      {% if chat_unread_count and chat_unread_count > 0 %}
-      <span style="position:absolute;top:-3px;right:-3px;background:#ef4444;color:#fff;
-                   border-radius:50%;min-width:20px;height:20px;font-size:.68rem;font-weight:800;
-                   display:flex;align-items:center;justify-content:center;padding:0 4px;
-                   border:2px solid var(--card);">{{ chat_unread_count }}</span>
-      {% endif %}
-    </a>
+    <div id="messenger-wrap" style="position:fixed;bottom:20px;right:20px;z-index:1500;display:flex;flex-direction:column;align-items:flex-end;gap:10px;">
+
+      {# Chat panel #}
+      <div id="messenger-panel" style="display:none;width:320px;height:440px;background:var(--surface,#fff);
+           border:1px solid var(--border,#e2e8f0);border-radius:16px;
+           box-shadow:0 8px 40px rgba(0,0,0,.22);overflow:hidden;display:none;flex-direction:column;">
+        {# Header #}
+        <div id="msg-header" style="background:var(--primary);color:#fff;padding:12px 14px;display:flex;align-items:center;gap:10px;flex-shrink:0;">
+          <button onclick="closeMsgThread()" id="msg-back-btn" style="display:none;background:none;border:none;color:#fff;font-size:1.1rem;cursor:pointer;padding:0 4px;">←</button>
+          <div id="msg-header-name" style="font-weight:700;font-size:.88rem;flex:1;">Messages</div>
+          <button onclick="toggleMessenger()" style="background:none;border:none;color:#fff;font-size:1.2rem;cursor:pointer;line-height:1;">×</button>
+        </div>
+        {# Contact list #}
+        <div id="msg-contacts" style="flex:1;overflow-y:auto;padding:8px 0;">
+          <div style="text-align:center;color:var(--muted);font-size:.8rem;padding:20px;">Loading…</div>
+        </div>
+        {# Thread view (hidden initially) #}
+        <div id="msg-thread" style="display:none;flex:1;flex-direction:column;overflow:hidden;">
+          <div id="msg-messages" style="flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:6px;"></div>
+          <div style="padding:8px 10px;border-top:1px solid var(--border,#e2e8f0);display:flex;gap:6px;flex-shrink:0;">
+            <input id="msg-input" type="text" placeholder="Type a message…"
+                   style="flex:1;padding:7px 12px;border:1px solid var(--border,#e2e8f0);border-radius:20px;font-size:.82rem;outline:none;background:var(--surface-2,#fafafa);"
+                   onkeydown="if(event.key==='Enter')sendMsg()">
+            <button onclick="sendMsg()" style="background:var(--primary);color:#fff;border:none;border-radius:50%;width:34px;height:34px;font-size:1rem;cursor:pointer;">↑</button>
+          </div>
+        </div>
+      </div>
+
+      {# Bubble button #}
+      <button onclick="toggleMessenger()" id="chat-bubble"
+         style="width:54px;height:54px;border-radius:50%;background:var(--primary);border:none;
+                display:flex;align-items:center;justify-content:center;cursor:pointer;
+                box-shadow:0 4px 20px rgba(0,0,0,.3);position:relative;flex-shrink:0;">
+        <span style="font-size:1.35rem;">💬</span>
+        <span id="chat-unread-badge" style="position:absolute;top:-3px;right:-3px;background:#ef4444;color:#fff;
+               border-radius:50%;min-width:20px;height:20px;font-size:.68rem;font-weight:800;
+               display:{% if chat_unread_count and chat_unread_count > 0 %}flex{% else %}none{% endif %};
+               align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;">
+          {{ chat_unread_count or '' }}
+        </span>
+      </button>
+    </div>
+
+    <script>
+    const _ME = {{ user.id }};
+    const _CSRF = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
+    let _msgRoom = null, _msgPollTimer = null, _lastMsgId = 0;
+    const _msgrOpen = () => document.getElementById('messenger-panel').style.display === 'flex';
+
+    function toggleMessenger() {
+      const panel = document.getElementById('messenger-panel');
+      if (panel.style.display === 'flex') { panel.style.display = 'none'; return; }
+      panel.style.display = 'flex';
+      panel.style.flexDirection = 'column';
+      loadContacts();
+    }
+
+    function loadContacts() {
+      fetch('/api/chat/contacts').then(r=>r.json()).then(data=>{
+        const el = document.getElementById('msg-contacts');
+        if (!data.contacts || !data.contacts.length) { el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:.8rem;padding:20px;">No contacts yet.</div>'; return; }
+        el.innerHTML = data.contacts.map(c => `
+          <div onclick="openThread('${c.room}','${c.name.replace(/'/g,"\\'")}',${c.id})"
+               style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s;"
+               onmouseover="this.style.background='var(--surface-2,#fafafa)'" onmouseout="this.style.background=''">
+            <div style="width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;
+                        display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.85rem;flex-shrink:0;">
+              ${c.initial}
+            </div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:.82rem;font-weight:600;">${c.name}</div>
+              <div style="font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${c.last_msg || 'Start a conversation'}</div>
+            </div>
+            ${c.unread ? `<span style="background:#ef4444;color:#fff;border-radius:50%;min-width:18px;height:18px;font-size:.65rem;font-weight:800;display:flex;align-items:center;justify-content:center;padding:0 3px;">${c.unread}</span>` : ''}
+          </div>`).join('');
+      });
+    }
+
+    function openThread(room, name, contactId) {
+      _msgRoom = room;
+      document.getElementById('msg-contacts').style.display = 'none';
+      document.getElementById('msg-thread').style.display = 'flex';
+      document.getElementById('msg-back-btn').style.display = 'inline';
+      document.getElementById('msg-header-name').textContent = name;
+      _lastMsgId = 0;
+      document.getElementById('msg-messages').innerHTML = '';
+      fetchMessages();
+      clearInterval(_msgPollTimer);
+      _msgPollTimer = setInterval(fetchMessages, 3000);
+      setTimeout(() => document.getElementById('msg-input').focus(), 100);
+    }
+
+    function closeMsgThread() {
+      clearInterval(_msgPollTimer);
+      _msgRoom = null;
+      document.getElementById('msg-thread').style.display = 'none';
+      document.getElementById('msg-contacts').style.display = 'block';
+      document.getElementById('msg-back-btn').style.display = 'none';
+      document.getElementById('msg-header-name').textContent = 'Messages';
+      loadContacts();
+    }
+
+    function fetchMessages() {
+      if (!_msgRoom) return;
+      fetch(`/api/chat/poll?room=${_msgRoom}&after_id=${_lastMsgId}`).then(r=>r.json()).then(data=>{
+        const el = document.getElementById('msg-messages');
+        (data.messages || []).forEach(m => {
+          if (m.id <= _lastMsgId) return;
+          _lastMsgId = Math.max(_lastMsgId, m.id);
+          const mine = m.sender_id === _ME;
+          const div = document.createElement('div');
+          div.style.cssText = `display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};`;
+          div.innerHTML = `
+            ${!mine ? `<div style="font-size:.62rem;color:var(--muted);margin-bottom:2px;padding-left:4px;">${m.sender_name}</div>` : ''}
+            <div style="max-width:75%;padding:7px 11px;border-radius:${mine?'14px 14px 4px 14px':'14px 14px 14px 4px'};
+                 background:${mine?'var(--primary)':'var(--surface-2,#f1f5f9)'};
+                 color:${mine?'#fff':'var(--text)'};font-size:.8rem;line-height:1.4;word-break:break-word;">
+              ${m.body.replace(/</g,'&lt;')}
+            </div>
+            <div style="font-size:.6rem;color:var(--muted);margin-top:2px;padding:0 4px;">${m.sent_at ? m.sent_at.slice(11,16) : ''}</div>`;
+          el.appendChild(div);
+        });
+        if (data.messages && data.messages.length) el.scrollTop = el.scrollHeight;
+      });
+    }
+
+    function sendMsg() {
+      const inp = document.getElementById('msg-input');
+      const body = inp.value.trim();
+      if (!body || !_msgRoom) return;
+      inp.value = '';
+      const fd = new FormData();
+      fd.append('room', _msgRoom);
+      fd.append('body', body);
+      fd.append('_csrf', _CSRF());
+      fetch('/api/chat/send', {method:'POST', headers:{'X-Requested-With':'fetch'}, body: fd})
+        .then(() => fetchMessages());
+    }
+    </script>
     {% endif %}
 
     <div class="page-content">

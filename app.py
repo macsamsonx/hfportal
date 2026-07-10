@@ -247,6 +247,21 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
                 "SELECT COUNT(*) FROM work_logs WHERE emp_id=? AND status='For Review' AND COALESCE(is_archived,0)=0",
                 (uid,)
             ).fetchone()[0]
+            # Attendance pill data
+            today = get_pht_now().strftime("%Y-%m-%d")
+            att = conn.execute(
+                "SELECT clock_in, clock_out, is_on_break FROM attendance WHERE emp_id=? AND date_logged=?",
+                (uid, today)
+            ).fetchone()
+            if att and att["clock_in"] and not att["clock_out"]:
+                ctx["att_status"]   = "on_break" if att["is_on_break"] else "clocked_in"
+                ctx["att_clock_in"] = att["clock_in"][:5]
+            elif att and att["clock_in"] and att["clock_out"]:
+                ctx["att_status"]    = "clocked_out"
+                ctx["att_clock_in"]  = att["clock_in"][:5]
+                ctx["att_clock_out"] = att["clock_out"][:5]
+            else:
+                ctx["att_status"] = "not_clocked_in"
     ctx["vl_enabled"] = bool(user.get("vl_enabled", 1))
     ctx["sl_enabled"] = bool(user.get("sl_enabled", 1))
     ctx["now"] = get_pht_now().isoformat()
@@ -1716,10 +1731,11 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
             "SELECT * FROM employees WHERE role='Employee' AND is_active=1"
         ).fetchall()
         conn.execute("DELETE FROM payroll_runs WHERE week_start=?", (week_start,))
+        conn.execute("DELETE FROM payslip_logs WHERE week_start=?", (week_start,))
         for emp in employees:
             p = compute_payroll_for_employee(emp["id"], week_start, week_end)
             if p:
-                conn.execute(
+                cur = conn.execute(
                     """INSERT INTO payroll_runs
                        (week_start, week_end, emp_id, emp_name, regular_hours, overtime_hours,
                         hourly_rate, regular_pay, overtime_pay, total_pay,
@@ -1732,6 +1748,14 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
                      p["gross_pay"], p["sss_deduction"], p["philhealth_deduction"],
                      p["pagibig_deduction"], p["tax_deduction"], p["total_deductions"],
                      p["net_pay"]),
+                )
+                conn.execute(
+                    """INSERT INTO payslip_logs
+                       (emp_id, payroll_run_id, week_start, week_end,
+                        gross_pay, total_deductions, net_pay, generated_by)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (p["emp_id"], cur.lastrowid, week_start, week_end,
+                     p["gross_pay"], p["total_deductions"], p["net_pay"], user["name"]),
                 )
     flash(request, f"Payroll generated for {week_start} – {week_end}.")
     return RedirectResponse(f"/payroll?start={week_start}&end={week_end}", status_code=302)
@@ -1881,6 +1905,10 @@ async def employee_profile_page(request: Request, emp_id: int):
             "SELECT * FROM work_logs WHERE emp_id=? ORDER BY timestamp DESC LIMIT 20",
             (emp_id,),
         ).fetchall()
+        payslips = conn.execute(
+            "SELECT * FROM payslip_logs WHERE emp_id=? ORDER BY generated_at DESC LIMIT 30",
+            (emp_id,),
+        ).fetchall()
     status, doc_count = get_compliance_status(dict(emp))
     today_str = get_pht_now().strftime("%Y-%m-%d")
     return templates.TemplateResponse(request, "admin/employee_profile.html", {
@@ -1888,6 +1916,7 @@ async def employee_profile_page(request: Request, emp_id: int):
         "emp": dict(emp),
         "attendance": [dict(a) for a in attendance],
         "tasks": [dict(t) for t in tasks],
+        "payslips": [dict(p) for p in payslips],
         "compliance_status": status,
         "doc_count": doc_count,
         "today_str": today_str,
@@ -2724,6 +2753,41 @@ async def poll_chat_messages(request: Request, room: str = "group", after_id: in
     return JSONResponse({"messages": rows})
 
 
+@app.get("/api/chat/contacts")
+async def chat_contacts_api(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        contacts = conn.execute(
+            "SELECT id, name, role FROM employees WHERE id!=? AND is_active=1 ORDER BY name",
+            (user["id"],)
+        ).fetchall()
+        result = []
+        for c in contacts:
+            r = dm_room(user["id"], c["id"])
+            last_read = conn.execute(
+                "SELECT last_read_msg_id FROM chat_reads WHERE user_id=? AND room=?",
+                (user["id"], r)
+            ).fetchone()
+            last_read_id = last_read["last_read_msg_id"] if last_read else 0
+            unread = conn.execute(
+                "SELECT COUNT(*) FROM chat_messages WHERE room=? AND id>? AND sender_id!=?",
+                (r, last_read_id, user["id"])
+            ).fetchone()[0]
+            last_msg = conn.execute(
+                "SELECT body FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
+                (r,)
+            ).fetchone()
+            result.append({
+                "id": c["id"],
+                "name": c["name"],
+                "initial": c["name"][0].upper() if c["name"] else "?",
+                "room": r,
+                "unread": unread,
+                "last_msg": last_msg["body"][:60] if last_msg else "",
+            })
+    return JSONResponse({"contacts": result})
+
+
 @app.get("/api/chat/stream")
 async def stream_chat_messages(request: Request, room: str = "group", after_id: int = 0):
     user = require_user(request)
@@ -3345,6 +3409,74 @@ async def print_employee_profile(request: Request, emp_id: int):
         "vl_balance": max(0, vl_total - int(vl_used or 0)),
         "sl_balance": max(0, sl_total - int(sl_used or 0)),
         "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/payslip/{payslip_id}", response_class=HTMLResponse)
+async def print_payslip(request: Request, payslip_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        ps = conn.execute(
+            """SELECT pl.*, e.name AS emp_name, e.position, e.bank_name, e.bank_account,
+                      e.bank_account_name, e.bank_qr_path, e.hourly_rate
+               FROM payslip_logs pl
+               JOIN employees e ON e.id = pl.emp_id
+               WHERE pl.id=?""",
+            (payslip_id,)
+        ).fetchone()
+        if not ps:
+            return HTMLResponse("Payslip not found", status_code=404)
+        pr = conn.execute(
+            "SELECT * FROM payroll_runs WHERE id=?",
+            (ps["payroll_run_id"],)
+        ).fetchone() if ps["payroll_run_id"] else None
+        conn.execute(
+            "UPDATE payslip_logs SET printed_by=?, printed_at=datetime('now','+8 hours') WHERE id=?",
+            (user["name"], payslip_id)
+        )
+    return templates.TemplateResponse(request, "print/payslip.html", {
+        "ps": dict(ps),
+        "pr": dict(pr) if pr else {},
+        "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
+        "user": user,
+    })
+
+
+@app.get("/print/payment-qr", response_class=HTMLResponse)
+async def print_payment_qr(request: Request, week_start: str = "", week_end: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        if week_start and week_end:
+            runs = conn.execute(
+                """SELECT pr.*, e.bank_name, e.bank_account, e.bank_account_name, e.bank_qr_path
+                   FROM payroll_runs pr
+                   JOIN employees e ON e.id = pr.emp_id
+                   WHERE pr.week_start=? AND pr.week_end=? AND pr.status='Approved'
+                   ORDER BY pr.emp_name ASC""",
+                (week_start, week_end)
+            ).fetchall()
+        else:
+            latest = conn.execute(
+                "SELECT week_start, week_end FROM payroll_runs WHERE status='Approved' ORDER BY week_start DESC LIMIT 1"
+            ).fetchone()
+            if latest:
+                week_start, week_end = latest["week_start"], latest["week_end"]
+                runs = conn.execute(
+                    """SELECT pr.*, e.bank_name, e.bank_account, e.bank_account_name, e.bank_qr_path
+                       FROM payroll_runs pr
+                       JOIN employees e ON e.id = pr.emp_id
+                       WHERE pr.week_start=? AND pr.week_end=? AND pr.status='Approved'
+                       ORDER BY pr.emp_name ASC""",
+                    (week_start, week_end)
+                ).fetchall()
+            else:
+                runs = []
+    return templates.TemplateResponse(request, "print/payment_qr.html", {
+        "runs": [dict(r) for r in runs],
+        "week_start": week_start,
+        "week_end": week_end,
+        "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
         "user": user,
     })
 

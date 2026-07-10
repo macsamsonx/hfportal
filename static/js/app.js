@@ -432,5 +432,26 @@ function showToast(msg, kind = 'success') {
   setTimeout(() => t.remove(), 3000);
 }
 
+// ── Attendance pill timer ─────────────────────────────────────────────────────
+(function () {
+  const timerEl = document.getElementById('att-timer');
+  if (!timerEl) return;
+  const ci = timerEl.dataset.ci; // "HH:MM" (PHT)
+  if (!ci) return;
+  const [h, m] = ci.split(':').map(Number);
+  const now = new Date();
+  const start = new Date(now);
+  start.setHours(h, m, 0, 0);
+  if (start > now) start.setDate(start.getDate() - 1);
+  function tick() {
+    const diff = Math.floor((Date.now() - start) / 1000);
+    const hh = Math.floor(diff / 3600).toString().padStart(2, '0');
+    const mm = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
+    timerEl.textContent = hh + ':' + mm;
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initKanban);
