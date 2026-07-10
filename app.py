@@ -389,15 +389,14 @@ async def register_submit(
     middle_name = middle_name.strip()
     has_no_middle = bool(no_middle_name)
 
-    # Build display name: Prefix First [Middle] Last (Nickname)
-    parts = []
-    if prefix.strip():
-        parts.append(prefix.strip())
-    parts.append(first_name)
+    # Build display name: First [Middle] Last[, Suffix] [(Nickname)]
+    parts = [first_name]
     if not has_no_middle and middle_name:
         parts.append(middle_name)
     parts.append(last_name)
     full_name = " ".join(parts)
+    if prefix.strip():  # stored as "prefix" column but used as name suffix (Jr., Sr., III…)
+        full_name += f", {prefix.strip()}"
     if nickname.strip():
         full_name += f" ({nickname.strip()})"
 
@@ -761,6 +760,14 @@ async def dashboard(request: Request):
             (today_md,)
         ).fetchall()
         birthday_people = [dict(b) for b in birthday_people]
+        reviewer_cards = conn.execute(
+            """SELECT w.*, e.name as emp_name FROM work_logs w
+               JOIN employees e ON w.emp_id=e.id
+               WHERE w.reviewer_name=? AND COALESCE(w.is_archived,0)=0 AND w.status != 'Done'
+               ORDER BY w.timestamp DESC""",
+            (user["name"],)
+        ).fetchall()
+        reviewer_cards = [dict(c) for c in reviewer_cards]
 
     vl_total = int(user.get("vl_days_per_year") or 15)
     sl_total = int(user.get("sl_days_per_year") or 15)
@@ -793,6 +800,7 @@ async def dashboard(request: Request):
         "for_review_mine": for_review_mine,
         "birthday_people": birthday_people,
         "verse": verse,
+        "reviewer_cards": reviewer_cards,
         **shared_ctx(user, request),
     })
 
@@ -1017,14 +1025,24 @@ async def delete_task(request: Request, task_id: int):
 async def assign_reviewer(request: Request, task_id: int, reviewer_name: str = Form(...)):
     user = require_user(request)
     with get_db() as conn:
-        task = conn.execute("SELECT emp_id FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute("SELECT emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        # Any logged-in user can change reviewer
         reviewer = reviewer_name.strip() or None
         conn.execute("UPDATE work_logs SET reviewer_name=? WHERE id=?", (reviewer, task_id))
         detail = f"Assigned: {reviewer}" if reviewer else "Reviewer cleared"
         log_card_activity(conn, task_id, user["name"], "reviewer_set", detail)
+        if reviewer:
+            rev_emp = conn.execute(
+                "SELECT id FROM employees WHERE name=? AND is_active=1 LIMIT 1", (reviewer,)
+            ).fetchone()
+            if rev_emp and rev_emp["id"] != user["id"]:
+                push_notification(
+                    conn, rev_emp["id"],
+                    "📋 Assigned as Reviewer",
+                    f"You are now reviewing: '{task['task_title']}'",
+                    "/kanban"
+                )
     return JSONResponse({"ok": True})
 
 
@@ -1429,14 +1447,23 @@ async def delete_hr_task(request: Request, task_id: int):
 
 @app.get("/kanban/archive", response_class=HTMLResponse)
 async def kanban_archive(request: Request):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_user(request)
     with get_db() as conn:
-        cards = conn.execute(
-            """SELECT w.*, e.name as emp_name, e.profile_pic_path
-               FROM work_logs w JOIN employees e ON w.emp_id=e.id
-               WHERE COALESCE(w.is_archived,0)=1
-               ORDER BY w.timestamp DESC"""
-        ).fetchall()
+        if user["role"] in ("HR Manager", "Admin"):
+            cards = conn.execute(
+                """SELECT w.*, e.name as emp_name, e.profile_pic_path
+                   FROM work_logs w JOIN employees e ON w.emp_id=e.id
+                   WHERE COALESCE(w.is_archived,0)=1
+                   ORDER BY w.timestamp DESC"""
+            ).fetchall()
+        else:
+            cards = conn.execute(
+                """SELECT w.*, e.name as emp_name, e.profile_pic_path
+                   FROM work_logs w JOIN employees e ON w.emp_id=e.id
+                   WHERE COALESCE(w.is_archived,0)=1 AND w.emp_id=?
+                   ORDER BY w.timestamp DESC""",
+                (user["id"],)
+            ).fetchall()
     return templates.TemplateResponse(request, "shared/kanban_archive.html", {
         "user": user,
         "cards": [dict(c) for c in cards],
@@ -2735,9 +2762,7 @@ async def send_chat_message(request: Request, room: str = Form(...), body: str =
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
             (user["id"], room, msg_id)
         )
-        if room.startswith("dm_"):
-            other_id = [int(p) for p in room.split("_")[1:3] if int(p) != user["id"]][0]
-            push_notification(conn, other_id, f"💬 {user['name']}", body[:100], f"/chat?room={room}")
+        # Chat unread count is tracked via chat_reads table — no notification bell entry
 
     return JSONResponse({"ok": True})
 
@@ -2784,7 +2809,7 @@ async def chat_contacts_api(request: Request):
                 (r, last_read_id, user["id"])
             ).fetchone()[0]
             last_msg = conn.execute(
-                "SELECT body, sent_at FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
+                "SELECT body, created_at FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
                 (r,)
             ).fetchone()
             result.append({
@@ -2794,14 +2819,14 @@ async def chat_contacts_api(request: Request):
                 "room": r,
                 "unread": unread,
                 "last_msg": last_msg["body"][:60] if last_msg else "",
-                "last_msg_at": last_msg["sent_at"] if last_msg else "",
+                "last_msg_at": last_msg["created_at"] if last_msg else "",
             })
     # Sort: unread first, then most-recently-messaged, then A-Z for no-message contacts
     with_msgs    = sorted([c for c in result if c["last_msg_at"]],
                           key=lambda x: (-x["unread"], x["last_msg_at"]), reverse=False)
     with_msgs    = (
         sorted([c for c in with_msgs if c["unread"]],     key=lambda x: -x["unread"]) +
-        sorted([c for c in with_msgs if not c["unread"]], key=lambda x: x["last_msg_at"], reverse=True)
+        sorted([c for c in with_msgs if not c["unread"]], key=lambda x: x["last_msg_at"] or "", reverse=True)
     )
     without_msgs = sorted([c for c in result if not c["last_msg_at"]], key=lambda x: x["name"].lower())
     return JSONResponse({"contacts": with_msgs + without_msgs})

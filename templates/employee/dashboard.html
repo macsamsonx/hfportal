@@ -85,7 +85,7 @@
     'Draft':    'linear-gradient(135deg,#d97706,#fbbf24)'
   } %}
   <a href="/my-timesheet" style="flex:1; min-width:140px; text-decoration:none;">
-    <div style="border-radius:var(--radius); padding:16px 18px; min-height:90px;
+    <div style="border-radius:var(--radius); padding:20px 22px;
                 background:{{ ts_grad.get(timesheet_status, 'linear-gradient(135deg,#64748b,#94a3b8)') }};
                 display:flex; align-items:center; gap:12px; color:#fff; box-shadow:var(--shadow);">
       <div style="font-size:1.8rem; opacity:.9;">{{ ts_icon.get(timesheet_status, '🗓️') }}</div>
@@ -323,7 +323,7 @@
             {% set is_today = task.date_logged == today %}
             {% set in_week = task.date_logged >= week_start and task.date_logged <= week_end %}
             {% set running = task.is_running == 1 %}
-            <tr class="task-row"
+            <tr class="task-row {% if running %}task-row-running{% elif is_today %}task-row-today{% endif %}"
                 data-period="{{ 'today' if is_today else '' }} {{ 'week' if in_week else '' }} month"
                 style="{% if running %}background:#f0fdf4; border-left:3px solid #22c55e;{% elif is_today %}background:#f8fafc;{% endif %}">
               <td class="text-xs nowrap" style="color:var(--muted);">
@@ -404,6 +404,41 @@
   </div>
 
 </div>
+
+{% if reviewer_cards %}
+{# ── Cards I'm Reviewing ───────────────────────────────────────────────────── #}
+<div class="card mt-4" style="margin-top:20px;">
+  <div class="card-header">
+    <h3>👤 Cards I'm Reviewing</h3>
+    <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.75rem;">View Board</a>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Task</th>
+          <th>Assigned To</th>
+          <th>Client</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for card in reviewer_cards %}
+        <tr style="cursor:pointer;" onclick="window.location='/kanban'">
+          <td class="fw-600" style="font-size:.87rem;">{{ card.task_title }}</td>
+          <td class="text-sm">{{ card.emp_name or '—' }}</td>
+          <td class="text-sm">{{ card.client or '—' }}</td>
+          <td>
+            {% set sc2 = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
+            <span class="badge badge-{{ sc2.get(card.status, 'gray') }}">{{ card.status }}</span>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
 
 {# ── Edit Task Modal ─────────────────────────────────────────────────────────── #}
 <div class="modal-overlay" id="editModal">
@@ -536,17 +571,27 @@ if (clockInInput) {
 })();
 
 // ── Running task timers ────────────────────────────────────────────────────────
+const _IS_ON_BREAK = {{ 'true' if attendance and attendance.is_on_break else 'false' }};
+const _BREAK_START = {% if active_break %}"{{ active_break.break_start }}"{% else %}null{% endif %};
+
 function updateTimers() {
   document.querySelectorAll('.task-timer').forEach(function(el) {
     const raw = el.dataset.started;
     if (!raw) return;
     const started = new Date(raw.replace(' ', 'T'));
-    const elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
-    if (elapsed < 0) { el.textContent = '0m 00s'; return; }
-    const h = Math.floor(elapsed / 3600);
-    const m = Math.floor((elapsed % 3600) / 60);
-    const s = elapsed % 60;
-    el.textContent = (h > 0 ? h + 'h ' : '') + m + 'm ' + String(s).padStart(2, '0') + 's';
+    let elapsed;
+    if (_IS_ON_BREAK && _BREAK_START) {
+      // Freeze at the time the break started
+      const breakStart = new Date(_BREAK_START.replace(' ', 'T'));
+      elapsed = Math.floor((breakStart.getTime() - started.getTime()) / 1000);
+    } else {
+      elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
+    }
+    if (elapsed < 0) elapsed = 0;
+    const hh = Math.floor(elapsed / 3600).toString().padStart(2, '0');
+    const mm = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
+    const ss = (elapsed % 60).toString().padStart(2, '0');
+    el.textContent = hh + ':' + mm + ':' + ss;
   });
 }
 setInterval(updateTimers, 1000);

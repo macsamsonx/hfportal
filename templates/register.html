@@ -105,27 +105,26 @@
       <div class="section-title">Personal Information</div>
       <p class="req-note">Fields marked with * are required.</p>
 
-      <!-- Name row: Prefix | First | Last -->
+      <!-- Name row: First | Last | Suffix | Nickname -->
       <div class="form-grid-4" style="margin-bottom:12px;">
         <div class="form-group">
-          <label class="form-label">Prefix</label>
-          <select name="prefix" class="form-input" style="min-width:80px;">
-            <option value="">—</option>
-            <option>Mr.</option>
-            <option>Ms.</option>
-            <option>Mrs.</option>
-            <option>Dr.</option>
-            <option>Engr.</option>
-            <option>Atty.</option>
-          </select>
-        </div>
-        <div class="form-group">
           <label class="form-label">First Name *</label>
-          <input name="first_name" type="text" class="form-input" placeholder="Juan" required>
+          <input name="first_name" type="text" class="form-input" placeholder="Juan" required id="reg-first-name">
         </div>
         <div class="form-group">
           <label class="form-label">Last Name *</label>
-          <input name="last_name" type="text" class="form-input" placeholder="dela Cruz" required>
+          <input name="last_name" type="text" class="form-input" placeholder="dela Cruz" required id="reg-last-name">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Suffix</label>
+          <select name="prefix" class="form-input" style="min-width:80px;">
+            <option value="">—</option>
+            <option>Jr.</option>
+            <option>Sr.</option>
+            <option>II</option>
+            <option>III</option>
+            <option>IV</option>
+          </select>
         </div>
         <div class="form-group">
           <label class="form-label">Nickname</label>
@@ -155,26 +154,26 @@
           <input name="email" type="email" class="form-input" placeholder="juan@email.com" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Phone Number</label>
-          <input name="phone" type="tel" class="form-input" placeholder="+63 912 345 6789">
+          <label class="form-label">Phone Number *</label>
+          <input name="phone" type="tel" class="form-input" placeholder="+63 912 345 6789" required id="reg-phone">
         </div>
         <div class="form-group">
-          <label class="form-label">Gender</label>
-          <select name="gender" class="form-input">
+          <label class="form-label">Gender *</label>
+          <select name="gender" class="form-input" required id="reg-gender">
             <option value="">— Select —</option>
             <option>Male</option>
             <option>Female</option>
           </select>
         </div>
         <div class="form-group">
-          <label class="form-label">Date of Birth</label>
-          <input name="birthday" type="date" class="form-input">
+          <label class="form-label">Date of Birth *</label>
+          <input name="birthday" type="date" class="form-input" required id="reg-birthday">
         </div>
       </div>
 
       <div class="form-group" style="margin-bottom:12px;">
-        <label class="form-label">Home Address</label>
-        <input name="address" type="text" class="form-input"
+        <label class="form-label">Home Address *</label>
+        <input name="address" type="text" class="form-input" required id="reg-address"
                placeholder="Street, Barangay, City, Province">
       </div>
 
@@ -263,9 +262,31 @@
   const cb1 = document.getElementById('privacy_agreed');
   const cb2 = document.getElementById('terms_agreed');
   const btn = document.getElementById('submit-btn');
-  function updateBtn() { btn.disabled = !(cb1.checked && cb2.checked); }
+
+  const requiredFields = [
+    'reg-first-name', 'reg-last-name', 'reg-phone',
+    'reg-gender', 'reg-birthday', 'reg-address'
+  ];
+
+  function updateBtn() {
+    const allFilled = requiredFields.every(id => {
+      const el = document.getElementById(id);
+      return el && el.value.trim() !== '';
+    });
+    const noMiddle = document.getElementById('no_middle_name').checked;
+    const middleOk = noMiddle || document.getElementById('middle_name_input').value.trim() !== '';
+    btn.disabled = !(cb1.checked && cb2.checked && allFilled && middleOk);
+  }
+
   cb1.addEventListener('change', updateBtn);
   cb2.addEventListener('change', updateBtn);
+  requiredFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateBtn);
+    if (el) el.addEventListener('change', updateBtn);
+  });
+  document.getElementById('middle_name_input').addEventListener('input', updateBtn);
+  document.getElementById('no_middle_name').addEventListener('change', updateBtn);
 
   // ── Skills tag input ──────────────────────────────────────────────────────
   const availableSkills = {{ skills_list | tojson }};

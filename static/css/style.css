@@ -8,9 +8,9 @@
   --accent:       #06b6d4;
 
   /* Sidebar */
-  --sidebar-bg:   ##0a1628;
-  --sidebar-s2:   ##0f1e38;
-  --sidebar-text: ##94a3b8;
+  --sidebar-bg:   #0a1628;
+  --sidebar-s2:   #0f1e38;
+  --sidebar-text: #94a3b8;
   --sidebar-act:  #3b82f6;
   --sidebar-w:    252px;
 
@@ -1172,6 +1172,9 @@ tfoot td {
 [data-theme="dark"] input[type="email"],
 [data-theme="dark"] input[type="password"],
 [data-theme="dark"] textarea          { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+/* Task log rows — dark mode overrides for hardcoded light backgrounds */
+[data-theme="dark"] tr.task-row-running { background: rgba(34,197,94,.08) !important; border-left-color: #22c55e !important; }
+[data-theme="dark"] tr.task-row-today   { background: var(--surface-2) !important; }
 /* Messenger panel dark mode */
 [data-theme="dark"] #messenger-panel  { background: var(--surface) !important; border-color: var(--border) !important; }
 [data-theme="dark"] #msg-contacts     { background: var(--surface); color: var(--text); }
