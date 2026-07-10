@@ -2765,7 +2765,9 @@ async def get_notifications(request: Request):
     user = require_user(request)
     with get_db() as conn:
         rows = conn.execute(
-            "SELECT * FROM notifications WHERE user_id=? ORDER BY created_at DESC LIMIT 20",
+            """SELECT * FROM notifications
+               WHERE user_id=? AND (link IS NULL OR link NOT LIKE '/chat%')
+               ORDER BY created_at DESC LIMIT 20""",
             (user["id"],)
         ).fetchall()
     return JSONResponse({"notifications": [dict(r) for r in rows]})
@@ -2932,7 +2934,33 @@ async def chat_contacts_api(request: Request):
         sorted([c for c in with_msgs if not c["unread"]], key=lambda x: x["last_msg_at"] or "", reverse=True)
     )
     without_msgs = sorted([c for c in result if not c["last_msg_at"]], key=lambda x: x["name"].lower())
-    return JSONResponse({"contacts": with_msgs + without_msgs})
+
+    # Prepend group chat entry
+    with get_db() as conn2:
+        grp_last = conn2.execute(
+            "SELECT body, created_at FROM chat_messages WHERE room='group' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        grp_read = conn2.execute(
+            "SELECT last_read_msg_id FROM chat_reads WHERE user_id=? AND room='group'",
+            (user["id"],)
+        ).fetchone()
+        grp_read_id = grp_read["last_read_msg_id"] if grp_read else 0
+        grp_unread = conn2.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE room='group' AND id>? AND sender_id!=?",
+            (grp_read_id, user["id"])
+        ).fetchone()[0]
+    group_entry = {
+        "id": 0,
+        "name": "General Chat",
+        "initial": "G",
+        "avatar": None,
+        "is_group": True,
+        "room": "group",
+        "unread": grp_unread,
+        "last_msg": grp_last["body"][:60] if grp_last else "Company-wide channel",
+        "last_msg_at": grp_last["created_at"] if grp_last else "",
+    }
+    return JSONResponse({"contacts": [group_entry] + with_msgs + without_msgs})
 
 
 @app.get("/api/chat/stream")

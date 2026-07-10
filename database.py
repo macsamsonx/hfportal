@@ -904,7 +904,9 @@ def push_notification(conn, user_id: int, title: str, body: str = "", link: str 
 def get_unread_count(user_id: int) -> int:
     with get_db() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) FROM notifications WHERE user_id=? AND is_read=0",
+            """SELECT COUNT(*) FROM notifications
+               WHERE user_id=? AND is_read=0
+               AND (link IS NULL OR link NOT LIKE '/chat%')""",
             (user_id,)
         ).fetchone()
     return row[0] if row else 0
