@@ -1,31 +1,92 @@
 {% extends "print/base_print.html" %}
-{% block title %}Employee Profile — {{ emp.name }}{% endblock %}
-{% block report_title %}Employee 201 Profile{% endblock %}
+{% block title %}Employee 201 File — {{ emp.name }}{% endblock %}
+{% block report_title %}Employee 201 File{% endblock %}
 
 {% block content %}
-<!-- Employee identity -->
+
+<!-- Identity block: photo + core info -->
 <section>
   <h2>Employee Information</h2>
-  <div class="grid-2">
-    <div>
-      <div class="field-row"><div class="field-label">Full Name</div><div class="field-val">{{ emp.name }}</div></div>
-      <div class="field-row"><div class="field-label">Role / Position</div><div class="field-val">{{ emp.role }}</div></div>
-      <div class="field-row"><div class="field-label">Email</div><div class="field-val">{{ emp.email or '—' }}</div></div>
-      <div class="field-row"><div class="field-label">Phone</div><div class="field-val">{{ emp.phone or '—' }}</div></div>
-      <div class="field-row"><div class="field-label">Status</div><div class="field-val">
-        {% if emp.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-red">Inactive</span>{% endif %}
-      </div></div>
+  <div style="display:flex; gap:24px; align-items:flex-start;">
+
+    <!-- Left: fields -->
+    <div style="flex:1;">
+      <div class="grid-2" style="margin-bottom:10px;">
+        <div>
+          <div class="field-row">
+            <div class="field-label">Full Name</div>
+            <div class="field-val" style="font-size:12pt; font-weight:700;">{{ emp.name }}</div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Position / Role</div>
+            <div class="field-val">{{ emp.role }}</div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Employment Status</div>
+            <div class="field-val">
+              {% if emp.is_active %}<span class="badge badge-green">Active</span>{% else %}<span class="badge badge-red">Inactive / Resigned</span>{% endif %}
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Shift Type</div>
+            <div class="field-val">{{ emp.shift_type or '—' }}</div>
+          </div>
+        </div>
+        <div>
+          <div class="field-row">
+            <div class="field-label">Birthday</div>
+            <div class="field-val">{{ emp.birthday or '—' }}</div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Gender</div>
+            <div class="field-val">{{ emp.gender or '—' }}</div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Civil Status</div>
+            <div class="field-val">{{ emp.marital_status or '—' }}</div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Capabilities / Skills</div>
+            <div class="field-val" style="font-size:9.5pt;">{{ emp.capabilities or '—' }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label">Home Address</div>
+        <div class="field-val">{{ emp.address or '—' }}</div>
+      </div>
     </div>
-    <div>
-      <div class="field-row"><div class="field-label">Shift Type</div><div class="field-val">{{ emp.shift_type or '—' }}</div></div>
-      <div class="field-row"><div class="field-label">Hourly Rate</div><div class="field-val">₱{{ "%.2f"|format(emp.hourly_rate or 0) }}</div></div>
-      <div class="field-row"><div class="field-label">Birthday</div><div class="field-val">{{ emp.birthday or '—' }}</div></div>
-      <div class="field-row"><div class="field-label">Gender</div><div class="field-val">{{ emp.gender or '—' }}</div></div>
-      <div class="field-row"><div class="field-label">Civil Status</div><div class="field-val">{{ emp.marital_status or '—' }}</div></div>
+
+    <!-- Right: 2x2 photo box -->
+    <div style="flex-shrink:0; text-align:center;">
+      <div style="width:100px; height:120px; border:1.5px solid #cbd5e1; border-radius:4px; overflow:hidden; background:#f1f5f9; display:flex; align-items:center; justify-content:center;">
+        {% if emp.profile_pic_path %}
+          <img src="/uploads/avatars/{{ emp.profile_pic_path }}"
+               alt="{{ emp.name }}"
+               style="width:100%; height:100%; object-fit:cover;">
+        {% else %}
+          <div style="font-size:8pt; color:#94a3b8; text-align:center; padding:6px; font-family:Arial,sans-serif; line-height:1.4;">
+            2×2<br>Photo
+          </div>
+        {% endif %}
+      </div>
+      <div style="font-size:7pt; color:#94a3b8; margin-top:4px; font-family:Arial,sans-serif;">ID Photo</div>
     </div>
   </div>
-  <div style="margin-top:10px;">
-    <div class="field-row"><div class="field-label">Address</div><div class="field-val">{{ emp.address or '—' }}</div></div>
+</section>
+
+<!-- Contact -->
+<section>
+  <h2>Contact Details</h2>
+  <div class="grid-2">
+    <div class="field-row">
+      <div class="field-label">Email Address</div>
+      <div class="field-val">{{ emp.email or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">Mobile / Phone</div>
+      <div class="field-val">{{ emp.phone or '—' }}</div>
+    </div>
   </div>
 </section>
 
@@ -33,72 +94,129 @@
 <section>
   <h2>Emergency Contact</h2>
   <div class="grid-2">
-    <div class="field-row"><div class="field-label">Contact Name</div><div class="field-val">{{ emp.emergency_contact or '—' }}</div></div>
-    <div class="field-row"><div class="field-label">Contact Phone</div><div class="field-val">{{ emp.emergency_phone or '—' }}</div></div>
+    <div class="field-row">
+      <div class="field-label">Contact Person</div>
+      <div class="field-val">{{ emp.emergency_contact or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">Contact Number</div>
+      <div class="field-val">{{ emp.emergency_phone or '—' }}</div>
+    </div>
   </div>
 </section>
 
 <!-- Government IDs -->
 <section>
-  <h2>Government IDs</h2>
+  <h2>Government Identification Numbers</h2>
   <div class="grid-2">
-    <div class="field-row"><div class="field-label">SSS Number</div><div class="field-val">{{ emp.sss_no or '—' }}</div></div>
-    <div class="field-row"><div class="field-label">PhilHealth Number</div><div class="field-val">{{ emp.philhealth_no or '—' }}</div></div>
-    <div class="field-row"><div class="field-label">TIN (BIR)</div><div class="field-val">{{ emp.tin_no or '—' }}</div></div>
-    <div class="field-row"><div class="field-label">Pag-IBIG / HDMF</div><div class="field-val">{{ emp.pagibig_no or '—' }}</div></div>
+    <div class="field-row">
+      <div class="field-label">SSS Number</div>
+      <div class="field-val">{{ emp.sss_no or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">PhilHealth Number</div>
+      <div class="field-val">{{ emp.philhealth_no or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">TIN (BIR)</div>
+      <div class="field-val">{{ emp.tin_no or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">Pag-IBIG / HDMF</div>
+      <div class="field-val">{{ emp.pagibig_no or '—' }}</div>
+    </div>
   </div>
 </section>
 
-<!-- Payroll / Bank -->
+<!-- Bank -->
 <section>
   <h2>Bank / Payroll Account</h2>
   <div class="grid-2">
-    <div class="field-row"><div class="field-label">Bank Name</div><div class="field-val">{{ emp.bank_name or '—' }}</div></div>
-    <div class="field-row"><div class="field-label">Account Number</div><div class="field-val">{{ emp.bank_account or '—' }}</div></div>
+    <div class="field-row">
+      <div class="field-label">Bank Name</div>
+      <div class="field-val">{{ emp.bank_name or '—' }}</div>
+    </div>
+    <div class="field-row">
+      <div class="field-label">Account Number</div>
+      <div class="field-val">{{ emp.bank_account or '—' }}</div>
+    </div>
+    {% if emp.bank_account_name %}
+    <div class="field-row">
+      <div class="field-label">Account Name</div>
+      <div class="field-val">{{ emp.bank_account_name }}</div>
+    </div>
+    {% endif %}
   </div>
 </section>
 
 <!-- Deduction Enrollment -->
 <section>
-  <h2>Government Deduction Enrollment</h2>
+  <h2>Government Benefit Enrollment</h2>
   <table>
-    <thead><tr><th>Benefit</th><th>Enrolled</th><th>ID Number</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Benefit Program</th>
+        <th>Status</th>
+        <th>Employee ID / Number</th>
+        <th>Contribution Rate</th>
+      </tr>
+    </thead>
     <tbody>
-      <tr><td>SSS (4.5%)</td>
-          <td>{% if emp.sss_enrolled %}<span class="badge badge-green">✓ Yes</span>{% else %}<span class="badge badge-red">✗ No</span>{% endif %}</td>
-          <td>{{ emp.sss_no or '—' }}</td></tr>
-      <tr><td>PhilHealth (2.5%)</td>
-          <td>{% if emp.philhealth_enrolled %}<span class="badge badge-green">✓ Yes</span>{% else %}<span class="badge badge-red">✗ No</span>{% endif %}</td>
-          <td>{{ emp.philhealth_no or '—' }}</td></tr>
-      <tr><td>Pag-IBIG (2%)</td>
-          <td>{% if emp.pagibig_enrolled %}<span class="badge badge-green">✓ Yes</span>{% else %}<span class="badge badge-red">✗ No</span>{% endif %}</td>
-          <td>{{ emp.pagibig_no or '—' }}</td></tr>
-      <tr><td>Withholding Tax (BIR)</td>
-          <td>{% if emp.tax_enrolled %}<span class="badge badge-green">✓ Yes</span>{% else %}<span class="badge badge-red">✗ No</span>{% endif %}</td>
-          <td>{{ emp.tin_no or '—' }}</td></tr>
+      <tr>
+        <td><strong>Social Security System (SSS)</strong></td>
+        <td>{% if emp.sss_enrolled %}<span class="badge badge-green">✓ Enrolled</span>{% else %}<span class="badge badge-gray">Not Enrolled</span>{% endif %}</td>
+        <td>{{ emp.sss_no or '—' }}</td>
+        <td>4.5%</td>
+      </tr>
+      <tr>
+        <td><strong>PhilHealth (PHIC)</strong></td>
+        <td>{% if emp.philhealth_enrolled %}<span class="badge badge-green">✓ Enrolled</span>{% else %}<span class="badge badge-gray">Not Enrolled</span>{% endif %}</td>
+        <td>{{ emp.philhealth_no or '—' }}</td>
+        <td>2.5%</td>
+      </tr>
+      <tr>
+        <td><strong>Pag-IBIG (HDMF)</strong></td>
+        <td>{% if emp.pagibig_enrolled %}<span class="badge badge-green">✓ Enrolled</span>{% else %}<span class="badge badge-gray">Not Enrolled</span>{% endif %}</td>
+        <td>{{ emp.pagibig_no or '—' }}</td>
+        <td>2%</td>
+      </tr>
+      <tr>
+        <td><strong>Withholding Tax (BIR)</strong></td>
+        <td>{% if emp.tax_enrolled %}<span class="badge badge-green">✓ Enrolled</span>{% else %}<span class="badge badge-gray">Not Enrolled</span>{% endif %}</td>
+        <td>{{ emp.tin_no or '—' }}</td>
+        <td>Per BIR Table</td>
+      </tr>
     </tbody>
   </table>
 </section>
 
 <!-- Leave Allowance -->
 <section>
-  <h2>Leave Allowance (This Year)</h2>
+  <h2>Leave Entitlement (Current Year)</h2>
   <table>
-    <thead><tr><th>Leave Type</th><th>Enabled</th><th>Allowance / Year</th><th>Used</th><th>Balance</th></tr></thead>
+    <thead>
+      <tr>
+        <th>Leave Type</th>
+        <th>Enabled</th>
+        <th style="text-align:right;">Allowance</th>
+        <th style="text-align:right;">Used</th>
+        <th style="text-align:right;">Balance</th>
+      </tr>
+    </thead>
     <tbody>
       <tr>
-        <td>Vacation Leave</td>
+        <td><strong>Vacation Leave (VL)</strong></td>
         <td>{% if emp.vl_enabled %}<span class="badge badge-green">Yes</span>{% else %}<span class="badge badge-gray">No</span>{% endif %}</td>
-        <td>{{ emp.vl_days_per_year or 15 }} days</td>
-        <td>{{ vl_used }} days</td>
-        <td>{{ vl_balance }} days</td>
+        <td class="text-right">{{ emp.vl_days_per_year or 15 }} days</td>
+        <td class="text-right">{{ vl_used }} days</td>
+        <td class="text-right fw-700">{{ vl_balance }} days</td>
       </tr>
       <tr>
-        <td>Sick Leave</td>
+        <td><strong>Sick Leave (SL)</strong></td>
         <td>{% if emp.sl_enabled %}<span class="badge badge-green">Yes</span>{% else %}<span class="badge badge-gray">No</span>{% endif %}</td>
-        <td>{{ emp.sl_days_per_year or 15 }} days</td>
-        <td>{{ sl_used }} days</td>
-        <td>{{ sl_balance }} days</td>
+        <td class="text-right">{{ emp.sl_days_per_year or 15 }} days</td>
+        <td class="text-right">{{ sl_used }} days</td>
+        <td class="text-right fw-700">{{ sl_balance }} days</td>
       </tr>
     </tbody>
   </table>
@@ -106,15 +224,47 @@
 
 {% if emp.admin_notes or emp.hr_feedback %}
 <section>
-  <h2>Notes & Feedback</h2>
-  {% if emp.admin_notes %}<div class="field-row"><div class="field-label">Admin Notes</div><div class="field-val" style="white-space:pre-wrap;">{{ emp.admin_notes }}</div></div>{% endif %}
-  {% if emp.hr_feedback %}<div class="field-row"><div class="field-label">HR Feedback</div><div class="field-val" style="white-space:pre-wrap;">{{ emp.hr_feedback }}</div></div>{% endif %}
+  <h2>Notes &amp; HR Feedback</h2>
+  {% if emp.admin_notes %}
+    <div class="field-row">
+      <div class="field-label">Admin Notes</div>
+      <div class="field-val" style="white-space:pre-wrap; font-size:9.5pt;">{{ emp.admin_notes }}</div>
+    </div>
+  {% endif %}
+  {% if emp.hr_feedback %}
+    <div class="field-row" style="margin-top:8px;">
+      <div class="field-label">HR Feedback</div>
+      <div class="field-val" style="white-space:pre-wrap; font-size:9.5pt;">{{ emp.hr_feedback }}</div>
+    </div>
+  {% endif %}
 </section>
 {% endif %}
 
+<!-- Signature block -->
 <div class="sig-row">
-  <div class="sig-box"><div class="sig-name">HR Manager</div><div>Signature over printed name</div></div>
-  <div class="sig-box"><div class="sig-name">Employee Acknowledgement</div><div>Signature over printed name</div></div>
-  <div class="sig-box"><div class="sig-name">Date</div></div>
+  <div class="sig-box">
+    <div class="sig-space"></div>
+    <div class="sig-name">HR Manager</div>
+    <div>Signature over Printed Name</div>
+    <div style="margin-top:4px;">Date: _______________</div>
+  </div>
+  <div class="sig-box">
+    <div class="sig-space"></div>
+    <div class="sig-name">Employee Acknowledgement</div>
+    <div>Signature over Printed Name</div>
+    <div style="margin-top:4px;">Date: _______________</div>
+  </div>
+  <div class="sig-box">
+    <div class="sig-space"></div>
+    <div class="sig-name">Authorized by</div>
+    <div>Signature over Printed Name</div>
+    <div style="margin-top:4px;">Date: _______________</div>
+  </div>
 </div>
+
+<div style="margin-top:18px; font-size:7.5pt; color:#9ca3af; text-align:center; font-family:Arial,sans-serif; border-top:1px solid #e5e7eb; padding-top:8px;">
+  This document is strictly confidential and is intended solely for authorized HR and management personnel.
+  Unauthorized disclosure, copying, or distribution is prohibited.
+</div>
+
 {% endblock %}

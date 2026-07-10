@@ -666,6 +666,12 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id)
             )""")
 
+            conn.execute("""
+            CREATE TABLE IF NOT EXISTS company_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )""")
+
         # ── Seed clients ──────────────────────────────────────────────────────────
         if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:
             conn.executemany(
@@ -962,3 +968,38 @@ def log_card_activity(conn, card_id: int, actor_name: str,
         "INSERT INTO card_activities (card_id, actor_name, activity_type, detail) VALUES (?,?,?,?)",
         (card_id, actor_name, activity_type, detail)
     )
+
+
+# ── Company settings ──────────────────────────────────────────────────────────
+
+_COMPANY_DEFAULTS = {
+    "name":        "Hundredfold Digital Marketing",
+    "tagline":     "Employee Portal",
+    "address":     "",
+    "phone":       "",
+    "email":       "",
+    "website":     "",
+    "tin":         "",
+    "sss_employer": "",
+    "philhealth_employer": "",
+    "pagibig_employer": "",
+    "dti":         "",
+    "logo_path":   "",
+}
+
+def get_company_settings() -> dict:
+    settings = dict(_COMPANY_DEFAULTS)
+    with get_db() as conn:
+        rows = conn.execute("SELECT key, value FROM company_settings").fetchall()
+        for r in rows:
+            if r["key"] in settings:
+                settings[r["key"]] = r["value"] or ""
+    return settings
+
+
+def save_company_setting(key: str, value: str):
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO company_settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value)
+        )

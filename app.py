@@ -65,6 +65,7 @@ from database import (
     dm_room, get_chat_unread_count,
     KANBAN_STATUSES, BIBLE_VERSES,
     UPLOAD_DIR,
+    get_company_settings, save_company_setting,
 )
 
 # ── CSRF helpers ──────────────────────────────────────────────────────────────
@@ -515,6 +516,42 @@ async def set_employee_skills(request: Request, emp_id: int):
 
 
 # ── Admin: Clear database ─────────────────────────────────────────────────────
+@app.get("/admin/company-settings", response_class=HTMLResponse)
+async def company_settings_page(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    return templates.TemplateResponse(request, "admin/company_settings.html", {
+        "user": user,
+        "company": get_company_settings(),
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/admin/company-settings")
+async def company_settings_save(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    fields = ["name", "tagline", "address", "phone", "email", "website",
+              "tin", "sss_employer", "philhealth_employer", "pagibig_employer", "dti"]
+    for field in fields:
+        val = str(form.get(field, "")).strip()
+        save_company_setting(field, val)
+
+    # Logo upload
+    logo_file = form.get("logo")
+    if logo_file and hasattr(logo_file, "filename") and logo_file.filename:
+        ext = os.path.splitext(logo_file.filename)[1].lower()
+        if ext in (".png", ".jpg", ".jpeg", ".svg", ".webp"):
+            logo_path = os.path.join("static", "img", "company_logo" + ext)
+            content = await logo_file.read()
+            with open(logo_path, "wb") as f:
+                f.write(content)
+            save_company_setting("logo_path", "/static/img/company_logo" + ext)
+
+    flash(request, "Company settings saved.", "success")
+    return RedirectResponse("/admin/company-settings", status_code=302)
+
+
 @app.get("/admin/clear-database", response_class=HTMLResponse)
 async def clear_db_page(request: Request):
     user = require_role(request, "Admin")
@@ -3454,6 +3491,7 @@ async def print_employee_profile(request: Request, emp_id: int):
         "sl_balance": max(0, sl_total - int(sl_used or 0)),
         "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3484,6 +3522,7 @@ async def print_payslip(request: Request, payslip_id: int):
         "pr": dict(pr) if pr else {},
         "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3522,6 +3561,7 @@ async def print_payment_qr(request: Request, week_start: str = "", week_end: str
         "week_end": week_end,
         "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3536,6 +3576,7 @@ async def print_roster(request: Request):
         "employees": [dict(e) for e in employees],
         "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3578,6 +3619,7 @@ async def print_payroll(request: Request, week_start: str = "", week_end: str = 
         "total_net": round(total_net, 2),
         "now": get_pht_now().strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3626,6 +3668,7 @@ async def print_leave_report(request: Request, year: str = ""):
         "total_approved_days": sum(r["days_count"] for r in approved),
         "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 
@@ -3659,6 +3702,7 @@ async def print_attendance_report(request: Request, date_from: str = "", date_to
         "avg_hours": round(avg_hours, 1),
         "now": now_pht.strftime("%B %d, %Y %I:%M %p"),
         "user": user,
+        "company": get_company_settings(),
     })
 
 

@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}Company Settings{% endblock %}
+{% block page_title %}Company Settings{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🏢 Company Settings</h2>
+    <p>Details used across all print documents and reports</p>
+  </div>
+</div>
+
+<form method="post" action="/admin/company-settings" enctype="multipart/form-data">
+  <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px; max-width:900px;">
+
+    <!-- Left column -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <div class="card">
+        <div class="card-header"><h3>🏷️ Identity</h3></div>
+        <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Company Name *</label>
+            <input name="name" type="text" class="form-input" value="{{ company.name or '' }}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tagline / Description</label>
+            <input name="tagline" type="text" class="form-input" value="{{ company.tagline or '' }}" placeholder="e.g. Digital Marketing Agency">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Company Logo</label>
+            {% if company.logo_path %}
+              <img src="{{ company.logo_path }}" alt="Current logo" style="height:48px; object-fit:contain; display:block; margin-bottom:8px; border:1px solid var(--border); border-radius:6px; padding:4px; background:#fff;">
+            {% endif %}
+            <input name="logo" type="file" class="form-input" accept=".png,.jpg,.jpeg,.svg,.webp">
+            <div class="form-hint">PNG, JPG, or SVG. Replaces current logo.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>📞 Contact</h3></div>
+        <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Address</label>
+            <textarea name="address" class="form-textarea" rows="2" placeholder="Full company address">{{ company.address or '' }}</textarea>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input name="phone" type="text" class="form-input" value="{{ company.phone or '' }}" placeholder="+63 2 8XXX XXXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input name="email" type="email" class="form-input" value="{{ company.email or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Website</label>
+            <input name="website" type="text" class="form-input" value="{{ company.website or '' }}" placeholder="https://example.com">
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right column -->
+    <div style="display:flex; flex-direction:column; gap:16px;">
+
+      <div class="card">
+        <div class="card-header"><h3>📋 Government Registrations</h3></div>
+        <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+          <div class="form-group">
+            <label class="form-label">DTI Registration Number</label>
+            <input name="dti" type="text" class="form-input" value="{{ company.dti or '' }}" placeholder="DTI Reg. No.">
+          </div>
+          <div class="form-group">
+            <label class="form-label">TIN (BIR)</label>
+            <input name="tin" type="text" class="form-input" value="{{ company.tin or '' }}" placeholder="XXX-XXX-XXX-XXX">
+          </div>
+          <div class="form-group">
+            <label class="form-label">SSS Employer Number</label>
+            <input name="sss_employer" type="text" class="form-input" value="{{ company.sss_employer or '' }}" placeholder="XX-XXXXXXX-X">
+          </div>
+          <div class="form-group">
+            <label class="form-label">PhilHealth Employer Number</label>
+            <input name="philhealth_employer" type="text" class="form-input" value="{{ company.philhealth_employer or '' }}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Pag-IBIG Employer Number</label>
+            <input name="pagibig_employer" type="text" class="form-input" value="{{ company.pagibig_employer or '' }}">
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview card -->
+      <div class="card" style="background:var(--info-bg); border:1px solid #bfdbfe;">
+        <div class="card-header" style="background:transparent; border-bottom:1px solid #bfdbfe;"><h3 style="color:var(--primary);">💡 Where it's used</h3></div>
+        <div class="card-body" style="font-size:.82rem; color:var(--text-2); line-height:1.7;">
+          These details appear in the header of all printed documents:
+          <ul style="margin-left:16px; margin-top:8px; display:flex; flex-direction:column; gap:4px;">
+            <li>Employee 201 Files</li>
+            <li>Payroll Reports</li>
+            <li>Payslips</li>
+            <li>Attendance Reports</li>
+            <li>Leave Reports</li>
+            <li>QR Payment Sheets</li>
+            <li>Employee Roster</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div style="margin-top:20px; max-width:900px; display:flex; gap:12px; align-items:center;">
+    <button type="submit" class="btn btn-primary" style="padding:10px 28px; font-weight:700;">
+      💾 Save Settings
+    </button>
+    <a href="/reports" class="btn btn-outline">Cancel</a>
+  </div>
+
+</form>
+{% endblock %}
