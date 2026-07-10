@@ -447,7 +447,8 @@ function showToast(msg, kind = 'success') {
     const diff = Math.floor((Date.now() - start) / 1000);
     const hh = Math.floor(diff / 3600).toString().padStart(2, '0');
     const mm = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
-    timerEl.textContent = hh + ':' + mm;
+    const ss = (diff % 60).toString().padStart(2, '0');
+    timerEl.textContent = hh + ':' + mm + ':' + ss;
   }
   tick();
   setInterval(tick, 1000);

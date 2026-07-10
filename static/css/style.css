@@ -1151,6 +1151,33 @@ tfoot td {
 [data-theme="dark"] .form-label       { color: var(--text-2); }
 [data-theme="dark"] .form-hint        { color: var(--muted); }
 [data-theme="dark"] .badge-gray       { background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border); }
+[data-theme="dark"] .badge-green      { background: rgba(16,185,129,.18); color: #6ee7b7; }
+[data-theme="dark"] .badge-yellow     { background: rgba(217,119,6,.18);  color: #fcd34d; }
+[data-theme="dark"] .badge-red        { background: rgba(220,38,38,.18);  color: #fca5a5; }
+[data-theme="dark"] .badge-blue       { background: rgba(37,99,235,.22);  color: #93c5fd; }
+[data-theme="dark"] .badge-purple     { background: rgba(37,99,235,.22);  color: #93c5fd; }
+[data-theme="dark"] .clock-status.in  { background: rgba(16,185,129,.18); color: #6ee7b7; }
+[data-theme="dark"] .clock-status.out { background: rgba(220,38,38,.18);  color: #fca5a5; }
+[data-theme="dark"] .stat-card        { color: var(--text); }
+[data-theme="dark"] .info-box,
+[data-theme="dark"] .alert,
+[data-theme="dark"] .info-bg          { background: var(--info-bg); color: var(--text); border-color: var(--border); }
+[data-theme="dark"] .empty-state      { color: var(--muted); }
+[data-theme="dark"] .tab-link.active  { color: var(--primary); border-color: var(--primary); }
+[data-theme="dark"] select,
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="time"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="password"],
+[data-theme="dark"] textarea          { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+/* Messenger panel dark mode */
+[data-theme="dark"] #messenger-panel  { background: var(--surface) !important; border-color: var(--border) !important; }
+[data-theme="dark"] #msg-contacts     { background: var(--surface); color: var(--text); }
+[data-theme="dark"] #msg-messages     { background: var(--surface); }
+[data-theme="dark"] #msg-input        { background: var(--surface-2) !important; color: var(--text) !important; border-color: var(--border) !important; }
+[data-theme="dark"] .msg-panel-footer { background: var(--surface); border-color: var(--border); }
 [data-theme="dark"] hr                { border-color: var(--border); }
 [data-theme="dark"] .page-content     { background: var(--body-bg); }
 

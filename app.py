@@ -82,7 +82,7 @@ from starlette.responses import Response as _StarletteResponse
 
 class _CSRFMiddleware(BaseHTTPMiddleware):
     _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-    _EXEMPT_PREFIXES = ("/static", "/uploads", "/tv", "/login", "/api/register")  # public endpoints
+    _EXEMPT_PREFIXES = ("/static", "/uploads", "/tv", "/login", "/api/register")
 
     async def dispatch(self, request: Request, call_next):
         if request.method in self._SAFE_METHODS:
@@ -90,42 +90,49 @@ class _CSRFMiddleware(BaseHTTPMiddleware):
         path = request.url.path
         if any(path.startswith(p) for p in self._EXEMPT_PREFIXES):
             return await call_next(request)
-        # fetch() calls send this header — same-origin XHR is safe
+        # JS fetch calls always send this header — same-origin and already protected
         if request.headers.get("X-Requested-With") == "fetch":
             return await call_next(request)
         content_type = request.headers.get("content-type", "")
         if "form" not in content_type:
             return await call_next(request)
-        # Read body, validate token, then restore so the route can read it
+
+        # Read body once; it is cached in request._body for downstream handlers
         body = await request.body()
         session_token = request.session.get("csrf_token", "")
         submitted_token = ""
+
         if "multipart" in content_type:
-            # Pull _csrf from multipart boundary chunks (simple scan)
-            for line in body.split(b"\r\n"):
-                if line.startswith(b"_csrf_value:"):
-                    submitted_token = line[12:].decode().strip()
-                    break
-            # Fallback: scan for the value after the _csrf name declaration
+            # Robust multipart scan: find ALL occurrences of name="_csrf" and extract value
             raw = body.decode("latin-1")
-            idx = raw.find('name="_csrf"')
-            if idx != -1:
+            search = 'name="_csrf"'
+            pos = 0
+            while pos < len(raw):
+                idx = raw.find(search, pos)
+                if idx == -1:
+                    break
                 chunk = raw[idx:]
+                # Skip past the Content-Disposition header to the blank line
                 val_start = chunk.find("\r\n\r\n")
                 if val_start != -1:
-                    val_end = chunk.find("\r\n", val_start + 4)
-                    submitted_token = chunk[val_start + 4: val_end if val_end != -1 else val_start + 68].strip()
+                    value_region = chunk[val_start + 4:]
+                    val_end = value_region.find("\r\n")
+                    candidate = (value_region[:val_end] if val_end != -1 else value_region[:68]).strip()
+                    # A valid CSRF token is 64 hex chars
+                    if len(candidate) == 64 and all(c in "0123456789abcdef" for c in candidate):
+                        submitted_token = candidate
+                        break
+                pos = idx + len(search)
         else:
             from urllib.parse import parse_qs
-            parsed = parse_qs(body.decode("latin-1"), keep_blank_values=True)
+            parsed = parse_qs(body.decode("utf-8", errors="replace"), keep_blank_values=True)
             submitted_token = parsed.get("_csrf", [""])[0]
 
-        async def _replay():
-            return {"type": "http.request", "body": body, "more_body": False}
-        request._receive = _replay  # type: ignore[attr-defined]
-
         if not session_token or not submitted_token or not secrets.compare_digest(session_token, submitted_token):
-            return _StarletteResponse("403 Forbidden — CSRF token invalid", status_code=403)
+            return _StarletteResponse(
+                status_code=303,
+                headers={"location": "/login?error=session_expired"},
+            )
         return await call_next(request)
 
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -273,6 +280,9 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
 async def login_page(request: Request):
     if current_user(request):
         return RedirectResponse("/dashboard", status_code=302)
+    error = request.query_params.get("error")
+    if error == "session_expired" and "flash" not in request.session:
+        flash(request, "Your session expired. Please log in again.", "warning")
     return templates.TemplateResponse(request, "login.html", {
         "flash": get_flash(request),
         "csrf_token": _get_csrf_token(request),
@@ -2774,7 +2784,7 @@ async def chat_contacts_api(request: Request):
                 (r, last_read_id, user["id"])
             ).fetchone()[0]
             last_msg = conn.execute(
-                "SELECT body FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
+                "SELECT body, sent_at FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
                 (r,)
             ).fetchone()
             result.append({
@@ -2784,8 +2794,17 @@ async def chat_contacts_api(request: Request):
                 "room": r,
                 "unread": unread,
                 "last_msg": last_msg["body"][:60] if last_msg else "",
+                "last_msg_at": last_msg["sent_at"] if last_msg else "",
             })
-    return JSONResponse({"contacts": result})
+    # Sort: unread first, then most-recently-messaged, then A-Z for no-message contacts
+    with_msgs    = sorted([c for c in result if c["last_msg_at"]],
+                          key=lambda x: (-x["unread"], x["last_msg_at"]), reverse=False)
+    with_msgs    = (
+        sorted([c for c in with_msgs if c["unread"]],     key=lambda x: -x["unread"]) +
+        sorted([c for c in with_msgs if not c["unread"]], key=lambda x: x["last_msg_at"], reverse=True)
+    )
+    without_msgs = sorted([c for c in result if not c["last_msg_at"]], key=lambda x: x["name"].lower())
+    return JSONResponse({"contacts": with_msgs + without_msgs})
 
 
 @app.get("/api/chat/stream")
