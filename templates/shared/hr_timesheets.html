@@ -247,6 +247,10 @@
       </div>
       {% elif filter_status == 'Approved' %}
         <span class="badge badge-green">Approved by {{ sub.reviewed_by }}</span>
+        <form method="post" action="/hr-timesheets/{{ sub.id }}/unapprove" style="display:inline; margin-left:8px;">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-outline btn-sm" onclick="return confirm('Undo approval and reset to Submitted?')">↩ Undo Approval</button>
+        </form>
       {% elif filter_status == 'Rejected' %}
         <span class="badge badge-red">Returned to employee</span>
       {% endif %}

@@ -3329,6 +3329,21 @@ async def hr_approve_timesheet(request: Request, sub_id: int):
     return RedirectResponse("/hr-timesheets", status_code=302)
 
 
+@app.post("/hr-timesheets/{sub_id}/unapprove")
+async def hr_unapprove_timesheet(request: Request, sub_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute(
+            """UPDATE timesheet_submissions
+               SET status='Submitted', reviewed_by=NULL, reviewed_at=NULL WHERE id=?""",
+            (sub_id,)
+        )
+        audit(conn, user["id"], user["name"], "timesheet_unapprove",
+              "timesheet_submissions", sub_id)
+    flash(request, "Timesheet approval undone — status reset to Submitted.")
+    return RedirectResponse("/hr-timesheets", status_code=302)
+
+
 @app.post("/hr-timesheets/{sub_id}/reject")
 async def hr_reject_timesheet(request: Request, sub_id: int, hr_notes: str = Form("")):
     user = require_role(request, "HR Manager", "Admin")
@@ -3566,7 +3581,7 @@ async def print_payslip(request: Request, payslip_id: int):
     user = require_role(request, "HR Manager", "Admin")
     with get_db() as conn:
         ps = conn.execute(
-            """SELECT pl.*, e.name AS emp_name, e.position, e.bank_name, e.bank_account,
+            """SELECT pl.*, e.name AS emp_name, e.role AS position, e.bank_name, e.bank_account,
                       e.bank_account_name, e.bank_qr_path, e.hourly_rate
                FROM payslip_logs pl
                JOIN employees e ON e.id = pl.emp_id
