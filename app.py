@@ -172,13 +172,17 @@ init_db()
 # own UID which owns these dirs after the one-time chown fix) keeps them writable.
 for _ud in [
     "secure_vault", "secure_vault/avatars", "secure_vault/docs", "secure_vault/posters",
-    "static/img",
 ]:
     try:
         os.makedirs(_ud, mode=0o755, exist_ok=True)
         os.chmod(_ud, 0o755)
     except (PermissionError, OSError):
         pass
+# static/img must stay world-writable so both the app and rsync (truenas_admin) can write
+try:
+    os.chmod("static/img", 0o777)
+except (PermissionError, OSError):
+    pass
 
 # ── Sensitive document serving (auth-gated) ────────────────────────────────────
 from fastapi.responses import FileResponse as _FileResponse
