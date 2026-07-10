@@ -82,7 +82,7 @@ from starlette.responses import Response as _StarletteResponse
 
 class _CSRFMiddleware(BaseHTTPMiddleware):
     _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-    _EXEMPT_PREFIXES = ("/static", "/uploads", "/tv")  # public assets
+    _EXEMPT_PREFIXES = ("/static", "/uploads", "/tv", "/login", "/api/register")  # public endpoints
 
     async def dispatch(self, request: Request, call_next):
         if request.method in self._SAFE_METHODS:
@@ -150,7 +150,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
 app.add_middleware(_SecurityHeadersMiddleware)
 app.add_middleware(_CSRFMiddleware)
 # SessionMiddleware must be added AFTER _CSRFMiddleware so it runs first (Starlette LIFO order)
-app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET)
+app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET, https_only=False, same_site="lax")
 app.mount("/static", StaticFiles(directory="static"), name="static")
 # Avatars and TV posters are non-sensitive — stay public for TV display and sidebar
 app.mount("/uploads/avatars", StaticFiles(directory=os.path.join("secure_vault", "avatars")), name="avatars")
