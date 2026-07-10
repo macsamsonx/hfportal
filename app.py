@@ -166,6 +166,20 @@ app.mount("/uploads/posters", StaticFiles(directory=os.path.join("secure_vault",
 templates = Jinja2Templates(directory="templates")
 init_db()
 
+# Ensure upload directories are writable by the app process at every startup.
+# secure_vault/ is excluded from rsync so its ownership persists, but static/img
+# may get new files added by rsync as truenas_admin. Chmodding here (as the app's
+# own UID which owns these dirs after the one-time chown fix) keeps them writable.
+for _ud in [
+    "secure_vault", "secure_vault/avatars", "secure_vault/docs", "secure_vault/posters",
+    "static/img",
+]:
+    try:
+        os.makedirs(_ud, mode=0o755, exist_ok=True)
+        os.chmod(_ud, 0o755)
+    except (PermissionError, OSError):
+        pass
+
 # ── Sensitive document serving (auth-gated) ────────────────────────────────────
 from fastapi.responses import FileResponse as _FileResponse
 
