@@ -169,6 +169,95 @@
 
 </div>
 
+{# ── 3-Month Trends ─────────────────────────────────────────────────────────── #}
+<div style="display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:16px;">
+
+  {# Payroll #}
+  <div class="card">
+    <div class="card-header" style="padding:13px 16px;">
+      <h3 style="font-size:.8rem;">💰 Payroll</h3>
+      <span class="badge badge-blue" style="font-size:.6rem;">3-mo</span>
+    </div>
+    <div style="padding:14px 16px;">
+      {% set max_p = (payroll_trend | map(attribute='value') | list | max) or 1 %}
+      <div style="display:flex;align-items:flex-end;gap:10px;height:80px;">
+        {% for m in payroll_trend %}
+        {% set h = [(m.value / max_p * 72) | round | int, 4] | max %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:.6rem;font-weight:700;color:var(--primary);">₱{{ '{:,.0f}'.format(m.value) if m.value else '—' }}</div>
+          <div style="width:100%;height:{{ h }}px;background:var(--primary);border-radius:4px 4px 0 0;opacity:.85;"></div>
+          <div style="font-size:.6rem;color:var(--muted);white-space:nowrap;">{{ m.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# Active Employees #}
+  <div class="card">
+    <div class="card-header" style="padding:13px 16px;">
+      <h3 style="font-size:.8rem;">👥 Active Employees</h3>
+      <span class="badge badge-green" style="font-size:.6rem;">3-mo</span>
+    </div>
+    <div style="padding:14px 16px;">
+      {% set max_ae = (active_emp_trend | map(attribute='value') | list | max) or 1 %}
+      <div style="display:flex;align-items:flex-end;gap:10px;height:80px;">
+        {% for m in active_emp_trend %}
+        {% set h = [(m.value / max_ae * 72) | round | int, 4] | max %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:.65rem;font-weight:700;color:#059669;">{{ m.value }}</div>
+          <div style="width:100%;height:{{ h }}px;background:#059669;border-radius:4px 4px 0 0;opacity:.8;"></div>
+          <div style="font-size:.6rem;color:var(--muted);white-space:nowrap;">{{ m.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# Tasks Completed #}
+  <div class="card">
+    <div class="card-header" style="padding:13px 16px;">
+      <h3 style="font-size:.8rem;">✅ Tasks Completed</h3>
+      <span class="badge badge-blue" style="font-size:.6rem;">3-mo</span>
+    </div>
+    <div style="padding:14px 16px;">
+      {% set max_tc = (tasks_trend | map(attribute='value') | list | max) or 1 %}
+      <div style="display:flex;align-items:flex-end;gap:10px;height:80px;">
+        {% for m in tasks_trend %}
+        {% set h = [(m.value / max_tc * 72) | round | int, 4] | max %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:.65rem;font-weight:700;color:var(--primary);">{{ m.value }}</div>
+          <div style="width:100%;height:{{ h }}px;background:var(--primary);border-radius:4px 4px 0 0;opacity:.75;"></div>
+          <div style="font-size:.6rem;color:var(--muted);white-space:nowrap;">{{ m.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  {# Revisions / Issues #}
+  <div class="card">
+    <div class="card-header" style="padding:13px 16px;">
+      <h3 style="font-size:.8rem;">↩️ Revisions</h3>
+      <span class="badge badge-yellow" style="font-size:.6rem;">3-mo</span>
+    </div>
+    <div style="padding:14px 16px;">
+      {% set max_rv = (revision_trend | map(attribute='value') | list | max) or 1 %}
+      <div style="display:flex;align-items:flex-end;gap:10px;height:80px;">
+        {% for m in revision_trend %}
+        {% set h = [(m.value / max_rv * 72) | round | int, 4] | max %}
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;">
+          <div style="font-size:.65rem;font-weight:700;color:#d97706;">{{ m.value }}</div>
+          <div style="width:100%;height:{{ h }}px;background:#f59e0b;border-radius:4px 4px 0 0;opacity:.8;"></div>
+          <div style="font-size:.6rem;color:var(--muted);white-space:nowrap;">{{ m.label }}</div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+</div>
+
 {# ── Alerts + Security row ───────────────────────────────────────────────────── #}
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
 

@@ -125,10 +125,12 @@ const _activityIcon = {
   status_changed: '↔️',
   reviewer_set:   '👤',
   reviewed:       '✅',
+  returned:       '↩️',
   approved:       '🔒',
   archived:       '🗄️',
   unarchived:     '📤',
   hours_updated:  '⏱️',
+  commented:      '💬',
 };
 const _statusColor = { 'Todo': 'gray', 'In Progress': 'blue', 'For Review': 'yellow', 'Done': 'green' };
 

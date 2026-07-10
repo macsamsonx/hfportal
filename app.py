@@ -1338,6 +1338,8 @@ async def add_comment(request: Request, task_id: int, comment_text: str = Form(.
             "INSERT INTO card_comments (card_id, author_name, comment_text, timestamp) VALUES (?, ?, ?, ?)",
             (task_id, user["name"], comment_text, now_str),
         )
+        log_card_activity(conn, task_id, user["name"], "commented",
+                          comment_text[:120] if len(comment_text) > 120 else comment_text)
     return JSONResponse({"ok": True, "comment": {
         "author_name": user["name"],
         "comment_text": comment_text,
@@ -2153,7 +2155,7 @@ async def set_employee_status(
     status_note: str = Form(""),
 ):
     user = require_role(request, "HR Manager", "Admin")
-    valid_statuses = ("Active", "Inactive", "Terminated", "Resigned")
+    valid_statuses = ("Active", "Inactive", "Terminated", "Resigned", "Suspended")
     if emp_status not in valid_statuses:
         flash(request, "Invalid status.", "error")
         return RedirectResponse("/employees", status_code=302)
@@ -2165,7 +2167,67 @@ async def set_employee_status(
         )
         audit(conn, user["id"], user["name"], "set_emp_status", "employees", emp_id,
               f"Status → {emp_status}")
+        # Check for open tasks that need reassignment
+        open_tasks = conn.execute(
+            "SELECT COUNT(*) FROM work_logs WHERE emp_id=? AND COALESCE(is_archived,0)=0 AND status NOT IN ('Done')",
+            (emp_id,)
+        ).fetchone()[0]
+    if emp_status in ("Terminated", "Suspended", "Resigned") and open_tasks > 0:
+        flash(request, f"Status changed to {emp_status}. This employee has {open_tasks} open task(s) that need reassignment.", "warning")
+        return RedirectResponse(f"/admin/employees/{emp_id}/reassign-tasks", status_code=302)
     flash(request, f"Employee status changed to {emp_status}.")
+    return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+
+
+@app.get("/admin/employees/{emp_id}/reassign-tasks", response_class=HTMLResponse)
+async def reassign_tasks_page(request: Request, emp_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        emp = conn.execute("SELECT id, name, emp_status FROM employees WHERE id=?", (emp_id,)).fetchone()
+        if not emp:
+            flash(request, "Employee not found.", "error")
+            return RedirectResponse("/employees", status_code=302)
+        open_tasks = conn.execute(
+            """SELECT w.id, w.task_title, w.status, w.client
+               FROM work_logs w
+               WHERE w.emp_id=? AND COALESCE(w.is_archived,0)=0 AND w.status NOT IN ('Done')
+               ORDER BY w.status, w.task_title""",
+            (emp_id,)
+        ).fetchall()
+        active_staff = conn.execute(
+            "SELECT id, name FROM employees WHERE is_active=1 AND id!=? ORDER BY name",
+            (emp_id,)
+        ).fetchall()
+    return templates.TemplateResponse(request, "admin/reassign_tasks.html", {
+        "user": user, "emp": dict(emp),
+        "open_tasks": [dict(t) for t in open_tasks],
+        "active_staff": [dict(s) for s in active_staff],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/admin/employees/{emp_id}/reassign-tasks")
+async def do_reassign_tasks(request: Request, emp_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    reassigned = 0
+    with get_db() as conn:
+        # form fields: task_{task_id} = new_emp_id or ""
+        for key, val in form.items():
+            if not key.startswith("task_") or not val:
+                continue
+            try:
+                task_id = int(key[5:])
+                new_emp_id = int(val)
+            except ValueError:
+                continue
+            conn.execute("UPDATE work_logs SET emp_id=? WHERE id=? AND emp_id=?",
+                         (new_emp_id, task_id, emp_id))
+            log_card_activity(conn, task_id, user["name"], "reassigned",
+                              f"Task reassigned to new employee (ID {new_emp_id})")
+            reassigned += 1
+    flash(request, f"{reassigned} task(s) reassigned successfully.")
     return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
 
 
@@ -2830,7 +2892,10 @@ async def chat_contacts_api(request: Request):
     user = require_user(request)
     with get_db() as conn:
         contacts = conn.execute(
-            "SELECT id, name, role FROM employees WHERE id!=? AND is_active=1 ORDER BY name",
+            """SELECT id, name, role, profile_pic_path FROM employees
+               WHERE id!=? AND is_active=1
+               AND (emp_status IS NULL OR emp_status NOT IN ('Terminated','Suspended'))
+               ORDER BY name""",
             (user["id"],)
         ).fetchall()
         result = []
@@ -2853,6 +2918,7 @@ async def chat_contacts_api(request: Request):
                 "id": c["id"],
                 "name": c["name"],
                 "initial": c["name"][0].upper() if c["name"] else "?",
+                "avatar": f"/uploads/avatars/{c['profile_pic_path']}" if c["profile_pic_path"] else None,
                 "room": r,
                 "unread": unread,
                 "last_msg": last_msg["body"][:60] if last_msg else "",
@@ -4012,6 +4078,60 @@ async def admin_dashboard(request: Request):
             (today_str,)
         ).fetchall()
 
+        # ── 3-month trend data ────────────────────────────────────────────────
+        import calendar as _cal
+        months_3 = []
+        for i in range(2, -1, -1):
+            yr, mo = now.year, now.month - i
+            while mo < 1: mo += 12; yr -= 1
+            m_start = f"{yr:04d}-{mo:02d}-01"
+            if i == 0:
+                m_end = today_str
+            else:
+                last_day = _cal.monthrange(yr, mo)[1]
+                m_end = f"{yr:04d}-{mo:02d}-{last_day:02d}"
+            months_3.append({
+                "label": f"{_cal.month_abbr[mo]} {yr}",
+                "start": m_start,
+                "end": m_end,
+            })
+
+        # Payroll per month (sum gross from payroll_logs if exists, else estimate)
+        payroll_trend = []
+        tasks_trend   = []
+        revision_trend = []
+        active_emp_trend = []
+        for m in months_3:
+            # Active employees at end of month
+            ae = conn.execute(
+                "SELECT COUNT(*) FROM employees WHERE role='Employee' AND is_active=1",
+            ).fetchone()[0]
+            active_emp_trend.append({"label": m["label"], "value": ae})
+
+            # Tasks completed that month
+            tc = conn.execute(
+                "SELECT COUNT(*) FROM work_logs WHERE status='Done' AND date_logged BETWEEN ? AND ?",
+                (m["start"], m["end"])
+            ).fetchone()[0]
+            tasks_trend.append({"label": m["label"], "value": tc})
+
+            # Revisions/returns that month
+            rv = conn.execute(
+                "SELECT COUNT(*) FROM card_activities WHERE activity_type='returned' AND created_at BETWEEN ? AND ?",
+                (m["start"] + " 00:00:00", m["end"] + " 23:59:59")
+            ).fetchone()[0]
+            revision_trend.append({"label": m["label"], "value": rv})
+
+            # Payroll: try payroll_logs first, fallback to 0
+            try:
+                pg = conn.execute(
+                    "SELECT SUM(gross_pay) FROM payroll_logs WHERE pay_period_start>=? AND pay_period_end<=?",
+                    (m["start"], m["end"])
+                ).fetchone()[0] or 0
+            except Exception:
+                pg = 0
+            payroll_trend.append({"label": m["label"], "value": round(pg, 2)})
+
     # Estimate this week's labor cost
     week_cost = 0.0
     for emp in emp_list:
@@ -4037,6 +4157,10 @@ async def admin_dashboard(request: Request):
         "task_status_counts": task_status_counts,
         "on_leave_today": [dict(r) for r in on_leave_today],
         "clocked_in_now": [dict(r) for r in clocked_in_now],
+        "payroll_trend": payroll_trend,
+        "tasks_trend": tasks_trend,
+        "revision_trend": revision_trend,
+        "active_emp_trend": active_emp_trend,
         "today_str": today_str,
         "week_start": week_start,
         "week_end": week_end,

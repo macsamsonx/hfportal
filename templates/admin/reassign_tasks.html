@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Reassign Tasks — {{ emp.name }}{% endblock %}
+{% block page_title %}Reassign Tasks{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>📋 Reassign Open Tasks</h2>
+    <p>{{ emp.name }} · <span class="badge badge-red">{{ emp.emp_status }}</span> · {{ open_tasks | length }} open task(s) need reassignment</p>
+  </div>
+  <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline">← Back to Profile</a>
+</div>
+
+{% if not open_tasks %}
+<div class="card">
+  <div class="card-body" style="text-align:center; padding:48px;">
+    <div style="font-size:2rem;">✅</div>
+    <p style="margin-top:10px; color:var(--muted);">No open tasks to reassign.</p>
+    <a href="/employees/{{ emp.id }}/profile" class="btn btn-primary" style="margin-top:16px;">Back to Profile</a>
+  </div>
+</div>
+{% else %}
+
+<form method="post" action="/admin/employees/{{ emp.id }}/reassign-tasks">
+  <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+  <div class="card">
+    <div class="card-header">
+      <h3>Open Tasks</h3>
+      <span class="badge badge-yellow">Assign each to an active employee</span>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Task</th>
+            <th>Client</th>
+            <th>Status</th>
+            <th>Reassign To</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in open_tasks %}
+          <tr>
+            <td class="fw-600">{{ t.task_title }}</td>
+            <td>{{ t.client or '—' }}</td>
+            <td>
+              {% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow'} %}
+              <span class="badge badge-{{ sc.get(t.status, 'gray') }}">{{ t.status }}</span>
+            </td>
+            <td>
+              <select name="task_{{ t.id }}" class="form-select" style="min-width:180px;">
+                <option value="">— Skip (leave unassigned) —</option>
+                {% for s in active_staff %}
+                <option value="{{ s.id }}">{{ s.name }}</option>
+                {% endfor %}
+              </select>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="padding:16px 22px; display:flex; gap:12px; border-top:1px solid var(--border); background:var(--surface-2);">
+      <button type="submit" class="btn btn-primary">💾 Save Reassignments</button>
+      <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline">Skip for Now</a>
+    </div>
+  </div>
+</form>
+
+{% endif %}
+{% endblock %}

@@ -137,7 +137,7 @@ img { max-width: 100%; display: block; }
   padding: 10px 10px 5px;
   font-size: .6rem; font-weight: 800;
   text-transform: uppercase; letter-spacing: .12em;
-  color: rgba(155,146,196,.35);
+  color: rgba(100,148,200,.38);
 }
 .nav-link {
   display: flex;
@@ -153,15 +153,15 @@ img { max-width: 100%; display: block; }
   margin-bottom: 2px;
 }
 .nav-link:hover {
-  background: rgba(255,255,255,.06);
-  color: #d8d0f5;
+  background: rgba(255,255,255,.07);
+  color: #bfdbfe;
 }
 .nav-link.active {
-  background: rgba(59,130,246,.2);
-  color: #c4b5fd;
+  background: rgba(59,130,246,.22);
+  color: #93c5fd;
   font-weight: 700;
 }
-.nav-link.active .icon { filter: drop-shadow(0 0 6px rgba(167,139,250,.5)); }
+.nav-link.active .icon { filter: drop-shadow(0 0 6px rgba(59,130,246,.5)); }
 .nav-link .icon { width: 18px; text-align: center; font-size: .92rem; flex-shrink: 0; }
 
 .sidebar-footer {
@@ -350,11 +350,11 @@ img { max-width: 100%; display: block; }
 .btn-primary {
   background: linear-gradient(135deg, var(--primary), var(--primary-d));
   color: #fff;
-  box-shadow: 0 2px 8px rgba(109,40,217,.25);
+  box-shadow: 0 2px 8px rgba(37,99,235,.28);
 }
 .btn-primary:hover:not(:disabled) {
   background: linear-gradient(135deg, #1d4ed8, #1e40af);
-  box-shadow: 0 4px 16px rgba(109,40,217,.35);
+  box-shadow: 0 4px 16px rgba(37,99,235,.38);
   transform: translateY(-1px);
 }
 .btn-success {
@@ -384,7 +384,7 @@ img { max-width: 100%; display: block; }
 }
 .btn-outline:hover:not(:disabled) {
   background: var(--body-bg);
-  border-color: #c4b5fd;
+  border-color: #93c5fd;
   color: var(--primary);
 }
 .btn-ghost { background: transparent; color: var(--muted); }
@@ -414,7 +414,7 @@ img { max-width: 100%; display: block; }
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   outline: none;
   border-color: var(--border-focus);
-  box-shadow: 0 0 0 3px rgba(167,139,250,.15);
+  box-shadow: 0 0 0 3px rgba(37,99,235,.14);
 }
 .form-input::placeholder { color: #a1a1aa; }
 .form-textarea { resize: vertical; min-height: 82px; }
@@ -441,7 +441,7 @@ tbody td {
   vertical-align: middle;
 }
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover { background: #f9f8ff; }
+tbody tr:hover { background: #f0f7ff; }
 tfoot td {
   padding: 11px 16px;
   font-weight: 800;

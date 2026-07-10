@@ -666,7 +666,7 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id)
             )""")
 
-            conn.execute("""
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS company_settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT
