@@ -501,7 +501,7 @@
             <div style="max-width:75%;padding:7px 11px;border-radius:${mine?'14px 14px 4px 14px':'14px 14px 14px 4px'};
                  background:${mine?'var(--primary)':'var(--surface-2,#f1f5f9)'};
                  color:${mine?'#fff':'var(--text)'};font-size:.8rem;line-height:1.4;word-break:break-word;">
-              ${m.body.replace(/</g,'&lt;')}
+              ${m.body.replace(/</g,'&lt;').replace(/\n/g,'<br>')}
             </div>
             <div style="font-size:.6rem;color:var(--muted);margin-top:2px;padding:0 4px;">${m.created_at ? m.created_at.slice(11,16) : ''}</div>`;
           el.appendChild(div);
@@ -515,6 +515,7 @@
       const body = inp.value.trim();
       if (!body || !_msgRoom) return;
       inp.value = '';
+      inp.style.height = 'auto';
       const fd = new FormData();
       fd.append('room', _msgRoom);
       fd.append('body', body);
