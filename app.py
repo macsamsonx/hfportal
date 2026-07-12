@@ -178,11 +178,13 @@ for _ud in [
         os.chmod(_ud, 0o755)
     except (PermissionError, OSError):
         pass
-# static/img must stay world-writable so both the app and rsync (truenas_admin) can write
-try:
-    os.chmod("static/img", 0o777)
-except (PermissionError, OSError):
-    pass
+# static/img and static/uploads must stay world-writable so both the app and rsync can write
+for _sd in ["static/img", "static/uploads", "static/uploads/bank_qr"]:
+    try:
+        os.makedirs(_sd, mode=0o777, exist_ok=True)
+        os.chmod(_sd, 0o777)
+    except (PermissionError, OSError):
+        pass
 
 # ── Sensitive document serving (auth-gated) ────────────────────────────────────
 from fastapi.responses import FileResponse as _FileResponse
