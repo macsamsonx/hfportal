@@ -226,8 +226,9 @@ async function openCardModal(taskId) {
 
       <div class="form-row mb-12">
         <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">EMPLOYEE</div>
+          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">ASSIGNED TO</div>
           <div class="text-sm fw-600">${esc(card.emp_name)}</div>
+          ${card.created_by_name ? `<div class="text-xs text-muted" style="margin-top:2px;">Created by: ${esc(card.created_by_name)}</div>` : ''}
         </div>
         <div>
           <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">CLIENT</div>
@@ -241,10 +242,37 @@ async function openCardModal(taskId) {
           <div class="text-sm fw-600">${card.hours_worked}h</div>
         </div>
         <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">DATE</div>
+          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">URGENCY</div>
+          ${(() => { const uc={'Low':'#64748b','Normal':'#94a3b8','High':'#f59e0b','Critical':'#ef4444'}; const u=card.urgency||'Normal'; return `<span style="font-size:.75rem;font-weight:700;color:${uc[u]||'#94a3b8'}">${u}</span>`; })()}
+        </div>
+      </div>
+
+      <div class="form-row mb-12">
+        <div>
+          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">DUE DATE</div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <input type="date" id="due-date-input" value="${card.due_date || ''}"
+                   class="form-input" style="width:150px;height:28px;font-size:.8rem;padding:2px 8px;">
+            <button class="btn btn-outline btn-sm" style="height:28px;font-size:.75rem;" onclick="saveDueDate(${card.id})">Save</button>
+          </div>
+        </div>
+        <div>
+          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">DATE LOGGED</div>
           <div class="text-sm">${esc(card.date_logged || '—')}</div>
         </div>
       </div>
+
+      ${canReview ? `
+      <div class="mb-12">
+        <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">RE-ASSIGN TO</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="assign-emp-select" class="form-select" style="width:auto;font-size:.82rem;">
+            <option value="">— Keep current —</option>
+            ${(all_employees||[]).map(e=>`<option value="${e.id}"${e.id===card.emp_id?' selected':''}>${esc(e.name)}</option>`).join('')}
+          </select>
+          <button class="btn btn-outline btn-sm" onclick="saveAssignee(${card.id})">Assign</button>
+        </div>
+      </div>` : ''}
 
       ${card.notes ? `
       <div class="mb-12">
@@ -388,8 +416,44 @@ async function saveReviewer(taskId) {
 }
 
 async function selfAssign(taskId) {
-  const res = await apiFetch(`/api/tasks/${taskId}/assign`, { method: 'POST' });
+  const res = await apiFetch(`/api/tasks/${taskId}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
   if (res.ok) location.reload();
+}
+
+async function saveDueDate(taskId) {
+  const input = document.getElementById('due-date-input');
+  if (!input) return;
+  const res = await apiFetch(`/api/tasks/${taskId}/set-due-date`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ due_date: input.value }),
+  });
+  if (res.ok) {
+    showToast('Due date saved.', 'success');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast('Could not save due date.', 'error');
+  }
+}
+
+async function saveAssignee(taskId) {
+  const sel = document.getElementById('assign-emp-select');
+  if (!sel || !sel.value) return;
+  const res = await apiFetch(`/api/tasks/${taskId}/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emp_id: parseInt(sel.value) }),
+  });
+  if (res.ok) {
+    showToast('Task reassigned.', 'success');
+    setTimeout(() => location.reload(), 800);
+  } else {
+    showToast('Could not reassign.', 'error');
+  }
 }
 
 function esc(str) {

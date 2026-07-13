@@ -43,6 +43,7 @@
       🗄️ Archive ({{ archived_count }})
     </a>
     {% endif %}
+    <button class="btn btn-primary btn-sm" onclick="openModal('add-task-modal')" style="font-size:.8rem;">+ Add Task</button>
   </div>
 </div>
 
@@ -101,21 +102,29 @@
            data-person="{{ card.emp_name | default('') | lower }}"
            data-title="{{ card.task_title | default('') | lower }}">
 
+        <!-- Urgency + Client row -->
+        <div style="display:flex; align-items:center; gap:5px; margin-bottom:5px; flex-wrap:wrap;">
+          {% if card.urgency and card.urgency != 'Normal' %}
+            {% set urg_colors = {'Low':'#64748b','High':'#f59e0b','Critical':'#ef4444'} %}
+            <span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:99px;background:{{ urg_colors.get(card.urgency,'#64748b') }}22;color:{{ urg_colors.get(card.urgency,'#64748b') }};letter-spacing:.04em;text-transform:uppercase;">{{ card.urgency }}</span>
+          {% endif %}
+          {% if card.client %}
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
+            <span style="font-size:.64rem;font-weight:700;color:{{ client_hex }};text-transform:uppercase;letter-spacing:.04em;">{{ card.client }}</span>
+          {% endif %}
+        </div>
+
         <!-- Title -->
         <div class="kanban-card-title" style="margin-bottom:5px;">{{ card.task_title }}</div>
 
-        <!-- Client badge -->
-        {% if card.client %}
-        <div style="display:flex; align-items:center; gap:5px; margin-bottom:4px;">
-          <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
-          <span style="font-size:.64rem;font-weight:700;color:{{ client_hex }};text-transform:uppercase;letter-spacing:.04em;">{{ card.client }}</span>
-        </div>
-        {% endif %}
-
-        <!-- Meta -->
+        <!-- Meta row -->
         <div class="kanban-card-meta">
           <span>⏱ {{ card.hours_worked }}h</span>
-          <span class="text-xs text-muted">{{ card.date_logged }}</span>
+          {% if card.due_date %}
+            <span style="font-size:.63rem;color:#f59e0b;font-weight:600;">📅 {{ card.due_date }}</span>
+          {% else %}
+            <span class="text-xs text-muted">{{ card.date_logged }}</span>
+          {% endif %}
         </div>
 
         <!-- Reviewer -->
@@ -125,8 +134,15 @@
         </div>
         {% endif %}
 
+        <!-- Creator -->
+        {% if card.created_by_name %}
+        <div style="margin-top:2px; font-size:.63rem; color:var(--muted);">
+          ✏️ {{ card.created_by_name }}
+        </div>
+        {% endif %}
+
         <!-- Footer -->
-        <div class="kanban-card-footer">
+        <div class="kanban-card-footer" style="margin-top:6px;">
           <div style="display:flex; align-items:center; gap:4px;">
             {% if card.profile_pic_path %}
               <div class="card-avatar" title="{{ card.emp_name }}">
@@ -135,10 +151,11 @@
             {% else %}
               <div class="card-avatar" title="{{ card.emp_name }}">{{ card.emp_name[0] }}</div>
             {% endif %}
+            <span style="font-size:.68rem;font-weight:600;color:var(--text-2);">{{ card.emp_name }}</span>
             {% if card.hr_reviewed_by %}
               <div class="card-avatar"
                    title="Reviewer: {{ card.hr_reviewed_by }}"
-                   style="background:rgba(34,197,94,.15); color:#16a34a; font-size:.5rem;">✓</div>
+                   style="background:rgba(34,197,94,.15); color:#16a34a; font-size:.5rem; margin-left:4px;">✓</div>
             {% endif %}
           </div>
           <div style="display:flex; gap:4px; flex-wrap:wrap;">
@@ -151,14 +168,76 @@
           </div>
         </div>
 
-        <div class="text-xs text-muted" style="margin-top:3px; font-size:.65rem;">{{ card.emp_name }}</div>
-
       </div>
       {% endfor %}
     </div>
   </div>
   {% endfor %}
 
+</div>
+
+<!-- Add Task modal -->
+<div class="modal-overlay" id="add-task-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-header">
+      <span class="modal-title">+ New Task</span>
+      <button class="modal-close" onclick="closeModal('add-task-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <form method="post" action="/api/tasks">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div class="form-row mb-12">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Task Title <span style="color:red">*</span></label>
+            <input type="text" name="task_title" class="form-input" required placeholder="What needs to be done?">
+          </div>
+          <div class="form-group" style="width:140px;">
+            <label class="form-label">Urgency</label>
+            <select name="urgency" class="form-select">
+              <option value="Low">🟢 Low</option>
+              <option value="Normal" selected>⚪ Normal</option>
+              <option value="High">🟡 High</option>
+              <option value="Critical">🔴 Critical</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row mb-12">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Client</label>
+            <select name="client" class="form-select">
+              <option value="">— No client —</option>
+              {% for c in clients %}
+              <option value="{{ c.name }}">{{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Due Date</label>
+            <input type="date" name="due_date" class="form-input">
+          </div>
+        </div>
+        {% if user.role in ('HR Manager', 'Admin') %}
+        <div class="form-group mb-12">
+          <label class="form-label">Assign To</label>
+          <select name="assigned_emp_id" class="form-select">
+            <option value="">— Assign to self —</option>
+            {% for e in all_employees %}
+            <option value="{{ e.id }}">{{ e.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="form-group mb-12">
+          <label class="form-label">Notes</label>
+          <textarea name="notes" class="form-textarea" rows="2" placeholder="Optional description or context…"></textarea>
+        </div>
+        <div class="flex gap-8" style="justify-content:flex-end;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('add-task-modal')">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">Create Task</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- Card detail modal -->

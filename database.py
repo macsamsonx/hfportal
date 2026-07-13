@@ -576,6 +576,9 @@ def init_db():
             ("priority", "TEXT DEFAULT 'Medium'"), ("due_date", "TEXT"),
             ("is_archived", "INTEGER DEFAULT 0"),
             ("revision_count", "INTEGER DEFAULT 0"),
+            ("created_by_name", "TEXT"),
+            ("assigned_emp_id", "INTEGER"),
+            ("urgency", "TEXT DEFAULT 'Normal'"),
         ]:
             col_name = col.split()[0]
             if col_name not in _wcols:

@@ -246,6 +246,11 @@ img { max-width: 100%; display: block; }
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow);
   overflow: hidden;
+  transition: box-shadow .18s, transform .14s, border-color .14s;
+}
+.card:hover {
+  box-shadow: 0 6px 20px rgba(37,99,235,.10);
+  border-color: rgba(37,99,235,.18);
 }
 .card-header {
   padding: 15px 22px;
@@ -365,18 +370,26 @@ img { max-width: 100%; display: block; }
 .btn-success:hover:not(:disabled) {
   background: linear-gradient(135deg, #047857, #065f46);
   box-shadow: 0 4px 16px rgba(5,150,105,.35);
+  transform: translateY(-1px);
 }
 .btn-danger {
   background: linear-gradient(135deg, #dc2626, #b91c1c);
   color: #fff;
   box-shadow: 0 2px 8px rgba(220,38,38,.2);
 }
-.btn-danger:hover:not(:disabled) { background: linear-gradient(135deg, #b91c1c, #991b1b); }
+.btn-danger:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b91c1c, #991b1b);
+  box-shadow: 0 4px 14px rgba(220,38,38,.35);
+  transform: translateY(-1px);
+}
 .btn-warning {
   background: linear-gradient(135deg, #d97706, #b45309);
   color: #fff;
 }
-.btn-warning:hover:not(:disabled) { background: linear-gradient(135deg, #b45309, #92400e); }
+.btn-warning:hover:not(:disabled) {
+  background: linear-gradient(135deg, #b45309, #92400e);
+  transform: translateY(-1px);
+}
 .btn-outline {
   background: transparent;
   border: 1.5px solid var(--border);

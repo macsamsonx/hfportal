@@ -988,22 +988,36 @@ async def start_task(
     task_title: str = Form(...),
     output_files: str = Form(""),
     notes: str = Form(""),
+    assigned_emp_id: str = Form(""),
+    due_date: str = Form(""),
+    urgency: str = Form("Normal"),
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     with get_db() as conn:
+        # Admin/HR can assign to any employee; others assign to themselves
+        if user["role"] in ("HR Manager", "Admin") and assigned_emp_id.strip().isdigit():
+            emp_id = int(assigned_emp_id)
+        else:
+            emp_id = user["id"]
+        urgency = urgency if urgency in ("Low", "Normal", "High", "Critical") else "Normal"
         conn.execute(
             """INSERT INTO work_logs
                (emp_id, client, task_title, hours_worked, notes, output_files,
-                status, date_logged, started_at, is_running)
-               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0)""",
-            (user["id"], client, task_title, notes, output_files or None, today),
+                status, date_logged, started_at, is_running,
+                created_by_name, assigned_emp_id, due_date, urgency)
+               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?)""",
+            (emp_id, client, task_title, notes, output_files or None, today,
+             user["name"], emp_id, due_date or None, urgency),
         )
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "created",
                           client if client else None)
-    flash(request, "Task logged. Move it to 'In Progress' on the board when you start.")
-    return RedirectResponse("/dashboard", status_code=302)
+        if due_date:
+            log_card_activity(conn, task_id, user["name"], "due_date_set", due_date)
+    flash(request, "Task created.")
+    redirect = "/kanban" if user["role"] in ("HR Manager", "Admin") else "/dashboard"
+    return RedirectResponse(redirect, status_code=302)
 
 
 @app.post("/api/tasks/{task_id}/stop")
@@ -1384,7 +1398,7 @@ async def task_detail(request: Request, task_id: int):
             (task_id,),
         ).fetchall()
         all_employees = conn.execute(
-            "SELECT id, name FROM employees WHERE is_active=1 AND role='Employee' ORDER BY name"
+            "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
         ).fetchall()
     if not card:
         return JSONResponse({"error": "Not found"}, status_code=404)
@@ -1403,11 +1417,41 @@ async def task_detail(request: Request, task_id: int):
 @app.post("/api/tasks/{task_id}/assign")
 async def assign_task(request: Request, task_id: int):
     user = require_user(request)
+    data = await request.json()
+    target_emp_id = data.get("emp_id")
     with get_db() as conn:
-        conn.execute(
-            "UPDATE work_logs SET emp_id=?, status='In Progress' WHERE id=? AND (emp_id IS NULL OR emp_id=?)",
-            (user["id"], task_id, user["id"]),
-        )
+        if user["role"] in ("HR Manager", "Admin") and target_emp_id:
+            emp = conn.execute("SELECT name FROM employees WHERE id=?", (target_emp_id,)).fetchone()
+            emp_name = emp["name"] if emp else "Unknown"
+            conn.execute(
+                "UPDATE work_logs SET emp_id=?, assigned_emp_id=? WHERE id=?",
+                (target_emp_id, target_emp_id, task_id),
+            )
+            log_card_activity(conn, task_id, user["name"], "assigned", f"Assigned to {emp_name}")
+        else:
+            conn.execute(
+                "UPDATE work_logs SET emp_id=?, status='In Progress' WHERE id=? AND (emp_id IS NULL OR emp_id=?)",
+                (user["id"], task_id, user["id"]),
+            )
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/tasks/{task_id}/set-due-date")
+async def set_due_date(request: Request, task_id: int):
+    user = require_user(request)
+    data = await request.json()
+    new_due = data.get("due_date", "")
+    with get_db() as conn:
+        task = conn.execute("SELECT due_date, emp_id FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        if not task:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        if user["role"] not in ("HR Manager", "Admin") and task["emp_id"] != user["id"]:
+            return JSONResponse({"error": "Not authorized"}, status_code=403)
+        old_due = task["due_date"] or ""
+        conn.execute("UPDATE work_logs SET due_date=? WHERE id=?", (new_due or None, task_id))
+        if old_due != new_due:
+            detail = f"{old_due or 'none'} → {new_due or 'removed'}"
+            log_card_activity(conn, task_id, user["name"], "due_date_changed", detail)
     return JSONResponse({"ok": True})
 
 
@@ -1625,6 +1669,7 @@ async def client_dashboard(request: Request, client_id: int):
         "today_hours": round(today_hours, 2),
         "hours_by_day": hours_by_day,
         "flash": get_flash(request),
+        **shared_ctx(user, request),
     })
 
 
