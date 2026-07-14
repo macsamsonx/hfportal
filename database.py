@@ -625,6 +625,22 @@ def init_db():
             if col not in _chatcols:
                 conn.execute(f"ALTER TABLE chat_messages ADD COLUMN {col} {typ}")
 
+        # ── Task files (Google Drive) ─────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS task_files (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id         INTEGER NOT NULL,
+                file_type       TEXT    NOT NULL DEFAULT 'output',
+                drive_id        TEXT    NOT NULL,
+                file_name       TEXT    NOT NULL,
+                file_size       INTEGER DEFAULT 0,
+                uploaded_by_id  INTEGER,
+                uploaded_by_name TEXT,
+                uploaded_at     TEXT    DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(task_id)        REFERENCES work_logs(id) ON DELETE CASCADE,
+                FOREIGN KEY(uploaded_by_id) REFERENCES employees(id) ON DELETE SET NULL
+            )""")
+
         # ── Chat reactions ────────────────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS chat_reactions (

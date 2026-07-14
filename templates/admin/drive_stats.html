@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Drive Storage{% endblock %}
+{% block page_title %}Drive Storage{% endblock %}
+
+{% block extra_head %}
+<style>
+.stat-tile {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 20px 24px; display: flex; flex-direction: column; gap: 4px;
+}
+.stat-tile .val { font-size: 1.6rem; font-weight: 800; color: var(--text); }
+.stat-tile .lbl { font-size: .75rem; color: var(--muted); font-weight: 600; letter-spacing: .04em; }
+.drive-table th, .drive-table td { padding: 8px 12px; font-size: .82rem; }
+.drive-table th { font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-size: .7rem; border-bottom: 2px solid var(--border); }
+.drive-table td { border-bottom: 1px solid var(--border); }
+.drive-table tr:hover td { background: var(--surface-2); }
+.file-icon { font-size: 1rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>📁 Drive Storage</h2>
+    <p>File uploads tracked from kanban tasks and chat</p>
+  </div>
+  <a href="/admin-dashboard" class="btn btn-outline btn-sm">← Back</a>
+</div>
+
+{% macro fmt_size(b) %}
+  {% if b and b > 1073741824 %}{{ "%.1f"|format(b/1073741824) }} GB
+  {% elif b and b > 1048576 %}{{ "%.1f"|format(b/1048576) }} MB
+  {% elif b and b > 1024 %}{{ (b//1024) }} KB
+  {% else %}{{ b or 0 }} B{% endif %}
+{% endmacro %}
+
+<!-- Summary tiles -->
+<div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:14px; margin-bottom:24px;">
+  <div class="stat-tile">
+    <div class="val">{{ totals.file_count or 0 }}</div>
+    <div class="lbl">Task Files Uploaded</div>
+  </div>
+  <div class="stat-tile">
+    <div class="val">{{ fmt_size(totals.total_bytes) }}</div>
+    <div class="lbl">Total Task Storage</div>
+  </div>
+  <div class="stat-tile">
+    <div class="val">{{ chat_files.cnt or 0 }}</div>
+    <div class="lbl">Chat Attachments</div>
+  </div>
+  <div class="stat-tile">
+    <div class="val">{{ per_user | length }}</div>
+    <div class="lbl">Contributors</div>
+  </div>
+</div>
+
+<!-- Per-user breakdown -->
+{% if per_user %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="card-body">
+    <h3 style="font-size:.9rem; font-weight:800; margin-bottom:12px;">Storage by Employee</h3>
+    <div style="overflow-x:auto;">
+      <table class="drive-table" style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Total Files</th>
+            <th>Input</th>
+            <th>Output</th>
+            <th>Storage Used</th>
+            <th>% of Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% set grand_total = totals.total_bytes or 1 %}
+          {% for u in per_user %}
+          <tr>
+            <td style="font-weight:700;">{{ u.uploaded_by_name or '—' }}</td>
+            <td>{{ u.file_count }}</td>
+            <td><span class="badge badge-blue" style="font-size:.68rem;">{{ u.input_count }}</span></td>
+            <td><span class="badge badge-green" style="font-size:.68rem;">{{ u.output_count }}</span></td>
+            <td style="font-weight:600;">{{ fmt_size(u.total_bytes) }}</td>
+            <td>
+              {% set pct = ((u.total_bytes or 0) / grand_total * 100) | round(1) %}
+              <div style="display:flex; align-items:center; gap:8px;">
+                <div style="flex:1; height:6px; background:var(--surface-2); border-radius:3px; min-width:60px;">
+                  <div style="width:{{ [pct,100]|min }}%; height:100%; background:var(--primary); border-radius:3px;"></div>
+                </div>
+                <span style="font-size:.72rem; color:var(--muted); white-space:nowrap;">{{ pct }}%</span>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Recent files -->
+<div class="card">
+  <div class="card-body">
+    <h3 style="font-size:.9rem; font-weight:800; margin-bottom:12px;">Recent Files (last 200)</h3>
+    {% if not all_files %}
+    <div class="empty-state"><div class="emoji">📭</div><p>No files uploaded yet.</p></div>
+    {% else %}
+    <div style="overflow-x:auto;">
+      <table class="drive-table" style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Type</th>
+            <th>Task</th>
+            <th>Client</th>
+            <th>Uploaded By</th>
+            <th>Size</th>
+            <th>Date</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for f in all_files %}
+          <tr>
+            <td>
+              <a href="https://drive.google.com/file/d/{{ f.drive_id }}/view" target="_blank"
+                 style="color:var(--primary); text-decoration:none; font-weight:600; font-size:.8rem;">
+                {{ f.file_name | truncate(40) }}
+              </a>
+            </td>
+            <td>
+              {% if f.file_type == 'input' %}
+                <span class="badge badge-blue" style="font-size:.65rem;">📥 Input</span>
+              {% else %}
+                <span class="badge badge-green" style="font-size:.65rem;">📤 Output</span>
+              {% endif %}
+            </td>
+            <td style="font-size:.78rem;">{{ f.task_title | truncate(30) }}</td>
+            <td style="font-size:.75rem; color:var(--muted);">{{ f.client or '—' }}</td>
+            <td style="font-size:.78rem;">{{ f.uploaded_by_name or '—' }}</td>
+            <td style="font-size:.75rem; white-space:nowrap;">{{ fmt_size(f.file_size) }}</td>
+            <td style="font-size:.72rem; color:var(--muted); white-space:nowrap;">{{ (f.uploaded_at or '')[:10] }}</td>
+            <td>
+              <form method="post" action="/api/task-files/{{ f.id }}/delete"
+                    onsubmit="return confirm('Delete this file from Drive?')">
+                <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <button type="submit" class="btn btn-ghost btn-sm"
+                        style="color:var(--danger); font-size:.7rem; padding:2px 6px;">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

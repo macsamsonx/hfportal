@@ -100,12 +100,6 @@
 }
 .chat-msg:hover .reply-hover-btn { opacity: 1; }
 
-/* ── Attachment upload btn ─────────────────────────────────────────────────── */
-#attach-btn { position: relative; }
-#attach-btn input[type=file] {
-  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
-}
-
 /* ── Upload progress ───────────────────────────────────────────────────────── */
 #upload-progress {
   display: none; font-size: .72rem; color: var(--primary);
@@ -285,10 +279,10 @@
         </div>
       </div>
       <!-- File upload -->
-      <button type="button" class="btn btn-ghost btn-sm" id="attach-btn" title="Attach file">
-        📎
-        <input type="file" id="file-input" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt">
-      </button>
+      <label class="btn btn-ghost btn-sm" for="file-input" title="Attach file"
+             style="cursor:pointer; margin:0; display:flex; align-items:center;">📎</label>
+      <input type="file" id="file-input" style="display:none;"
+             accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt">
       <input type="text" id="chat-input" class="form-input" placeholder="Type a message…" maxlength="2000" autocomplete="off">
       <button type="submit" class="btn btn-primary">Send</button>
     </form>

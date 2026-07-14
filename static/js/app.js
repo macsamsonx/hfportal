@@ -119,6 +119,64 @@ function initKanban() {
   });
 }
 
+// ── Drive file helpers ────────────────────────────────────────────────────────
+function _driveFileCard(f, canDelete) {
+  const icon = f.file_name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? '🖼'
+             : f.file_name.match(/\.(mp4|mov|avi|webm)$/i) ? '🎬'
+             : f.file_name.match(/\.(pdf)$/i) ? '📄'
+             : f.file_name.match(/\.(doc|docx)$/i) ? '📝'
+             : f.file_name.match(/\.(xls|xlsx)$/i) ? '📊'
+             : '📎';
+  const size = f.file_size > 1048576 ? (f.file_size/1048576).toFixed(1)+' MB'
+             : f.file_size > 1024 ? Math.round(f.file_size/1024)+' KB'
+             : (f.file_size||0)+' B';
+  return `<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;background:var(--surface-2);border-radius:6px;margin-bottom:4px;">
+    <span style="font-size:1.1rem;">${icon}</span>
+    <div style="flex:1;min-width:0;">
+      <a href="https://drive.google.com/file/d/${f.drive_id}/view" target="_blank"
+         style="font-size:.78rem;font-weight:600;color:var(--primary);text-decoration:none;display:block;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${esc(f.file_name)}</a>
+      <span style="font-size:.67rem;color:var(--muted);">${size} · ${esc(f.uploaded_by_name||'')} · ${(f.uploaded_at||'').slice(0,10)}</span>
+    </div>
+    ${canDelete ? `<button onclick="deleteTaskFile(${f.id},this)" style="background:none;border:none;cursor:pointer;color:var(--danger);font-size:.8rem;" title="Delete">✕</button>` : ''}
+  </div>`;
+}
+
+window.uploadTaskFile = async function(taskId, fileType, inputEl) {
+  const file = inputEl.files[0];
+  if (!file) return;
+  const listId = (fileType === 'input' ? 'input' : 'output') + '-files-list-' + taskId;
+  const listEl = document.getElementById(listId);
+  const btn = inputEl.previousElementSibling;
+  if (btn) btn.textContent = '⏫…';
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('file_type', fileType);
+  try {
+    const res  = await fetch(`/api/tasks/${taskId}/files/upload`, {method:'POST', body:fd, headers:{'X-Requested-With':'fetch'}});
+    const data = await res.json();
+    if (data.ok) {
+      const existing = listEl.querySelector('.text-muted');
+      if (existing && existing.textContent.includes('No ')) existing.remove();
+      listEl.insertAdjacentHTML('beforeend', _driveFileCard({
+        id: data.id, drive_id: data.drive_id, file_name: data.file_name,
+        file_size: file.size, uploaded_by_name: data.uploaded_by_name, uploaded_at: new Date().toISOString(),
+      }, true));
+    } else {
+      alert('Upload failed: ' + (data.error || 'Unknown'));
+    }
+  } catch(e) { alert('Upload error: ' + e.message); }
+  finally { if (btn) btn.textContent = '+ Upload'; inputEl.value = ''; }
+};
+
+window.deleteTaskFile = async function(fileId, btn) {
+  if (!confirm('Delete this file from Drive?')) return;
+  const card = btn.closest('[style*="background"]');
+  const res = await fetch(`/api/task-files/${fileId}/delete`, {method:'POST', headers:{'X-Requested-With':'fetch','X-CSRFToken': document.querySelector('meta[name=csrf-token]')?.content||''}});
+  const data = await res.json();
+  if (data.ok && card) card.remove();
+  else alert('Delete failed');
+};
+
 // ── Card detail modal ─────────────────────────────────────────────────────────
 const _activityIcon = {
   created:        '📋',
@@ -177,7 +235,7 @@ async function openCardModal(taskId) {
   try {
     const res = await fetch(`/api/tasks/${taskId}/detail`);
     if (!res.ok) { body.innerHTML = '<p class="text-danger" style="padding:16px">Error loading card.</p>'; return; }
-    const { card, comments, activities, statuses, user_role, user_name, user_id, all_employees } = await res.json();
+    const { card, comments, activities, statuses, user_role, user_name, user_id, all_employees, input_files, output_files } = await res.json();
 
     const isOwnCard     = card.emp_id === user_id;
     const canReview     = user_role === 'HR Manager' || user_role === 'Admin';
@@ -280,11 +338,30 @@ async function openCardModal(taskId) {
         <div class="text-sm" style="background:var(--surface-2);color:var(--text);padding:10px;border-radius:6px;line-height:1.65;">${card.notes.includes('<') ? card.notes : esc(card.notes).replace(/\n/g,'<br>')}</div>
       </div>` : ''}
 
-      ${card.output_files ? `
+      <!-- ── Drive Files ─────────────────────────────────────────────── -->
       <div class="mb-12">
-        <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">OUTPUT FILES</div>
-        <div class="text-sm">${esc(card.output_files)}</div>
-      </div>` : ''}
+        <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em; display:flex; align-items:center; justify-content:space-between;">
+          <span>📥 INPUT FILES</span>
+          ${canReview ? `<label class="btn btn-outline btn-sm" for="input-file-pick-${card.id}" style="cursor:pointer;font-size:.7rem;padding:2px 8px;margin:0;">+ Upload</label>
+          <input type="file" id="input-file-pick-${card.id}" style="display:none;" onchange="uploadTaskFile(${card.id},'input',this)">` : ''}
+        </div>
+        <div id="input-files-list-${card.id}">
+          ${(input_files||[]).length === 0 ? '<span class="text-xs text-muted">No input files yet.</span>' :
+            (input_files||[]).map(f => _driveFileCard(f, canReview)).join('')}
+        </div>
+      </div>
+
+      <div class="mb-12">
+        <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em; display:flex; align-items:center; justify-content:space-between;">
+          <span>📤 OUTPUT FILES</span>
+          ${(isOwnCard || canReview) ? `<label class="btn btn-outline btn-sm" for="output-file-pick-${card.id}" style="cursor:pointer;font-size:.7rem;padding:2px 8px;margin:0;">+ Upload</label>
+          <input type="file" id="output-file-pick-${card.id}" style="display:none;" onchange="uploadTaskFile(${card.id},'output',this)">` : ''}
+        </div>
+        <div id="output-files-list-${card.id}">
+          ${(output_files||[]).length === 0 ? '<span class="text-xs text-muted">No output files yet.</span>' :
+            (output_files||[]).map(f => _driveFileCard(f, canReview)).join('')}
+        </div>
+      </div>
 
       <div class="flex gap-6 mb-12 flex-wrap">
         ${card.hr_reviewed_by   ? `<span class="badge badge-green">✓ Reviewed: ${esc(card.hr_reviewed_by)}</span>` : ''}

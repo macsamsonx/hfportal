@@ -1024,6 +1024,9 @@ async def start_task(
     assigned_emp_id: str = Form(""),
     due_date: str = Form(""),
     urgency: str = Form("Normal"),
+    input_drive_id: str = Form(""),
+    input_file_name: str = Form(""),
+    input_file_size: str = Form("0"),
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
@@ -1048,6 +1051,15 @@ async def start_task(
                           client if client else None)
         if due_date:
             log_card_activity(conn, task_id, user["name"], "due_date_set", due_date)
+        if input_drive_id.strip():
+            fsize = int(input_file_size) if input_file_size.strip().isdigit() else 0
+            conn.execute(
+                """INSERT INTO task_files (task_id, file_type, drive_id, file_name, file_size, uploaded_by_id, uploaded_by_name)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (task_id, "input", input_drive_id.strip(), input_file_name or "file", fsize,
+                 user["id"], user["name"]),
+            )
+            log_card_activity(conn, task_id, user["name"], "file_uploaded", f"Input: {input_file_name or 'file'}")
     flash(request, "Task created.")
     redirect = "/kanban" if user["role"] in ("HR Manager", "Admin") else "/dashboard"
     return RedirectResponse(redirect, status_code=302)
@@ -1414,6 +1426,81 @@ async def add_comment(request: Request, task_id: int, comment_text: str = Form(.
     }})
 
 
+@app.post("/api/tasks/{task_id}/files/upload")
+async def task_file_upload(
+    request: Request, task_id: int,
+    file: UploadFile = File(...),
+    file_type: str = Form("output"),
+):
+    user = require_user(request)
+    if file_type not in ("input", "output"):
+        file_type = "output"
+    with get_db() as conn:
+        card = conn.execute("SELECT emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
+    if not card:
+        return JSONResponse({"ok": False, "error": "Task not found"}, status_code=404)
+    is_admin = user["role"] in ("HR Manager", "Admin")
+    is_owner = card["emp_id"] == user["id"]
+    if file_type == "input" and not is_admin:
+        return JSONResponse({"ok": False, "error": "Only Admin/HR can upload input files"}, status_code=403)
+    if file_type == "output" and not is_owner and not is_admin:
+        return JSONResponse({"ok": False, "error": "Only the task owner can upload output files"}, status_code=403)
+
+    content = await file.read()
+    if len(content) > 100 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "File too large (max 100 MB)"}, status_code=400)
+    mime  = file.content_type or "application/octet-stream"
+    fname = file.filename or "upload"
+    label = "INPUT" if file_type == "input" else "OUTPUT"
+    drive_name = f"Task-{task_id}-{label}-{fname}"
+    try:
+        result = _drive_upload(content, drive_name, mime)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    drive_id = result["id"]
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO task_files (task_id, file_type, drive_id, file_name, file_size, uploaded_by_id, uploaded_by_name)
+               VALUES (?,?,?,?,?,?,?)""",
+            (task_id, file_type, drive_id, fname, len(content), user["id"], user["name"]),
+        )
+        new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log_card_activity(conn, task_id, user["name"], "file_uploaded",
+                          f"{label.capitalize()}: {fname}")
+    return JSONResponse({
+        "ok":              True,
+        "id":              new_id,
+        "drive_id":        drive_id,
+        "file_name":       fname,
+        "file_type":       file_type,
+        "view_url":        result["webViewLink"],
+        "uploaded_by_name": user["name"],
+    })
+
+
+@app.post("/api/task-files/{file_id}/delete")
+async def delete_task_file(request: Request, file_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    is_xhr = request.headers.get("X-Requested-With") == "fetch"
+    with get_db() as conn:
+        row = conn.execute("SELECT drive_id, file_name, task_id FROM task_files WHERE id=?", (file_id,)).fetchone()
+        if not row:
+            if is_xhr:
+                return JSONResponse({"ok": False}, status_code=404)
+            return RedirectResponse("/admin/drive-stats", status_code=302)
+        try:
+            _get_drive().files().delete(fileId=row["drive_id"]).execute()
+        except Exception:
+            pass
+        conn.execute("DELETE FROM task_files WHERE id=?", (file_id,))
+        log_card_activity(conn, row["task_id"], user["name"], "file_deleted", row["file_name"])
+    if is_xhr:
+        return JSONResponse({"ok": True})
+    flash(request, "File deleted.")
+    return RedirectResponse("/admin/drive-stats", status_code=302)
+
+
 @app.get("/api/tasks/{task_id}/detail")
 async def task_detail(request: Request, task_id: int):
     user = require_user(request)
@@ -1433,17 +1520,24 @@ async def task_detail(request: Request, task_id: int):
         all_employees = conn.execute(
             "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
         ).fetchall()
+        task_files = conn.execute(
+            "SELECT * FROM task_files WHERE task_id=? ORDER BY uploaded_at ASC",
+            (task_id,),
+        ).fetchall()
     if not card:
         return JSONResponse({"error": "Not found"}, status_code=404)
+    files_list = [dict(f) for f in task_files]
     return JSONResponse({
-        "card": dict(card),
-        "comments": [dict(c) for c in comments],
-        "activities": [dict(a) for a in activities],
-        "statuses": KANBAN_STATUSES,
-        "user_role": user["role"],
-        "user_name": user["name"],
-        "user_id": user["id"],
+        "card":          dict(card),
+        "comments":      [dict(c) for c in comments],
+        "activities":    [dict(a) for a in activities],
+        "statuses":      KANBAN_STATUSES,
+        "user_role":     user["role"],
+        "user_name":     user["name"],
+        "user_id":       user["id"],
         "all_employees": [dict(e) for e in all_employees],
+        "input_files":   [f for f in files_list if f["file_type"] == "input"],
+        "output_files":  [f for f in files_list if f["file_type"] == "output"],
     })
 
 
@@ -4985,3 +5079,43 @@ async def global_search(request: Request, q: str = ""):
             ]
 
     return JSONResponse({"q": q, "results": results})
+
+
+# ── Admin: Drive Storage Stats ────────────────────────────────────────────────
+@app.get("/admin/drive-stats", response_class=HTMLResponse)
+async def admin_drive_stats(request: Request):
+    user = require_role(request, "Admin")
+    with get_db() as conn:
+        per_user = conn.execute("""
+            SELECT uploaded_by_name,
+                   COUNT(*) as file_count,
+                   SUM(file_size) as total_bytes,
+                   SUM(CASE WHEN file_type='input'  THEN 1 ELSE 0 END) as input_count,
+                   SUM(CASE WHEN file_type='output' THEN 1 ELSE 0 END) as output_count
+            FROM task_files
+            GROUP BY uploaded_by_id, uploaded_by_name
+            ORDER BY total_bytes DESC
+        """).fetchall()
+        all_files = conn.execute("""
+            SELECT tf.*, w.task_title, w.client
+            FROM task_files tf
+            JOIN work_logs w ON w.id = tf.task_id
+            ORDER BY tf.uploaded_at DESC
+            LIMIT 200
+        """).fetchall()
+        totals = conn.execute("""
+            SELECT COUNT(*) as file_count, SUM(file_size) as total_bytes
+            FROM task_files
+        """).fetchone()
+        chat_files = conn.execute("""
+            SELECT COUNT(*) as cnt, COUNT(DISTINCT sender_id) as users
+            FROM chat_messages WHERE attachment_drive_id IS NOT NULL
+        """).fetchone()
+    return templates.TemplateResponse(request, "admin/drive_stats.html", {
+        "user":       user,
+        "per_user":   [dict(r) for r in per_user],
+        "all_files":  [dict(r) for r in all_files],
+        "totals":     dict(totals),
+        "chat_files": dict(chat_files),
+        **shared_ctx(user, request),
+    })
