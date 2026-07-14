@@ -2,6 +2,37 @@
 {% block title %}Announcements{% endblock %}
 {% block page_title %}Announcements{% endblock %}
 
+{% block extra_head %}
+<style>
+.rte-wrap { border: 1.5px solid var(--border); border-radius: 8px; overflow: hidden; }
+.rte-toolbar {
+  display: flex; gap: 2px; padding: 6px 8px;
+  background: var(--surface-2); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.rte-toolbar button {
+  padding: 3px 9px; border: none; background: none; border-radius: 4px;
+  cursor: pointer; font-size: .82rem; color: var(--text); transition: background .12s;
+  line-height: 1.4;
+}
+.rte-toolbar button:hover { background: var(--primary-l); color: var(--primary); }
+.rte-sep { width: 1px; background: var(--border); margin: 2px 6px; align-self: stretch; }
+.rte-body {
+  min-height: 130px; max-height: 320px; overflow-y: auto;
+  padding: 10px 14px; outline: none;
+  font-size: .85rem; line-height: 1.7; color: var(--text); background: var(--surface);
+}
+.rte-body:empty::before { content: attr(data-placeholder); color: var(--muted); pointer-events: none; }
+.rte-body ol, .rte-body ul { padding-left: 22px; }
+.rte-body a { color: var(--primary); text-decoration: underline; }
+
+/* Announcement body display */
+.ann-body { font-size: .85rem; color: var(--text-2); line-height: 1.7; }
+.ann-body ol, .ann-body ul { padding-left: 22px; }
+.ann-body a { color: var(--primary); text-decoration: underline; }
+.ann-body p { margin: 0 0 6px; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -31,18 +62,24 @@
         <div style="display:flex; align-items:center; gap:8px; margin-bottom:6px; flex-wrap:wrap;">
           {% if a.is_pinned %}<span class="badge badge-purple">📌 Pinned</span>{% endif %}
           {% if a.audience == 'Employee' %}<span class="badge badge-blue">Employees</span>
-          {% elif a.audience == 'HR' %}<span class="badge badge-yellow">HR & Admin</span>
+          {% elif a.audience == 'HR' %}<span class="badge badge-yellow">HR &amp; Admin</span>
           {% elif a.audience == 'Admin' %}<span class="badge badge-red">Admin Only</span>
           {% endif %}
           <span class="text-xs text-muted">{{ a.created_at[:10] }} · by {{ a.posted_by_name }}</span>
         </div>
         <h3 style="font-size:1rem; font-weight:800; margin-bottom:8px; letter-spacing:-.01em;">{{ a.title }}</h3>
-        <div style="font-size:.85rem; color:var(--text-2); white-space:pre-wrap; line-height:1.65;">{{ a.body }}</div>
+        <div class="ann-body">
+          {% if '<' in a.body %}
+            {{ a.body | safe }}
+          {% else %}
+            <div style="white-space:pre-wrap;">{{ a.body }}</div>
+          {% endif %}
+        </div>
       </div>
       {% if user.role in ('HR Manager', 'Admin') %}
       <form method="post" action="/api/announcements/{{ a.id }}/delete"
             onsubmit="return confirm('Delete this announcement?')">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
         <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">Delete</button>
       </form>
       {% endif %}
@@ -55,12 +92,12 @@
 <!-- Post Announcement Modal -->
 {% if user.role in ('HR Manager', 'Admin') %}
 <div class="modal-overlay" id="post-ann-modal">
-  <div class="modal">
+  <div class="modal" style="max-width:560px;">
     <div class="modal-header">
       <span class="modal-title">Post Announcement</span>
       <button class="modal-close" onclick="closeModal('post-ann-modal')">×</button>
     </div>
-    <form method="post" action="/api/announcements">
+    <form method="post" action="/api/announcements" id="ann-form">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
       <div class="modal-body">
         <div class="form-group">
@@ -70,8 +107,22 @@
         </div>
         <div class="form-group">
           <label class="form-label">Message *</label>
-          <textarea name="body" class="form-textarea" rows="6" required
-                    placeholder="Write your announcement here…" style="min-height:120px;"></textarea>
+          <div class="rte-wrap">
+            <div class="rte-toolbar">
+              <button type="button" onmousedown="rteCmd('bold')"><b>B</b></button>
+              <button type="button" onmousedown="rteCmd('italic')"><i>I</i></button>
+              <button type="button" onmousedown="rteCmd('underline')"><u>U</u></button>
+              <button type="button" onmousedown="rteCmd('strikeThrough')"><s>S</s></button>
+              <span class="rte-sep"></span>
+              <button type="button" onmousedown="rteCmd('insertOrderedList')" title="Numbered list">i.</button>
+              <button type="button" onmousedown="rteCmd('insertUnorderedList')" title="Bullet list">•</button>
+              <span class="rte-sep"></span>
+              <button type="button" onmousedown="rteLink()" title="Insert link">🔗</button>
+            </div>
+            <div class="rte-body" id="rte-ann" contenteditable="true"
+                 data-placeholder="Write your announcement here…"></div>
+          </div>
+          <input type="hidden" name="body" id="rte-ann-val">
         </div>
         <div class="form-row">
           <div class="form-group">
@@ -101,5 +152,36 @@
     </form>
   </div>
 </div>
+
+<script>
+const rteEl  = document.getElementById('rte-ann');
+const rteVal = document.getElementById('rte-ann-val');
+
+function rteCmd(cmd) {
+  document.execCommand(cmd, false, null);
+  rteVal.value = rteEl.innerHTML;
+  rteEl.focus();
+}
+function rteLink() {
+  const url = prompt('Enter URL (include https://):');
+  if (url) document.execCommand('createLink', false, url);
+  rteVal.value = rteEl.innerHTML;
+  rteEl.focus();
+}
+rteEl.addEventListener('input', () => { rteVal.value = rteEl.innerHTML; });
+rteEl.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    // allow default — enter in contenteditable inserts <br> or <div>
+  }
+});
+
+document.getElementById('ann-form').addEventListener('submit', function() {
+  rteVal.value = rteEl.innerHTML.trim();
+  if (!rteVal.value || rteVal.value === '<br>') {
+    rteEl.focus();
+    return false;
+  }
+});
+</script>
 {% endif %}
 {% endblock %}

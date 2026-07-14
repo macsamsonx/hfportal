@@ -277,7 +277,7 @@ async function openCardModal(taskId) {
       ${card.notes ? `
       <div class="mb-12">
         <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">NOTES</div>
-        <div class="text-sm" style="white-space:pre-wrap;background:#f8fafc;padding:10px;border-radius:6px;">${esc(card.notes)}</div>
+        <div class="text-sm" style="background:var(--surface-2);color:var(--text);padding:10px;border-radius:6px;line-height:1.65;">${card.notes.includes('<') ? card.notes : esc(card.notes).replace(/\n/g,'<br>')}</div>
       </div>` : ''}
 
       ${card.output_files ? `

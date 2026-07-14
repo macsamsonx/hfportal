@@ -229,11 +229,24 @@
         {% endif %}
         <div class="form-group mb-12">
           <label class="form-label">Notes</label>
-          <textarea name="notes" class="form-textarea" rows="2" placeholder="Optional description or context…"></textarea>
+          <div style="border:1.5px solid var(--border);border-radius:8px;overflow:hidden;">
+            <div style="display:flex;gap:2px;padding:5px 8px;background:var(--surface-2);border-bottom:1px solid var(--border);flex-wrap:wrap;">
+              <button type="button" onmousedown="kbRte('bold')" style="padding:2px 8px;border:none;background:none;border-radius:4px;cursor:pointer;font-size:.8rem;color:var(--text);"><b>B</b></button>
+              <button type="button" onmousedown="kbRte('italic')" style="padding:2px 8px;border:none;background:none;border-radius:4px;cursor:pointer;font-size:.8rem;color:var(--text);"><i>I</i></button>
+              <button type="button" onmousedown="kbRte('underline')" style="padding:2px 8px;border:none;background:none;border-radius:4px;cursor:pointer;font-size:.8rem;color:var(--text);"><u>U</u></button>
+              <span style="width:1px;background:var(--border);margin:2px 4px;align-self:stretch;"></span>
+              <button type="button" onmousedown="kbRte('insertOrderedList')" style="padding:2px 8px;border:none;background:none;border-radius:4px;cursor:pointer;font-size:.8rem;color:var(--text);">i.</button>
+              <button type="button" onmousedown="kbRte('insertUnorderedList')" style="padding:2px 8px;border:none;background:none;border-radius:4px;cursor:pointer;font-size:.8rem;color:var(--text);">•</button>
+            </div>
+            <div id="kb-notes-rte" contenteditable="true"
+                 style="min-height:72px;padding:8px 12px;outline:none;font-size:.84rem;line-height:1.6;color:var(--text);background:var(--surface);"
+                 data-placeholder="Optional description or context…"></div>
+          </div>
+          <input type="hidden" name="notes" id="kb-notes-val">
         </div>
         <div class="flex gap-8" style="justify-content:flex-end;">
           <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('add-task-modal')">Cancel</button>
-          <button type="submit" class="btn btn-primary btn-sm">Create Task</button>
+          <button type="submit" class="btn btn-primary btn-sm" onclick="document.getElementById('kb-notes-val').value=document.getElementById('kb-notes-rte').innerHTML.trim()">Create Task</button>
         </div>
       </form>
     </div>
@@ -263,7 +276,24 @@ const currentUserId = {{ user.id }};
 {% endblock %}
 
 {% block extra_js %}
+<style>
+[contenteditable][data-placeholder]:empty::before {
+  content: attr(data-placeholder); color: var(--muted); pointer-events: none;
+}
+</style>
 <script>
+function kbRte(cmd) {
+  document.execCommand(cmd, false, null);
+  const rte = document.getElementById('kb-notes-rte');
+  if (rte) { document.getElementById('kb-notes-val').value = rte.innerHTML; rte.focus(); }
+}
+document.addEventListener('DOMContentLoaded', function() {
+  const rte = document.getElementById('kb-notes-rte');
+  if (rte) rte.addEventListener('input', function() {
+    document.getElementById('kb-notes-val').value = rte.innerHTML;
+  });
+});
+
 function applyKanbanFilter() {
   const q      = (document.getElementById('kb-search')?.value || '').trim().toLowerCase();
   const client = (document.getElementById('kb-client')?.value || '').toLowerCase();

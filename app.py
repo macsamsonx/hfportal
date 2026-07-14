@@ -14,6 +14,39 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional
 
+# ── Google Drive ─────────────────────────────────────────────────────────────
+DRIVE_FOLDER_ID   = "1fC60n_h9Ei-zxzxYCba9hvF3LtTTtV_X"
+_DRIVE_CREDS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google-credentials.json")
+_drive_svc        = None
+
+def _get_drive():
+    global _drive_svc
+    if _drive_svc is None:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build as _gbuild
+        creds = service_account.Credentials.from_service_account_file(
+            _DRIVE_CREDS_FILE,
+            scopes=["https://www.googleapis.com/auth/drive.file"],
+        )
+        _drive_svc = _gbuild("drive", "v3", credentials=creds, cache_discovery=False)
+    return _drive_svc
+
+def _drive_upload(content: bytes, filename: str, mime_type: str) -> dict:
+    from googleapiclient.http import MediaIoBaseUpload
+    svc   = _get_drive()
+    media = MediaIoBaseUpload(io.BytesIO(content), mimetype=mime_type, resumable=False)
+    f     = svc.files().create(
+        body={"name": filename, "parents": [DRIVE_FOLDER_ID]},
+        media_body=media,
+        fields="id,name,webViewLink",
+    ).execute()
+    svc.permissions().create(
+        fileId=f["id"],
+        body={"type": "anyone", "role": "reader"},
+        fields="id",
+    ).execute()
+    return f
+
 # ── reCAPTCHA v3 ─────────────────────────────────────────────────────────────
 RECAPTCHA_SITE_KEY   = os.environ.get("RECAPTCHA_SITE_KEY", "")
 RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY", "")
@@ -2872,6 +2905,43 @@ async def chat_page(request: Request, room: str = "group"):
         ).fetchall()
         messages = [dict(m) for m in messages]
 
+        # Fetch reply-to message previews
+        reply_ids = list({m["reply_to_id"] for m in messages if m.get("reply_to_id")})
+        reply_map: dict = {}
+        if reply_ids:
+            placeholders = ",".join("?" * len(reply_ids))
+            for r in conn.execute(
+                f"SELECT id, sender_name, body, attachment_type, attachment_name FROM chat_messages WHERE id IN ({placeholders})",
+                reply_ids,
+            ).fetchall():
+                reply_map[r["id"]] = dict(r)
+
+        # Fetch reactions for initial render
+        if messages:
+            msg_ids      = [m["id"] for m in messages]
+            placeholders = ",".join("?" * len(msg_ids))
+            rxn_rows     = conn.execute(
+                f"""SELECT message_id, emoji, COUNT(*) as cnt,
+                           GROUP_CONCAT(user_id) as user_ids
+                    FROM chat_reactions WHERE message_id IN ({placeholders})
+                    GROUP BY message_id, emoji""",
+                msg_ids,
+            ).fetchall()
+            rxn_map: dict = {}
+            for r in rxn_rows:
+                uid_list = [int(x) for x in (r["user_ids"] or "").split(",") if x]
+                rxn_map.setdefault(r["message_id"], []).append({
+                    "emoji": r["emoji"], "count": r["cnt"],
+                    "by_me": user["id"] in uid_list,
+                })
+            for m in messages:
+                m["reactions"] = rxn_map.get(m["id"], [])
+                if m.get("reply_to_id") and m["reply_to_id"] in reply_map:
+                    m["reply_preview"] = reply_map[m["reply_to_id"]]
+        else:
+            for m in messages:
+                m["reactions"] = []
+
         conn.execute(
             """INSERT INTO chat_reads (user_id, room, last_read_msg_id) VALUES (?, ?, ?)
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
@@ -2908,19 +2978,57 @@ async def chat_page(request: Request, room: str = "group"):
     })
 
 
+@app.post("/api/chat/upload")
+async def chat_file_upload(request: Request, file: UploadFile = File(...)):
+    require_user(request)
+    content = await file.read()
+    if len(content) > 25 * 1024 * 1024:
+        return JSONResponse({"ok": False, "error": "File too large (max 25 MB)"}, status_code=400)
+    mime  = file.content_type or "application/octet-stream"
+    fname = file.filename or "upload"
+    ftype = "image" if mime.startswith("image/") else ("video" if mime.startswith("video/") else "file")
+    try:
+        result = _drive_upload(content, fname, mime)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    drive_id = result["id"]
+    return JSONResponse({
+        "ok":            True,
+        "drive_id":      drive_id,
+        "name":          fname,
+        "type":          ftype,
+        "thumbnail_url": f"https://drive.google.com/thumbnail?id={drive_id}&sz=w800" if ftype == "image" else None,
+        "view_url":      result["webViewLink"],
+    })
+
+
 @app.post("/api/chat/send")
-async def send_chat_message(request: Request, room: str = Form(...), body: str = Form(...)):
+async def send_chat_message(
+    request: Request,
+    room: str = Form(...),
+    body: str = Form(""),
+    attachment_drive_id: str = Form(""),
+    attachment_name:     str = Form(""),
+    attachment_type:     str = Form(""),
+    reply_to_id:         str = Form(""),
+):
     user = require_user(request)
     body = body.strip()
-    if not body:
+    if not body and not attachment_drive_id:
         return JSONResponse({"ok": False, "error": "Empty message"}, status_code=400)
     if room != "group" and (not room.startswith("dm_") or str(user["id"]) not in room.split("_")[1:3]):
         return JSONResponse({"ok": False, "error": "Invalid room"}, status_code=403)
+    reply_id = int(reply_to_id) if reply_to_id.strip().isdigit() else None
 
     with get_db() as conn:
         cur = conn.execute(
-            "INSERT INTO chat_messages (room, sender_id, sender_name, body) VALUES (?, ?, ?, ?)",
-            (room, user["id"], user["name"], body[:2000])
+            """INSERT INTO chat_messages
+               (room, sender_id, sender_name, body,
+                attachment_drive_id, attachment_name, attachment_type, reply_to_id)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (room, user["id"], user["name"], body[:2000],
+             attachment_drive_id or None, attachment_name or None,
+             attachment_type or None, reply_id),
         )
         msg_id = cur.lastrowid
         conn.execute(
@@ -2928,9 +3036,73 @@ async def send_chat_message(request: Request, room: str = Form(...), body: str =
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
             (user["id"], room, msg_id)
         )
-        # Chat unread count is tracked via chat_reads table — no notification bell entry
 
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "msg_id": msg_id})
+
+
+@app.post("/api/chat/react")
+async def chat_react(request: Request):
+    user = require_user(request)
+    data       = await request.json()
+    message_id = data.get("message_id")
+    emoji      = data.get("emoji", "")
+    if not message_id or not emoji:
+        return JSONResponse({"ok": False}, status_code=400)
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT id FROM chat_reactions WHERE message_id=? AND user_id=? AND emoji=?",
+            (message_id, user["id"], emoji),
+        ).fetchone()
+        if existing:
+            conn.execute("DELETE FROM chat_reactions WHERE id=?", (existing["id"],))
+            action = "removed"
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO chat_reactions (message_id, user_id, emoji) VALUES (?,?,?)",
+                (message_id, user["id"], emoji),
+            )
+            action = "added"
+    return JSONResponse({"ok": True, "action": action})
+
+
+@app.get("/api/chat/read-status")
+async def chat_read_status(request: Request, room: str = "group"):
+    user = require_user(request)
+    if not room.startswith("dm_"):
+        return JSONResponse({"last_read": 0})
+    other_ids = [int(p) for p in room.split("_")[1:3] if int(p) != user["id"]]
+    if not other_ids:
+        return JSONResponse({"last_read": 0})
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT last_read_msg_id FROM chat_reads WHERE user_id=? AND room=?",
+            (other_ids[0], room),
+        ).fetchone()
+    return JSONResponse({"last_read": row["last_read_msg_id"] if row else 0})
+
+
+@app.get("/api/chat/reactions")
+async def chat_reactions_api(request: Request, room: str = "group"):
+    user = require_user(request)
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT r.message_id, r.emoji, COUNT(*) as cnt,
+                      GROUP_CONCAT(r.user_id) as user_ids
+               FROM chat_reactions r
+               JOIN chat_messages m ON m.id=r.message_id
+               WHERE m.room=?
+               GROUP BY r.message_id, r.emoji""",
+            (room,),
+        ).fetchall()
+    result: dict = {}
+    uid = user["id"]
+    for r in rows:
+        mid = r["message_id"]
+        uid_list = [int(x) for x in (r["user_ids"] or "").split(",") if x]
+        result.setdefault(mid, []).append({
+            "emoji": r["emoji"], "count": r["cnt"], "by_me": uid in uid_list,
+        })
+    return JSONResponse(result)
 
 
 @app.get("/api/chat/poll")
@@ -2978,17 +3150,30 @@ async def chat_contacts_api(request: Request):
                 (r, last_read_id, user["id"])
             ).fetchone()[0]
             last_msg = conn.execute(
-                "SELECT body, created_at FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
+                "SELECT body, created_at, attachment_name, attachment_type FROM chat_messages WHERE room=? ORDER BY id DESC LIMIT 1",
                 (r,)
             ).fetchone()
+            if last_msg:
+                if last_msg["body"]:
+                    preview = last_msg["body"][:60]
+                elif last_msg["attachment_type"] == "image":
+                    preview = "📷 Photo"
+                elif last_msg["attachment_type"] == "video":
+                    preview = "🎬 Video"
+                elif last_msg["attachment_name"]:
+                    preview = f"📎 {last_msg['attachment_name'][:40]}"
+                else:
+                    preview = "📎 File"
+            else:
+                preview = ""
             result.append({
                 "id": c["id"],
                 "name": c["name"],
                 "initial": c["name"][0].upper() if c["name"] else "?",
-                "avatar": f"/uploads/avatars/{c['profile_pic_path']}" if c["profile_pic_path"] else None,
+                "avatar": f"/uploads/{c['profile_pic_path']}" if c["profile_pic_path"] else None,
                 "room": r,
                 "unread": unread,
-                "last_msg": last_msg["body"][:60] if last_msg else "",
+                "last_msg": preview,
                 "last_msg_at": last_msg["created_at"] if last_msg else "",
             })
     # Sort: unread first, then most-recently-messaged, then A-Z for no-message contacts

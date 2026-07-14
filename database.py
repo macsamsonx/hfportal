@@ -614,6 +614,30 @@ def init_db():
             if col not in _regcols:
                 conn.execute(f"ALTER TABLE registration_requests ADD COLUMN {col} {typ}")
 
+        # ── Column migrations — chat_messages ────────────────────────────────────
+        _chatcols = {r[1] for r in conn.execute("PRAGMA table_info(chat_messages)").fetchall()}
+        for col, typ in [
+            ("attachment_drive_id", "TEXT"),
+            ("attachment_name",     "TEXT"),
+            ("attachment_type",     "TEXT"),
+            ("reply_to_id",         "INTEGER"),
+        ]:
+            if col not in _chatcols:
+                conn.execute(f"ALTER TABLE chat_messages ADD COLUMN {col} {typ}")
+
+        # ── Chat reactions ────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chat_reactions (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                user_id    INTEGER NOT NULL,
+                emoji      TEXT    NOT NULL,
+                created_at TEXT    DEFAULT (datetime('now', '+8 hours')),
+                UNIQUE(message_id, user_id, emoji),
+                FOREIGN KEY(message_id) REFERENCES chat_messages(id) ON DELETE CASCADE,
+                FOREIGN KEY(user_id)    REFERENCES employees(id)     ON DELETE CASCADE
+            )""")
+
         # ── HR Kanban tasks (private HR/Admin board) ─────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS hr_tasks (

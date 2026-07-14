@@ -2,6 +2,119 @@
 {% block title %}Chat{% endblock %}
 {% block page_title %}Chat{% endblock %}
 
+{% block extra_head %}
+<style>
+/* ── Reaction picker ───────────────────────────────────────────────────────── */
+.rxn-picker {
+  position: absolute; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 99px; padding: 4px 8px;
+  display: flex; gap: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.15);
+  opacity: 0; pointer-events: none; transform: translateY(4px);
+  transition: opacity .15s, transform .15s;
+}
+.rxn-picker.open { opacity: 1; pointer-events: all; transform: translateY(0); }
+.rxn-picker span { cursor: pointer; font-size: 1.1rem; line-height: 1; padding: 2px; border-radius: 4px; transition: transform .1s; }
+.rxn-picker span:hover { transform: scale(1.3); }
+
+/* ── Reaction chips ────────────────────────────────────────────────────────── */
+.chat-reactions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.rxn-chip {
+  display: flex; align-items: center; gap: 3px;
+  padding: 2px 7px; border-radius: 99px; font-size: .72rem; font-weight: 600;
+  background: var(--surface-2); border: 1.5px solid var(--border);
+  cursor: pointer; transition: all .12s; user-select: none;
+}
+.rxn-chip.by-me { background: var(--primary-l); border-color: var(--primary); color: var(--primary); }
+.rxn-chip:hover { border-color: var(--primary); }
+
+/* ── Reply reference ───────────────────────────────────────────────────────── */
+.chat-reply-ref {
+  background: var(--surface-2); border-left: 3px solid var(--primary);
+  border-radius: 6px; padding: 5px 10px; margin-bottom: 4px;
+  cursor: pointer; max-width: 320px;
+  font-size: .72rem; color: var(--muted);
+  transition: background .1s;
+}
+.chat-reply-ref:hover { background: var(--primary-l); }
+.chat-reply-ref .rrf-name { font-weight: 700; color: var(--primary); margin-bottom: 1px; }
+.chat-reply-ref .rrf-body { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+
+/* ── Reply bar (above input) ───────────────────────────────────────────────── */
+#reply-bar {
+  display: none; align-items: center; gap: 8px;
+  background: var(--surface-2); border-top: 1px solid var(--border);
+  padding: 6px 12px; font-size: .78rem; color: var(--text-2);
+}
+#reply-bar.open { display: flex; }
+#reply-bar .rb-name { font-weight: 700; color: var(--primary); }
+#reply-bar .rb-body { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+#reply-bar button { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 1rem; line-height: 1; }
+
+/* ── Attachment preview ────────────────────────────────────────────────────── */
+#attach-preview {
+  display: none; align-items: center; gap: 8px;
+  background: var(--surface-2); border-top: 1px solid var(--border);
+  padding: 6px 12px; font-size: .78rem; color: var(--text-2);
+}
+#attach-preview.open { display: flex; }
+#attach-preview img { max-height: 48px; border-radius: 4px; }
+#attach-preview .ap-name { flex: 1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 600; }
+#attach-preview button { background: none; border: none; cursor: pointer; color: var(--danger); font-size: 1rem; }
+
+/* ── Attachment in bubble ──────────────────────────────────────────────────── */
+.chat-attach-img { max-width: 220px; border-radius: 8px; cursor: pointer; display: block; margin-bottom: 4px; }
+.chat-attach-card {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 12px; margin-bottom: 4px;
+  text-decoration: none; color: var(--text);
+  max-width: 240px; font-size: .78rem; font-weight: 600;
+  transition: background .1s;
+}
+.chat-attach-card:hover { background: var(--primary-l); }
+.chat-attach-icon { font-size: 1.4rem; flex-shrink: 0; }
+
+/* ── Read tick ─────────────────────────────────────────────────────────────── */
+.read-tick { font-size: .68rem; color: var(--muted); margin-left: 4px; }
+.read-tick.seen { color: #3b82f6; }
+
+/* ── Msg meta row ──────────────────────────────────────────────────────────── */
+.chat-msg-meta {
+  display: flex; align-items: center; gap: 4px;
+  margin-top: 2px;
+}
+.chat-msg-meta .react-open-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: .75rem; color: var(--muted); padding: 0 2px;
+  opacity: 0; transition: opacity .15s;
+  position: relative;
+}
+.chat-msg:hover .react-open-btn { opacity: 1; }
+
+/* ── Reply btn on hover ────────────────────────────────────────────────────── */
+.reply-hover-btn {
+  background: none; border: none; cursor: pointer;
+  font-size: .68rem; color: var(--muted); padding: 0 2px;
+  opacity: 0; transition: opacity .15s;
+}
+.chat-msg:hover .reply-hover-btn { opacity: 1; }
+
+/* ── Attachment upload btn ─────────────────────────────────────────────────── */
+#attach-btn { position: relative; }
+#attach-btn input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+}
+
+/* ── Upload progress ───────────────────────────────────────────────────────── */
+#upload-progress {
+  display: none; font-size: .72rem; color: var(--primary);
+  padding: 4px 12px; background: var(--primary-l);
+}
+#upload-progress.open { display: block; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -63,20 +176,106 @@
 
     <div class="chat-messages" id="chat-messages">
       {% for m in messages %}
-        <div class="chat-msg {% if m.sender_id == user.id %}mine{% endif %}" data-id="{{ m.id }}">
-          {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}</div>{% endif %}
-          <div class="chat-msg-bubble">{{ m.body }}</div>
-          <div class="chat-msg-time">{{ m.created_at[11:16] if m.created_at|length > 11 else m.created_at }}</div>
+      <div class="chat-msg {% if m.sender_id == user.id %}mine{% endif %}"
+           data-id="{{ m.id }}" id="msg-wrap-{{ m.id }}" style="position:relative;">
+
+        <!-- Reply reference -->
+        {% if m.get('reply_preview') %}
+        <div class="chat-reply-ref" onclick="scrollToMsg({{ m.reply_to_id }})">
+          <div class="rrf-name">{{ m.reply_preview.sender_name }}</div>
+          <div class="rrf-body">
+            {% if m.reply_preview.attachment_type == 'image' %}📷 Photo
+            {% elif m.reply_preview.attachment_type == 'video' %}🎬 Video
+            {% elif m.reply_preview.attachment_type %}📎 {{ m.reply_preview.attachment_name or 'File' }}
+            {% else %}{{ m.reply_preview.body[:80] }}
+            {% endif %}
+          </div>
         </div>
+        {% endif %}
+
+        {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}</div>{% endif %}
+
+        <div class="chat-msg-bubble" id="msg-{{ m.id }}">
+          <!-- Attachment -->
+          {% if m.attachment_type == 'image' and m.attachment_drive_id %}
+            <a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
+              <img class="chat-attach-img"
+                   src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w600"
+                   alt="{{ m.attachment_name or 'Image' }}"
+                   onerror="this.style.display='none'">
+            </a>
+          {% elif m.attachment_type == 'video' and m.attachment_drive_id %}
+            <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
+              <span class="chat-attach-icon">🎬</span>
+              <span>{{ m.attachment_name or 'Video' }}</span>
+            </a>
+          {% elif m.attachment_type and m.attachment_drive_id %}
+            <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
+              <span class="chat-attach-icon">📎</span>
+              <span>{{ m.attachment_name or 'File' }}</span>
+            </a>
+          {% endif %}
+          <!-- Text body -->
+          {% if m.body %}{{ m.body }}{% endif %}
+        </div>
+
+        <!-- Meta: time + reply btn + react btn + read tick -->
+        <div class="chat-msg-meta">
+          <button class="reply-hover-btn" onclick="startReply({{ m.id }}, {{ m.sender_name | tojson }}, {{ (m.body or '') | tojson }}, {{ (m.attachment_type or '') | tojson }}, {{ (m.attachment_name or '') | tojson }})" title="Reply">↩</button>
+          <button class="react-open-btn" onclick="toggleRxnPicker({{ m.id }}, event)" title="React">😊+</button>
+          <span class="chat-msg-time">{{ m.created_at[11:16] if m.created_at|length > 11 else m.created_at }}</span>
+          {% if m.sender_id == user.id %}
+            <span class="read-tick" id="tick-{{ m.id }}">✓</span>
+          {% endif %}
+        </div>
+
+        <!-- Reaction chips -->
+        <div class="chat-reactions" id="rxn-{{ m.id }}">
+          {% for r in m.reactions %}
+          <span class="rxn-chip {% if r.by_me %}by-me{% endif %}"
+                onclick="doReact({{ m.id }}, '{{ r.emoji }}')">{{ r.emoji }} {{ r.count }}</span>
+          {% endfor %}
+        </div>
+
+        <!-- Floating reaction picker (hidden, positioned by JS) -->
+        <div class="rxn-picker" id="rxnpick-{{ m.id }}" style="bottom:calc(100% - 8px); {% if m.sender_id == user.id %}right:0;{% else %}left:0;{% endif %}">
+          {% for e in ['❤️','👍','😂','😮','😢','🙏'] %}
+          <span onclick="doReact({{ m.id }}, '{{ e }}')">{{ e }}</span>
+          {% endfor %}
+        </div>
+      </div>
       {% else %}
-        <div class="empty-state">
-          <div class="emoji">💬</div>
-          <p>No messages yet. Say hello!</p>
-        </div>
+      <div class="empty-state">
+        <div class="emoji">💬</div>
+        <p>No messages yet. Say hello!</p>
+      </div>
       {% endfor %}
     </div>
 
+    <!-- Reply bar -->
+    <div id="reply-bar">
+      <span>↩</span>
+      <div>
+        <div class="rb-name" id="rb-name"></div>
+        <div class="rb-body" id="rb-body"></div>
+      </div>
+      <button onclick="clearReply()" title="Cancel reply">×</button>
+    </div>
+
+    <!-- Attach preview bar -->
+    <div id="attach-preview">
+      <span id="ap-icon">📎</span>
+      <span class="ap-name" id="ap-name"></span>
+      <img id="ap-thumb" src="" alt="" style="display:none;">
+      <button onclick="clearAttach()" title="Remove">×</button>
+    </div>
+
+    <!-- Upload progress -->
+    <div id="upload-progress">⏫ Uploading to Drive…</div>
+
+    <!-- Input row -->
     <form id="chat-form" class="chat-input-row" autocomplete="off">
+      <!-- Emoji picker -->
       <div class="chat-emoji-wrap">
         <button type="button" class="btn btn-ghost btn-sm" id="emoji-toggle">😊</button>
         <div class="chat-emoji-picker" id="emoji-picker">
@@ -85,6 +284,11 @@
           {% endfor %}
         </div>
       </div>
+      <!-- File upload -->
+      <button type="button" class="btn btn-ghost btn-sm" id="attach-btn" title="Attach file">
+        📎
+        <input type="file" id="file-input" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt">
+      </button>
       <input type="text" id="chat-input" class="form-input" placeholder="Type a message…" maxlength="2000" autocomplete="off">
       <button type="submit" class="btn btn-primary">Send</button>
     </form>
@@ -93,71 +297,284 @@
 
 <script>
 (function() {
-  const room = {{ room | tojson }};
-  const myId = {{ user.id }};
+  const room  = {{ room | tojson }};
+  const myId  = {{ user.id }};
+  const isDM  = room.startsWith('dm_');
   const messagesEl = document.getElementById('chat-messages');
-  const form = document.getElementById('chat-form');
-  const input = document.getElementById('chat-input');
-  let lastId = 0;
+  const form   = document.getElementById('chat-form');
+  const input  = document.getElementById('chat-input');
+  let lastId   = 0;
+  let replyToId    = null;
+  let pendingAttach = null; // {drive_id, name, type, thumbnail_url, view_url}
+
+  // Seed lastId from server-rendered messages
   const idEls = messagesEl.querySelectorAll('.chat-msg[data-id]');
   if (idEls.length) lastId = parseInt(idEls[idEls.length - 1].dataset.id, 10);
 
-  function scrollToBottom() {
-    messagesEl.scrollTop = messagesEl.scrollHeight;
-  }
+  // ── Scroll ────────────────────────────────────────────────────────────────
+  function scrollToBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
   scrollToBottom();
 
+  function scrollToMsg(id) {
+    const el = document.getElementById('msg-wrap-' + id);
+    if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.style.background='var(--primary-l)'; setTimeout(()=>el.style.background='',1000); }
+  }
+  window.scrollToMsg = scrollToMsg;
+
+  // ── Attachment rendering ──────────────────────────────────────────────────
+  function attachHTML(m) {
+    if (!m.attachment_type || !m.attachment_drive_id) return '';
+    if (m.attachment_type === 'image') {
+      return `<a href="https://drive.google.com/file/d/${m.attachment_drive_id}/view" target="_blank">
+        <img class="chat-attach-img" src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w600" alt="${esc(m.attachment_name||'Image')}" onerror="this.style.display='none'">
+      </a>`;
+    }
+    const icon = m.attachment_type === 'video' ? '🎬' : '📎';
+    return `<a class="chat-attach-card" href="https://drive.google.com/file/d/${m.attachment_drive_id}/view" target="_blank">
+      <span class="chat-attach-icon">${icon}</span><span>${esc(m.attachment_name||'File')}</span>
+    </a>`;
+  }
+
+  // ── Render message ────────────────────────────────────────────────────────
   function renderMessage(m) {
-    const div = document.createElement('div');
-    div.className = 'chat-msg' + (m.sender_id === myId ? ' mine' : '');
+    const isMine = m.sender_id === myId;
+    const time   = (m.created_at && m.created_at.length > 11) ? m.created_at.slice(11,16) : (m.created_at||'');
+    const div    = document.createElement('div');
+    div.className = 'chat-msg' + (isMine ? ' mine' : '');
     div.dataset.id = m.id;
-    const time = (m.created_at && m.created_at.length > 11) ? m.created_at.slice(11, 16) : (m.created_at || '');
+    div.id = 'msg-wrap-' + m.id;
+    div.style.position = 'relative';
+
+    // Reply reference
+    let replyHTML = '';
+    if (m.reply_preview) {
+      const rp = m.reply_preview;
+      const rpBody = rp.attachment_type === 'image' ? '📷 Photo'
+                   : rp.attachment_type === 'video' ? '🎬 Video'
+                   : rp.attachment_type ? `📎 ${esc(rp.attachment_name||'File')}`
+                   : esc((rp.body||'').slice(0,80));
+      replyHTML = `<div class="chat-reply-ref" onclick="scrollToMsg(${m.reply_to_id})">
+        <div class="rrf-name">${esc(rp.sender_name||'')}</div>
+        <div class="rrf-body">${rpBody}</div>
+      </div>`;
+    }
+
+    const reactions = (m.reactions||[]).map(r =>
+      `<span class="rxn-chip${r.by_me?' by-me':''}" onclick="doReact(${m.id},'${r.emoji}')">${r.emoji} ${r.count}</span>`
+    ).join('');
+
+    const pickerSide = isMine ? 'right:0' : 'left:0';
+    const pickerEmojis = ['❤️','👍','😂','😮','😢','🙏'].map(e =>
+      `<span onclick="doReact(${m.id},'${e}')">${e}</span>`
+    ).join('');
+
     div.innerHTML =
-      (m.sender_id !== myId ? '<div class="chat-msg-sender"></div>' : '') +
-      '<div class="chat-msg-bubble"></div>' +
-      '<div class="chat-msg-time"></div>';
-    if (m.sender_id !== myId) div.querySelector('.chat-msg-sender').textContent = m.sender_name;
-    div.querySelector('.chat-msg-bubble').textContent = m.body;
-    div.querySelector('.chat-msg-time').textContent = time;
+      replyHTML +
+      (isMine ? '' : `<div class="chat-msg-sender"></div>`) +
+      `<div class="chat-msg-bubble" id="msg-${m.id}">${attachHTML(m)}</div>` +
+      `<div class="chat-msg-meta">
+         <button class="reply-hover-btn" onclick="startReply(${m.id},${JSON.stringify(m.sender_name||'')},${JSON.stringify((m.body||'').slice(0,100))},${JSON.stringify(m.attachment_type||'')},${JSON.stringify(m.attachment_name||'')})" title="Reply">↩</button>
+         <button class="react-open-btn" onclick="toggleRxnPicker(${m.id},event)" title="React">😊+</button>
+         <span class="chat-msg-time">${time}</span>
+         ${isMine ? `<span class="read-tick" id="tick-${m.id}">✓</span>` : ''}
+       </div>` +
+      `<div class="chat-reactions" id="rxn-${m.id}">${reactions}</div>` +
+      `<div class="rxn-picker" id="rxnpick-${m.id}" style="bottom:calc(100% - 8px);${pickerSide}">${pickerEmojis}</div>`;
+
+    if (!isMine) {
+      const senderEl = div.querySelector('.chat-msg-sender');
+      if (senderEl) senderEl.textContent = m.sender_name;
+    }
+    const bubble = div.querySelector('.chat-msg-bubble');
+    if (bubble && m.body) {
+      const txt = document.createTextNode(m.body);
+      bubble.appendChild(txt);
+    }
     return div;
   }
 
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── SSE ───────────────────────────────────────────────────────────────────
   function startSSE() {
     const url = `/api/chat/stream?room=${encodeURIComponent(room)}&after_id=${lastId}`;
-    const es = new EventSource(url);
+    const es  = new EventSource(url);
     es.onmessage = function(e) {
       const m = JSON.parse(e.data);
+      m.reactions = m.reactions || [];
       lastId = m.id;
       const empty = messagesEl.querySelector('.empty-state');
       if (empty) empty.remove();
       messagesEl.appendChild(renderMessage(m));
       scrollToBottom();
     };
-    es.onerror = function() {
-      es.close();
-      setTimeout(startSSE, 3000);
-    };
+    es.onerror = function() { es.close(); setTimeout(startSSE, 3000); };
     return es;
   }
+  startSSE();
 
-  let sse = startSSE();
+  // ── Read ticks (DMs only) ─────────────────────────────────────────────────
+  if (isDM) {
+    function refreshTicks() {
+      fetch(`/api/chat/read-status?room=${encodeURIComponent(room)}`)
+        .then(r=>r.json()).then(data=>{
+          const lastRead = data.last_read || 0;
+          document.querySelectorAll('.read-tick').forEach(el=>{
+            const msgId = parseInt(el.id.replace('tick-',''),10);
+            if (msgId <= lastRead) el.classList.add('seen');
+            el.textContent = msgId <= lastRead ? '✓✓' : '✓';
+          });
+        }).catch(()=>{});
+    }
+    refreshTicks();
+    setInterval(refreshTicks, 5000);
+  }
 
+  // ── Reactions ─────────────────────────────────────────────────────────────
+  let openPickerId = null;
+  window.toggleRxnPicker = function(msgId, evt) {
+    evt && evt.stopPropagation();
+    if (openPickerId && openPickerId !== msgId) {
+      const prev = document.getElementById('rxnpick-' + openPickerId);
+      if (prev) prev.classList.remove('open');
+    }
+    const picker = document.getElementById('rxnpick-' + msgId);
+    if (!picker) return;
+    picker.classList.toggle('open');
+    openPickerId = picker.classList.contains('open') ? msgId : null;
+  };
+  document.addEventListener('click', function() {
+    if (openPickerId) {
+      const p = document.getElementById('rxnpick-' + openPickerId);
+      if (p) p.classList.remove('open');
+      openPickerId = null;
+    }
+  });
+
+  window.doReact = async function(msgId, emoji) {
+    const picker = document.getElementById('rxnpick-' + msgId);
+    if (picker) picker.classList.remove('open');
+    openPickerId = null;
+    await fetch('/api/chat/react', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-Requested-With':'fetch'},
+      body: JSON.stringify({message_id: msgId, emoji}),
+    });
+    // Refresh reactions for this room
+    refreshReactions();
+  };
+
+  function refreshReactions() {
+    fetch(`/api/chat/reactions?room=${encodeURIComponent(room)}`)
+      .then(r=>r.json()).then(data=>{
+        Object.entries(data).forEach(([msgId, rxns]) => {
+          const el = document.getElementById('rxn-' + msgId);
+          if (!el) return;
+          el.innerHTML = rxns.map(r =>
+            `<span class="rxn-chip${r.by_me?' by-me':''}" onclick="doReact(${msgId},'${r.emoji}')">${r.emoji} ${r.count}</span>`
+          ).join('');
+        });
+        // Clear reactions that are now empty (all removed)
+        document.querySelectorAll('[id^="rxn-"]').forEach(el => {
+          const mid = el.id.replace('rxn-','');
+          if (!data[mid]) el.innerHTML = '';
+        });
+      }).catch(()=>{});
+  }
+  setInterval(refreshReactions, 8000);
+
+  // ── Reply ─────────────────────────────────────────────────────────────────
+  window.startReply = function(id, senderName, body, attachType, attachName) {
+    replyToId = id;
+    document.getElementById('rb-name').textContent = senderName;
+    const preview = attachType === 'image' ? '📷 Photo'
+                  : attachType === 'video' ? '🎬 Video'
+                  : attachType ? `📎 ${attachName||'File'}`
+                  : body || '…';
+    document.getElementById('rb-body').textContent = preview;
+    document.getElementById('reply-bar').classList.add('open');
+    input.focus();
+  };
+  window.clearReply = function() {
+    replyToId = null;
+    document.getElementById('reply-bar').classList.remove('open');
+  };
+
+  // ── File upload ───────────────────────────────────────────────────────────
+  const fileInput = document.getElementById('file-input');
+  const apPreview = document.getElementById('attach-preview');
+  const apName    = document.getElementById('ap-name');
+  const apThumb   = document.getElementById('ap-thumb');
+  const apIcon    = document.getElementById('ap-icon');
+  const progress  = document.getElementById('upload-progress');
+
+  window.clearAttach = function() {
+    pendingAttach = null;
+    fileInput.value = '';
+    apPreview.classList.remove('open');
+    apThumb.style.display = 'none';
+    apThumb.src = '';
+  };
+
+  fileInput.addEventListener('change', async function() {
+    const file = fileInput.files[0];
+    if (!file) return;
+    apName.textContent = file.name;
+    apIcon.textContent = file.type.startsWith('image/') ? '🖼' : file.type.startsWith('video/') ? '🎬' : '📎';
+    apThumb.style.display = 'none';
+    apPreview.classList.add('open');
+    progress.classList.add('open');
+
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res  = await fetch('/api/chat/upload', {method:'POST', body:fd, headers:{'X-Requested-With':'fetch'}});
+      const data = await res.json();
+      if (data.ok) {
+        pendingAttach = data;
+        if (data.thumbnail_url) {
+          apThumb.src = data.thumbnail_url;
+          apThumb.style.display = 'block';
+        }
+      } else {
+        alert('Upload failed: ' + (data.error || 'Unknown error'));
+        clearAttach();
+      }
+    } catch(e) {
+      alert('Upload error: ' + e.message);
+      clearAttach();
+    } finally {
+      progress.classList.remove('open');
+    }
+  });
+
+  // ── Send ──────────────────────────────────────────────────────────────────
   form.addEventListener('submit', async function(e) {
     e.preventDefault();
     const body = input.value.trim();
-    if (!body) return;
-    input.value = '';
+    if (!body && !pendingAttach) return;
     const fd = new FormData();
     fd.append('room', room);
     fd.append('body', body);
-    await fetch('/api/chat/send', { method: 'POST', body: fd, headers: {'X-Requested-With':'fetch'} });
+    if (pendingAttach) {
+      fd.append('attachment_drive_id', pendingAttach.drive_id);
+      fd.append('attachment_name',     pendingAttach.name);
+      fd.append('attachment_type',     pendingAttach.type);
+    }
+    if (replyToId) fd.append('reply_to_id', String(replyToId));
+    input.value = '';
+    clearAttach();
+    clearReply();
+    input.style.height = '';
+    await fetch('/api/chat/send', {method:'POST', body:fd, headers:{'X-Requested-With':'fetch'}});
   });
 
+  // ── Emoji picker ──────────────────────────────────────────────────────────
   const emojiToggle = document.getElementById('emoji-toggle');
   const emojiPicker = document.getElementById('emoji-picker');
-  emojiToggle.addEventListener('click', function() {
-    emojiPicker.classList.toggle('open');
-  });
+  emojiToggle.addEventListener('click', function() { emojiPicker.classList.toggle('open'); });
   document.querySelectorAll('.chat-emoji').forEach(function(el) {
     el.addEventListener('click', function() {
       input.value += el.dataset.emoji;
