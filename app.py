@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 # ── Google Drive ─────────────────────────────────────────────────────────────
-DRIVE_FOLDER_ID   = "1fC60n_h9Ei-zxzxYCba9hvF3LtTTtV_X"
+DRIVE_FOLDER_ID   = "0AIV82aJFIMfcUk9PVA"
 _DRIVE_CREDS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "google-credentials.json")
 _drive_svc        = None
 
@@ -39,11 +39,13 @@ def _drive_upload(content: bytes, filename: str, mime_type: str) -> dict:
         body={"name": filename, "parents": [DRIVE_FOLDER_ID]},
         media_body=media,
         fields="id,name,webViewLink",
+        supportsAllDrives=True,
     ).execute()
     svc.permissions().create(
         fileId=f["id"],
         body={"type": "anyone", "role": "reader"},
         fields="id",
+        supportsAllDrives=True,
     ).execute()
     return f
 
@@ -1490,7 +1492,7 @@ async def delete_task_file(request: Request, file_id: int):
                 return JSONResponse({"ok": False}, status_code=404)
             return RedirectResponse("/admin/drive-stats", status_code=302)
         try:
-            _get_drive().files().delete(fileId=row["drive_id"]).execute()
+            _get_drive().files().delete(fileId=row["drive_id"], supportsAllDrives=True).execute()
         except Exception:
             pass
         conn.execute("DELETE FROM task_files WHERE id=?", (file_id,))
