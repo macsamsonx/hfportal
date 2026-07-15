@@ -326,4 +326,55 @@
 
 </div>
 
+{# ── Drive Storage ───────────────────────────────────────────────────────────── #}
+{% macro fmt_mb(b) %}{% if b and b > 1073741824 %}{{ "%.1f"|format(b/1073741824) }} GB{% elif b and b > 1048576 %}{{ "%.1f"|format(b/1048576) }} MB{% elif b and b > 1024 %}{{ (b//1024) }} KB{% else %}{{ b or 0 }} B{% endif %}{% endmacro %}
+
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px;">
+
+  <div class="card">
+    <div class="card-header">
+      <h3>📁 Drive Storage</h3>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <span class="badge badge-gray" style="font-size:.7rem;">{{ drive_totals.file_count or 0 }} files · {{ fmt_mb(drive_totals.total_bytes) }}</span>
+        <a href="/admin/drive-stats" class="btn btn-outline btn-sm" style="font-size:.7rem;">Full view</a>
+      </div>
+    </div>
+    <div style="padding:8px 16px 16px;">
+      {% if drive_per_user %}
+        {% set grand = drive_totals.total_bytes or 1 %}
+        {% for u in drive_per_user %}
+        {% set pct = [(((u.total_bytes or 0) / grand) * 100) | round(0) | int, 1] | max %}
+        <div style="display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border);">
+          <span style="font-size:.8rem; font-weight:600; flex:1;">{{ u.uploaded_by_name or '—' }}</span>
+          <div style="width:80px; height:5px; background:var(--border); border-radius:9999px; overflow:hidden;">
+            <div style="width:{{ pct }}%; height:100%; background:var(--primary); border-radius:9999px;"></div>
+          </div>
+          <span style="font-size:.72rem; color:var(--muted); white-space:nowrap; min-width:48px; text-align:right;">{{ fmt_mb(u.total_bytes) }}</span>
+          <span style="font-size:.68rem; color:var(--muted);">{{ u.file_count }}f</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty-state" style="padding:20px;"><p>No files uploaded yet.</p></div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>💬 Chat Attachments</h3>
+      <span class="badge badge-blue" style="font-size:.7rem;">{{ chat_attach_count }} sent</span>
+    </div>
+    <div style="padding:16px;">
+      <div style="font-size:2rem; font-weight:800; color:var(--primary);">{{ chat_attach_count }}</div>
+      <div style="font-size:.78rem; color:var(--muted); margin-top:4px;">files shared via chat</div>
+      <div style="margin-top:16px; padding-top:12px; border-top:1px solid var(--border);">
+        <div style="font-size:.78rem; font-weight:700; margin-bottom:4px;">Task Files</div>
+        <div style="font-size:1.4rem; font-weight:800; color:var(--text);">{{ drive_totals.file_count or 0 }}</div>
+        <div style="font-size:.75rem; color:var(--muted);">{{ fmt_mb(drive_totals.total_bytes) }} used</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
 {% endblock %}

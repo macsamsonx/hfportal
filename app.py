@@ -4527,6 +4527,21 @@ async def admin_dashboard(request: Request):
         data = compute_payroll_for_employee(emp["id"], week_start, week_end)
         week_cost += data.get("gross_pay", 0)
 
+    # Drive storage summary
+    with get_db() as conn:
+        drive_totals = conn.execute(
+            "SELECT COUNT(*) as file_count, COALESCE(SUM(file_size),0) as total_bytes FROM task_files"
+        ).fetchone()
+        drive_per_user = conn.execute("""
+            SELECT uploaded_by_name, COUNT(*) as file_count, COALESCE(SUM(file_size),0) as total_bytes
+            FROM task_files
+            GROUP BY uploaded_by_id, uploaded_by_name
+            ORDER BY total_bytes DESC LIMIT 8
+        """).fetchall()
+        chat_attach_count = conn.execute(
+            "SELECT COUNT(*) FROM chat_messages WHERE attachment_drive_id IS NOT NULL"
+        ).fetchone()[0]
+
     return templates.TemplateResponse(request, "admin/admin_dashboard.html", {
         "user": user,
         "active_employees": active_employees,
@@ -4553,6 +4568,9 @@ async def admin_dashboard(request: Request):
         "today_str": today_str,
         "week_start": week_start,
         "week_end": week_end,
+        "drive_totals": dict(drive_totals),
+        "drive_per_user": [dict(r) for r in drive_per_user],
+        "chat_attach_count": chat_attach_count,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })

@@ -238,9 +238,6 @@
         <a href="/admin/audit-log" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
           <span class="icon">📜</span> Audit Log
         </a>
-        <a href="/admin/drive-stats" class="nav-link {% if '/drive-stats' in request.url.path %}active{% endif %}">
-          <span class="icon">📁</span> Drive Storage
-        </a>
         <a href="/admin/clear-database" class="nav-link {% if '/clear-database' in request.url.path %}active{% endif %}" style="color:var(--danger);">
           <span class="icon">🗑️</span> Clear Database
         </a>
@@ -438,6 +435,8 @@
     const _CSRF = () => document.querySelector('meta[name="csrf-token"]')?.content || '';
     let _msgRoom = null, _msgPollTimer = null, _lastMsgId = 0, _msgAttach = null;
     const _msgrOpen = () => document.getElementById('messenger-panel').style.display === 'flex';
+    const _SENDER_COLORS = ['#2563eb','#16a34a','#d97706','#7c3aed','#0891b2','#dc2626','#0d9488','#9333ea','#c2410c','#0369a1'];
+    const _senderColor = id => _SENDER_COLORS[Math.abs(id) % _SENDER_COLORS.length];
 
     function toggleMessenger() {
       const panel = document.getElementById('messenger-panel');
@@ -526,7 +525,7 @@
             }
           }
           div.innerHTML = `
-            ${!mine ? `<div style="font-size:.62rem;color:var(--muted);margin-bottom:2px;padding-left:4px;">${m.sender_name}</div>` : ''}
+            ${!mine ? `<div style="font-size:.62rem;font-weight:700;color:${_senderColor(m.sender_id)};margin-bottom:2px;padding-left:4px;">${m.sender_name}</div>` : ''}
             <div style="max-width:80%;padding:7px 11px;border-radius:${mine?'14px 14px 4px 14px':'14px 14px 14px 4px'};
                  background:${mine?'var(--primary)':'var(--surface-2,#f1f5f9)'};
                  color:${mine?'#fff':'var(--text)'};font-size:.8rem;line-height:1.4;word-break:break-word;">
@@ -563,6 +562,11 @@
     async function handleMsgFile(input) {
       const file = input.files[0];
       if (!file) return;
+      await _uploadMsgFile(file);
+      input.value = '';
+    }
+
+    async function _uploadMsgFile(file) {
       const bar = document.getElementById('msg-attach-bar');
       const nameEl = document.getElementById('msg-attach-name');
       nameEl.textContent = 'Uploading…';
@@ -575,8 +579,8 @@
         const res = await fetch('/api/chat/upload', {method:'POST', headers:{'X-Requested-With':'fetch'}, body: fd});
         const data = await res.json();
         if (data.ok) {
-          _msgAttach = {drive_id: data.drive_id, name: data.file_name, type: data.file_type};
-          nameEl.textContent = data.file_name;
+          _msgAttach = {drive_id: data.drive_id, name: data.name, type: data.type};
+          nameEl.textContent = data.name;
         } else {
           nameEl.textContent = 'Upload failed';
           setTimeout(() => clearMsgAttach(), 2000);
@@ -585,8 +589,23 @@
         nameEl.textContent = 'Upload failed';
         setTimeout(() => clearMsgAttach(), 2000);
       }
-      input.value = '';
     }
+
+    document.addEventListener('paste', e => {
+      if (!_msgRoom) return;
+      const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+          const ext = item.type.split('/')[1] || 'png';
+          const file = new File([item.getAsFile()], `pasted-${ts}.${ext}`, {type: item.type});
+          _uploadMsgFile(file);
+          break;
+        }
+      }
+    });
 
     function clearMsgAttach() {
       _msgAttach = null;
