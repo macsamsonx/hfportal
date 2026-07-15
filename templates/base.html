@@ -63,8 +63,8 @@
           {% endif %}
         </a>
         <div class="nav-section" style="margin-top:4px;">My Requests</div>
-        <a href="/my-ot" class="nav-link {% if request.url.path in ('/my-ot','/my-leave','/my-schedule','/my-timesheet','/my-review') %}active{% endif %}">
-          <span class="icon">📋</span> OT · Leave · Timesheet
+        <a href="/my-timesheet" class="nav-link {% if request.url.path in ('/my-ot','/my-leave','/my-schedule','/my-timesheet','/my-review') %}active{% endif %}">
+          <span class="icon">🗓️</span> Timesheet
           {% if pending_ot_count and pending_ot_count > 0 %}
             <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}

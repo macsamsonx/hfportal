@@ -1035,8 +1035,8 @@ async def start_task(
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     with get_db() as conn:
-        # Admin/HR can assign to any employee; others assign to themselves
-        if user["role"] in ("HR Manager", "Admin") and assigned_emp_id.strip().isdigit():
+        # Anyone can assign to a teammate; fall back to self if not specified
+        if assigned_emp_id.strip().isdigit():
             emp_id = int(assigned_emp_id)
         else:
             emp_id = user["id"]

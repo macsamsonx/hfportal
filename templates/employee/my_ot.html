@@ -6,7 +6,7 @@
 {# ── Request tab nav ─────────────────────────────────────────────────────── #}
 {% set _p = request.url.path %}
 <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px;overflow-x:auto;-webkit-overflow-scrolling:touch;">
-  {% for tab_href, tab_icon, tab_label in [('/my-ot','⏰','Overtime'),('/my-leave','🌴','Leave'),('/my-schedule','📅','Schedule'),('/my-timesheet','🗓️','Timesheet'),('/my-review','⭐','Reviews')] %}
+  {% for tab_href, tab_icon, tab_label in [('/my-timesheet','🗓️','Timesheet'),('/my-ot','⏰','Overtime'),('/my-leave','🌴','Leave'),('/my-schedule','📅','Schedule'),('/my-review','⭐','Reviews')] %}
   <a href="{{ tab_href }}" style="display:inline-flex;align-items:center;gap:5px;padding:9px 16px;text-decoration:none;white-space:nowrap;font-size:.82rem;font-weight:{% if _p == tab_href %}700{% else %}500{% endif %};
      color:{% if _p == tab_href %}var(--primary){% else %}var(--muted){% endif %};
      border-bottom:3px solid {% if _p == tab_href %}var(--primary){% else %}transparent{% endif %};margin-bottom:-2px;">

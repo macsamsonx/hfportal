@@ -231,7 +231,6 @@
             <input type="date" name="due_date" class="form-input">
           </div>
         </div>
-        {% if user.role in ('HR Manager', 'Admin') %}
         <div class="form-group mb-12">
           <label class="form-label">Assign To</label>
           <select name="assigned_emp_id" class="form-select">
@@ -241,7 +240,6 @@
             {% endfor %}
           </select>
         </div>
-        {% endif %}
         <div class="form-group mb-12">
           <label class="form-label">Input File / Brief <span style="font-size:.72rem;color:var(--muted);">(optional — uploads to Drive)</span></label>
           <div style="display:flex;align-items:center;gap:8px;">
