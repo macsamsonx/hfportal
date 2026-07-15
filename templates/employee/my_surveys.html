@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}My Surveys{% endblock %}
+{% block page_title %}My Surveys{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>📝 My Surveys</h2>
+    <p>Feedback surveys assigned to you</p>
+  </div>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>
+{% endif %}
+
+{% if surveys %}
+<div style="display:flex;flex-direction:column;gap:14px;">
+  {% for s in surveys %}
+  <div class="card" style="padding:18px 20px;display:flex;align-items:center;gap:16px;">
+    <div style="font-size:2rem;flex-shrink:0;">📝</div>
+    <div style="flex:1;">
+      <div style="font-size:.95rem;font-weight:800;margin-bottom:4px;">{{ s.title }}</div>
+      {% if s.description %}<div style="font-size:.8rem;color:var(--muted);margin-bottom:6px;">{{ s.description }}</div>{% endif %}
+      <div style="font-size:.72rem;color:var(--muted);">Assigned {{ s.created_at[:10] }}</div>
+    </div>
+    <div style="flex-shrink:0;text-align:right;">
+      {% if s.submitted_at %}
+        <div class="badge badge-green" style="margin-bottom:6px;">✓ Submitted</div>
+        <div style="font-size:.7rem;color:var(--muted);">{{ s.submitted_at[:10] }}</div>
+      {% elif s.status == 'active' %}
+        <a href="/my-surveys/{{ s.id }}" class="btn btn-primary btn-sm">Answer Survey →</a>
+      {% else %}
+        <span class="badge badge-gray">Closed</span>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state" style="padding:40px;">
+    <div style="font-size:2.5rem;margin-bottom:12px;">📝</div>
+    <p>No surveys assigned to you yet.</p>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

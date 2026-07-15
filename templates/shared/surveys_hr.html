@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Surveys{% endblock %}
+{% block page_title %}Surveys{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>📝 Surveys</h2>
+    <p>Create and manage employee pulse surveys</p>
+  </div>
+  <a href="/hr/surveys/new" class="btn btn-primary">+ New Survey</a>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>
+{% endif %}
+
+{% if surveys %}
+<div class="card">
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Status</th>
+          <th>Assigned</th>
+          <th>Responses</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in surveys %}
+        <tr>
+          <td style="font-weight:600;">{{ s.title }}</td>
+          <td>
+            {% if s.status == 'active' %}
+              <span class="badge badge-green">Active</span>
+            {% elif s.status == 'closed' %}
+              <span class="badge badge-gray">Closed</span>
+            {% else %}
+              <span class="badge badge-yellow">Draft</span>
+            {% endif %}
+          </td>
+          <td>{{ s.assigned_count }}</td>
+          <td>
+            <span style="font-weight:700;color:var(--primary);">{{ s.response_count }}</span>
+            / {{ s.assigned_count }}
+          </td>
+          <td style="font-size:.78rem;color:var(--muted);">{{ s.created_at[:10] }}</td>
+          <td style="display:flex;gap:6px;align-items:center;">
+            <a href="/hr/surveys/{{ s.id }}/results" class="btn btn-outline btn-sm">View Results</a>
+            {% if s.status == 'draft' %}
+            <form method="post" action="/hr/surveys/{{ s.id }}/publish" style="margin:0;">
+              <button class="btn btn-sm btn-primary" style="font-size:.72rem;">Publish</button>
+            </form>
+            {% elif s.status == 'active' %}
+            <form method="post" action="/hr/surveys/{{ s.id }}/close" style="margin:0;"
+                  onsubmit="return confirm('Close this survey? Employees can no longer respond.')">
+              <button class="btn btn-sm" style="background:#64748b;color:#fff;border:none;font-size:.72rem;">Close</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% else %}
+<div class="card">
+  <div class="empty-state" style="padding:40px;">
+    <div style="font-size:2.5rem;margin-bottom:12px;">📝</div>
+    <p>No surveys yet. Create your first survey to get employee feedback.</p>
+    <a href="/hr/surveys/new" class="btn btn-primary" style="margin-top:12px;">+ New Survey</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

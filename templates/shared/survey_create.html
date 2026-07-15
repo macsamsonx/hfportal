@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}New Survey{% endblock %}
+{% block page_title %}New Survey{% endblock %}
+
+{% block extra_head %}
+<style>
+.q-card { background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:10px; position:relative; }
+.q-card .q-remove { position:absolute; top:10px; right:12px; background:none; border:none; cursor:pointer; color:var(--muted); font-size:1.1rem; }
+.q-card .q-remove:hover { color:#ef4444; }
+.q-num { font-size:.7rem; font-weight:800; color:var(--primary); margin-bottom:6px; text-transform:uppercase; }
+.type-pill { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border-radius:99px; font-size:.72rem; font-weight:700; cursor:pointer; border:1.5px solid var(--border); background:var(--surface); color:var(--muted); transition:all .12s; }
+.type-pill.selected { border-color:var(--primary); background:var(--primary); color:#fff; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>+ New Survey</h2>
+    <p>Build questions, assign to employees, and collect feedback</p>
+  </div>
+  <a href="/hr/surveys" class="btn btn-outline btn-sm">← Back</a>
+</div>
+
+<form method="post" action="/hr/surveys/create" id="survey-form">
+  <div style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:flex-start;">
+
+    <!-- Left: survey details + questions -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h3>Survey Details</h3></div>
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Survey Title <span style="color:red">*</span></label>
+            <input type="text" name="title" class="form-input" required placeholder="e.g. Q3 Employee Pulse Check">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Description <span style="font-size:.75rem;color:var(--muted);">(optional)</span></label>
+            <textarea name="description" class="form-input" rows="2" placeholder="Brief description of the survey purpose"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>Questions</h3>
+          <button type="button" class="btn btn-outline btn-sm" onclick="addQuestion()">+ Add Question</button>
+        </div>
+        <div style="padding:16px;" id="questions-wrap">
+          <!-- Questions injected here by JS -->
+        </div>
+        <div style="padding:0 16px 16px;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="addQuestion()" style="width:100%;border-style:dashed;">
+            + Add Question
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: assign + submit -->
+    <div>
+      <div class="card" style="margin-bottom:16px;">
+        <div class="card-header"><h3>Assign To</h3></div>
+        <div style="padding:16px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:12px;">
+            <input type="checkbox" name="assign_all" value="1" id="assign-all-chk"
+                   onchange="toggleEmpSelect(this.checked)">
+            <span style="font-size:.85rem;font-weight:600;">All active employees</span>
+          </label>
+          <div id="emp-select-wrap">
+            <div style="font-size:.75rem;color:var(--muted);margin-bottom:6px;">Or select specific employees:</div>
+            <div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:6px;">
+              {% for e in employees %}
+              <label style="display:flex;align-items:center;gap:8px;padding:5px 6px;cursor:pointer;border-radius:6px;" class="emp-opt">
+                <input type="checkbox" name="emp_ids" value="{{ e.id }}">
+                <span style="font-size:.82rem;">{{ e.name }}</span>
+              </label>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div style="padding:16px;display:flex;flex-direction:column;gap:10px;">
+          <button type="submit" name="publish" value="1" class="btn btn-primary" style="width:100%;">
+            🚀 Create &amp; Publish
+          </button>
+          <button type="submit" class="btn btn-outline" style="width:100%;">
+            💾 Save as Draft
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</form>
+
+<script>
+let qCount = 0;
+
+function addQuestion() {
+  qCount++;
+  const wrap = document.getElementById('questions-wrap');
+  const div = document.createElement('div');
+  div.className = 'q-card';
+  div.id = 'q-' + qCount;
+  div.innerHTML = `
+    <button type="button" class="q-remove" onclick="removeQuestion(${qCount})" title="Remove">×</button>
+    <div class="q-num">Question ${wrap.children.length + 1}</div>
+    <input type="text" name="question_text" class="form-input" placeholder="Enter your question..." style="margin-bottom:10px;" required>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <label class="type-pill selected">
+        <input type="radio" name="question_type_${qCount}" value="text" style="display:none;" checked onchange="setPillSelected(this)"> 📝 Free Text
+      </label>
+      <label class="type-pill">
+        <input type="radio" name="question_type_${qCount}" value="rating" style="display:none;" onchange="setPillSelected(this)"> ⭐ Rating 1–10
+      </label>
+      <label class="type-pill">
+        <input type="radio" name="question_type_${qCount}" value="boolean" style="display:none;" onchange="setPillSelected(this)"> ✅ Yes / No
+      </label>
+    </div>
+    <!-- hidden select that mirrors the radio choice for form submission -->
+    <select name="question_type" style="display:none;" id="qt-sel-${qCount}">
+      <option value="text" selected>text</option>
+      <option value="rating">rating</option>
+      <option value="boolean">boolean</option>
+    </select>
+  `;
+  // Wire up radios to update hidden select
+  div.querySelectorAll('input[type=radio]').forEach(r => {
+    r.addEventListener('change', () => {
+      document.getElementById('qt-sel-' + qCount).value = r.value;
+    });
+  });
+  wrap.appendChild(div);
+  renumberQuestions();
+}
+
+function setPillSelected(radio) {
+  const pills = radio.closest('[style*="display:flex"]').querySelectorAll('.type-pill');
+  pills.forEach(p => p.classList.remove('selected'));
+  radio.closest('.type-pill').classList.add('selected');
+}
+
+function removeQuestion(id) {
+  document.getElementById('q-' + id)?.remove();
+  renumberQuestions();
+}
+
+function renumberQuestions() {
+  document.querySelectorAll('.q-num').forEach((el, i) => {
+    el.textContent = 'Question ' + (i + 1);
+  });
+}
+
+function toggleEmpSelect(allChecked) {
+  document.getElementById('emp-select-wrap').style.opacity = allChecked ? '.4' : '1';
+  document.getElementById('emp-select-wrap').style.pointerEvents = allChecked ? 'none' : '';
+}
+
+// Start with one question
+addQuestion();
+</script>
+{% endblock %}

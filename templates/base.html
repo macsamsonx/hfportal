@@ -78,6 +78,9 @@
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
           <span class="icon">📅</span> Team Calendar
         </a>
+        <a href="/my-surveys" class="nav-link {% if request.url.path == '/my-surveys' or request.url.path.startswith('/my-surveys/') %}active{% endif %}">
+          <span class="icon">📝</span> Surveys
+        </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
@@ -125,6 +128,9 @@
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
+          <span class="icon">📝</span> Surveys
         </a>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll
@@ -203,6 +209,9 @@
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
+          <span class="icon">📝</span> Surveys
         </a>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll

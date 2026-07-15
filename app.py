@@ -2183,6 +2183,23 @@ async def employee_profile_page(request: Request, emp_id: int):
             "SELECT * FROM payslip_logs WHERE emp_id=? ORDER BY generated_at DESC LIMIT 30",
             (emp_id,),
         ).fetchall()
+        survey_results = conn.execute(
+            """SELECT s.title, s.status, sr.submitted_at,
+                      sq.question_text, sq.question_type, sa.answer_text
+               FROM survey_responses sr
+               JOIN surveys s ON s.id=sr.survey_id
+               JOIN survey_answers sa ON sa.response_id=sr.id
+               JOIN survey_questions sq ON sq.id=sa.question_id
+               WHERE sr.emp_id=?
+               ORDER BY sr.submitted_at DESC, sq.sort_order""",
+            (emp_id,)
+        ).fetchall()
+    # Group survey results by survey title + submitted_at
+    _survey_map = {}
+    for r in survey_results:
+        key = (r["title"], r["submitted_at"])
+        _survey_map.setdefault(key, []).append({"q": r["question_text"], "type": r["question_type"], "a": r["answer_text"]})
+    grouped_surveys = [{"title": k[0], "submitted_at": k[1], "answers": v} for k, v in _survey_map.items()]
     status, doc_count = get_compliance_status(dict(emp))
     today_str = get_pht_now().strftime("%Y-%m-%d")
     return templates.TemplateResponse(request, "admin/employee_profile.html", {
@@ -2191,6 +2208,7 @@ async def employee_profile_page(request: Request, emp_id: int):
         "attendance": [dict(a) for a in attendance],
         "tasks": [dict(t) for t in tasks],
         "payslips": [dict(p) for p in payslips],
+        "survey_results": grouped_surveys,
         "compliance_status": status,
         "doc_count": doc_count,
         "today_str": today_str,
@@ -5455,3 +5473,223 @@ async def admin_drive_stats(request: Request):
         "chat_files": dict(chat_files),
         **shared_ctx(user, request),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── SURVEYS ───────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/hr/surveys", response_class=HTMLResponse)
+async def hr_surveys(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        surveys = conn.execute(
+            """SELECT s.*, COUNT(DISTINCT sa.emp_id) as assigned_count,
+                      COUNT(DISTINCT sr.emp_id) as response_count
+               FROM surveys s
+               LEFT JOIN survey_assignments sa ON sa.survey_id=s.id
+               LEFT JOIN survey_responses sr ON sr.survey_id=s.id
+               GROUP BY s.id ORDER BY s.created_at DESC"""
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/surveys_hr.html", {
+        "user": user, "surveys": [dict(s) for s in surveys],
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.get("/hr/surveys/new", response_class=HTMLResponse)
+async def hr_survey_new(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        employees = conn.execute(
+            "SELECT id, name FROM employees WHERE is_active=1 AND role='Employee' ORDER BY name"
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/survey_create.html", {
+        "user": user, "survey": None, "questions": [],
+        "employees": [dict(e) for e in employees],
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/hr/surveys/create")
+async def hr_survey_create(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    form = await request.form()
+    title = (form.get("title") or "").strip()
+    description = (form.get("description") or "").strip()
+    status = "active" if form.get("publish") else "draft"
+    assign_all = form.get("assign_all") == "1"
+    emp_ids = form.getlist("emp_ids")
+    questions_text = form.getlist("question_text")
+    questions_type = form.getlist("question_type")
+    if not title:
+        flash(request, "Title is required.", "error")
+        return RedirectResponse("/hr/surveys/new", status_code=302)
+    with get_db() as conn:
+        now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        conn.execute(
+            "INSERT INTO surveys (title, description, status, created_by_id, created_by_name, created_at) VALUES (?,?,?,?,?,?)",
+            (title, description or None, status, user["id"], user["name"], now)
+        )
+        survey_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for i, (qt, qtype) in enumerate(zip(questions_text, questions_type)):
+            qt = qt.strip()
+            if not qt:
+                continue
+            if qtype not in ("boolean", "rating", "text"):
+                qtype = "text"
+            conn.execute(
+                "INSERT INTO survey_questions (survey_id, question_text, question_type, sort_order) VALUES (?,?,?,?)",
+                (survey_id, qt, qtype, i)
+            )
+        if assign_all:
+            active_emps = conn.execute("SELECT id FROM employees WHERE is_active=1 AND role='Employee'").fetchall()
+            for e in active_emps:
+                conn.execute("INSERT OR IGNORE INTO survey_assignments (survey_id, emp_id) VALUES (?,?)", (survey_id, e["id"]))
+        else:
+            for eid in emp_ids:
+                if eid.isdigit():
+                    conn.execute("INSERT OR IGNORE INTO survey_assignments (survey_id, emp_id) VALUES (?,?)", (survey_id, int(eid)))
+    flash(request, f"Survey '{title}' created." + (" Published!" if status == "active" else " Saved as draft."))
+    return RedirectResponse(f"/hr/surveys/{survey_id}/results", status_code=302)
+
+
+@app.post("/hr/surveys/{survey_id}/publish")
+async def hr_survey_publish(request: Request, survey_id: int):
+    require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        conn.execute("UPDATE surveys SET status='active' WHERE id=?", (survey_id,))
+    return RedirectResponse(f"/hr/surveys/{survey_id}/results", status_code=302)
+
+
+@app.post("/hr/surveys/{survey_id}/close")
+async def hr_survey_close(request: Request, survey_id: int):
+    require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        conn.execute("UPDATE surveys SET status='closed' WHERE id=?", (survey_id,))
+    return RedirectResponse(f"/hr/surveys/{survey_id}/results", status_code=302)
+
+
+@app.get("/hr/surveys/{survey_id}/results", response_class=HTMLResponse)
+async def hr_survey_results(request: Request, survey_id: int):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        survey = conn.execute("SELECT * FROM surveys WHERE id=?", (survey_id,)).fetchone()
+        if not survey:
+            flash(request, "Survey not found.", "error")
+            return RedirectResponse("/hr/surveys", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM survey_questions WHERE survey_id=? ORDER BY sort_order", (survey_id,)
+        ).fetchall()
+        assigned = conn.execute(
+            """SELECT e.id, e.name,
+                      sr.id as response_id, sr.submitted_at
+               FROM survey_assignments sa
+               JOIN employees e ON e.id=sa.emp_id
+               LEFT JOIN survey_responses sr ON sr.survey_id=sa.survey_id AND sr.emp_id=sa.emp_id
+               WHERE sa.survey_id=? ORDER BY e.name""", (survey_id,)
+        ).fetchall()
+        answers = conn.execute(
+            """SELECT sa.response_id, sa.question_id, sa.answer_text
+               FROM survey_answers sa
+               JOIN survey_responses sr ON sr.id=sa.response_id
+               WHERE sr.survey_id=?""", (survey_id,)
+        ).fetchall()
+    # Build answer lookup: {response_id: {question_id: answer_text}}
+    ans_map = {}
+    for a in answers:
+        ans_map.setdefault(a["response_id"], {})[a["question_id"]] = a["answer_text"]
+    return templates.TemplateResponse(request, "shared/survey_results.html", {
+        "user": user, "survey": dict(survey),
+        "questions": [dict(q) for q in questions],
+        "assigned": [dict(a) for a in assigned],
+        "ans_map": ans_map,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.get("/my-surveys", response_class=HTMLResponse)
+async def my_surveys(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        surveys = conn.execute(
+            """SELECT s.*, sr.submitted_at as submitted_at
+               FROM survey_assignments sa
+               JOIN surveys s ON s.id=sa.survey_id
+               LEFT JOIN survey_responses sr ON sr.survey_id=s.id AND sr.emp_id=sa.emp_id
+               WHERE sa.emp_id=? AND s.status IN ('active','closed')
+               ORDER BY s.created_at DESC""",
+            (user["id"],)
+        ).fetchall()
+    return templates.TemplateResponse(request, "employee/my_surveys.html", {
+        "user": user, "surveys": [dict(s) for s in surveys],
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/my-surveys/{survey_id}", response_class=HTMLResponse)
+async def my_survey_answer(request: Request, survey_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        assigned = conn.execute(
+            "SELECT 1 FROM survey_assignments WHERE survey_id=? AND emp_id=?",
+            (survey_id, user["id"])
+        ).fetchone()
+        if not assigned:
+            flash(request, "Survey not found.", "error")
+            return RedirectResponse("/my-surveys", status_code=302)
+        survey = conn.execute("SELECT * FROM surveys WHERE id=? AND status='active'", (survey_id,)).fetchone()
+        if not survey:
+            flash(request, "This survey is not currently active.", "error")
+            return RedirectResponse("/my-surveys", status_code=302)
+        already = conn.execute(
+            "SELECT 1 FROM survey_responses WHERE survey_id=? AND emp_id=?",
+            (survey_id, user["id"])
+        ).fetchone()
+        if already:
+            flash(request, "You have already submitted this survey.")
+            return RedirectResponse("/my-surveys", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM survey_questions WHERE survey_id=? ORDER BY sort_order", (survey_id,)
+        ).fetchall()
+    return templates.TemplateResponse(request, "employee/my_survey_answer.html", {
+        "user": user, "survey": dict(survey),
+        "questions": [dict(q) for q in questions],
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/my-surveys/{survey_id}/submit")
+async def my_survey_submit(request: Request, survey_id: int):
+    user = require_user(request)
+    form = await request.form()
+    with get_db() as conn:
+        assigned = conn.execute(
+            "SELECT 1 FROM survey_assignments WHERE survey_id=? AND emp_id=?",
+            (survey_id, user["id"])
+        ).fetchone()
+        survey = conn.execute("SELECT * FROM surveys WHERE id=? AND status='active'", (survey_id,)).fetchone()
+        already = conn.execute(
+            "SELECT 1 FROM survey_responses WHERE survey_id=? AND emp_id=?",
+            (survey_id, user["id"])
+        ).fetchone()
+        if not assigned or not survey or already:
+            flash(request, "Could not submit survey.", "error")
+            return RedirectResponse("/my-surveys", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM survey_questions WHERE survey_id=? ORDER BY sort_order", (survey_id,)
+        ).fetchall()
+        now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        conn.execute(
+            "INSERT INTO survey_responses (survey_id, emp_id, emp_name, submitted_at) VALUES (?,?,?,?)",
+            (survey_id, user["id"], user["name"], now)
+        )
+        response_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for q in questions:
+            ans = (form.get(f"q_{q['id']}") or "").strip()
+            conn.execute(
+                "INSERT INTO survey_answers (response_id, question_id, answer_text) VALUES (?,?,?)",
+                (response_id, q["id"], ans or None)
+            )
+    flash(request, "Survey submitted. Thank you!")
+    return RedirectResponse("/my-surveys", status_code=302)

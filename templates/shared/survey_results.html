@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Survey Results{% endblock %}
+{% block page_title %}Survey Results{% endblock %}
+
+{% block extra_head %}
+<style>
+.resp-row { display:grid; grid-template-columns:180px 1fr; gap:0; border-bottom:1px solid var(--border); }
+.resp-row:last-child { border-bottom:none; }
+.resp-name { padding:14px 16px; font-weight:700; font-size:.85rem; border-right:1px solid var(--border); display:flex; flex-direction:column; gap:4px; }
+.resp-answers { padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+.qa-item { font-size:.8rem; }
+.qa-q { color:var(--muted); font-size:.72rem; margin-bottom:2px; }
+.qa-a { font-weight:600; }
+.rating-bar { display:inline-flex; align-items:center; gap:6px; }
+.rating-fill { height:6px; border-radius:3px; background:var(--primary); }
+.rating-track { width:80px; height:6px; background:var(--border); border-radius:3px; overflow:hidden; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>📝 {{ survey.title }}</h2>
+    <p>
+      {% if survey.status == 'active' %}<span class="badge badge-green">Active</span>
+      {% elif survey.status == 'closed' %}<span class="badge badge-gray">Closed</span>
+      {% else %}<span class="badge badge-yellow">Draft</span>{% endif %}
+      · {{ assigned | selectattr('response_id') | list | length }} of {{ assigned | length }} responded
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    {% if survey.status == 'draft' %}
+    <form method="post" action="/hr/surveys/{{ survey.id }}/publish" style="margin:0;">
+      <button class="btn btn-primary btn-sm">🚀 Publish</button>
+    </form>
+    {% elif survey.status == 'active' %}
+    <form method="post" action="/hr/surveys/{{ survey.id }}/close" style="margin:0;"
+          onsubmit="return confirm('Close this survey?')">
+      <button class="btn btn-outline btn-sm">Close Survey</button>
+    </form>
+    {% endif %}
+    <a href="/hr/surveys" class="btn btn-outline btn-sm">← Surveys</a>
+  </div>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>
+{% endif %}
+
+{% if survey.description %}
+<div class="card" style="padding:14px 20px;margin-bottom:16px;font-size:.85rem;color:var(--muted);">{{ survey.description }}</div>
+{% endif %}
+
+<!-- Questions list -->
+<div class="card" style="margin-bottom:16px;">
+  <div class="card-header"><h3>Questions ({{ questions | length }})</h3></div>
+  <div style="padding:8px 16px 16px;">
+    {% for q in questions %}
+    <div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border);">
+      <span style="font-size:.7rem;font-weight:800;color:var(--muted);width:20px;flex-shrink:0;padding-top:2px;">{{ loop.index }}</span>
+      <div style="flex:1;">
+        <div style="font-size:.85rem;font-weight:600;">{{ q.question_text }}</div>
+        <div style="font-size:.68rem;color:var(--muted);margin-top:2px;">
+          {% if q.question_type == 'boolean' %}Yes / No
+          {% elif q.question_type == 'rating' %}Rating 1–10
+          {% else %}Free Text{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Responses -->
+<div class="card">
+  <div class="card-header">
+    <h3>Responses</h3>
+    <span class="badge badge-blue">{{ assigned | selectattr('response_id') | list | length }} submitted</span>
+  </div>
+  {% if assigned %}
+  <div>
+    {% for a in assigned %}
+    <div class="resp-row">
+      <div class="resp-name">
+        <div>{{ a.name }}</div>
+        {% if a.submitted_at %}
+          <span class="badge badge-green" style="font-size:.62rem;width:fit-content;">Submitted</span>
+          <div style="font-size:.68rem;color:var(--muted);">{{ a.submitted_at[:10] }}</div>
+        {% else %}
+          <span class="badge badge-gray" style="font-size:.62rem;width:fit-content;">Pending</span>
+        {% endif %}
+      </div>
+      <div class="resp-answers">
+        {% if a.response_id %}
+          {% for q in questions %}
+          {% set ans = ans_map.get(a.response_id, {}).get(q.id, '') %}
+          <div class="qa-item">
+            <div class="qa-q">{{ q.question_text }}</div>
+            <div class="qa-a">
+              {% if q.question_type == 'boolean' %}
+                {% if ans == '1' or ans|lower == 'yes' %}✅ Yes
+                {% elif ans == '0' or ans|lower == 'no' %}❌ No
+                {% else %}—{% endif %}
+              {% elif q.question_type == 'rating' %}
+                {% if ans %}
+                <span class="rating-bar">
+                  <span style="font-weight:800;">{{ ans }}/10</span>
+                  <div class="rating-track"><div class="rating-fill" style="width:{{ (ans|int / 10 * 100)|round|int }}%;"></div></div>
+                </span>
+                {% else %}—{% endif %}
+              {% else %}
+                {{ ans or '—' }}
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <span style="font-size:.78rem;color:var(--muted);font-style:italic;">No response yet</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state" style="padding:30px;"><p>No employees assigned to this survey.</p></div>
+  {% endif %}
+</div>
+{% endblock %}

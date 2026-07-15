@@ -596,6 +596,41 @@
   </div>
 </div>
 {% endif %}
+
+{# ── Survey Results (admin only) ────────────────────────────────────────────── #}
+{% if survey_results %}
+<div class="card" style="margin-top:20px;">
+  <div class="card-header">
+    <h3>📝 Survey Responses</h3>
+    <span class="badge badge-blue">{{ survey_results | length }} survey{{ 's' if survey_results | length != 1 else '' }}</span>
+  </div>
+  <div style="padding:8px 16px 16px;">
+    {% for s in survey_results %}
+    <div style="margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-weight:800;font-size:.88rem;">{{ s.title }}</span>
+        <span style="font-size:.7rem;color:var(--muted);">· submitted {{ s.submitted_at[:10] }}</span>
+      </div>
+      {% for ans in s.answers %}
+      <div style="padding:6px 0;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start;">
+        <div style="font-size:.75rem;color:var(--muted);flex:1;">{{ ans.q }}</div>
+        <div style="font-size:.8rem;font-weight:700;text-align:right;min-width:80px;">
+          {% if ans.type == 'boolean' %}
+            {% if ans.a in ('yes','1') %}✅ Yes{% elif ans.a in ('no','0') %}❌ No{% else %}—{% endif %}
+          {% elif ans.type == 'rating' %}
+            ⭐ {{ ans.a or '—' }} / 10
+          {% else %}
+            <span style="font-weight:400;color:var(--text);">{{ ans.a or '—' }}</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
 {% endblock %}
 
 {% block extra_js %}

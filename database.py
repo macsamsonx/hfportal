@@ -658,6 +658,56 @@ def init_db():
                 FOREIGN KEY(created_by_id) REFERENCES employees(id) ON DELETE SET NULL
             )""")
 
+        # ── Surveys ───────────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS surveys (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT NOT NULL,
+                description     TEXT,
+                status          TEXT DEFAULT 'draft',
+                created_by_id   INTEGER,
+                created_by_name TEXT,
+                created_at      TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(created_by_id) REFERENCES employees(id) ON DELETE SET NULL
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS survey_questions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_id       INTEGER NOT NULL,
+                question_text   TEXT NOT NULL,
+                question_type   TEXT NOT NULL DEFAULT 'text',
+                sort_order      INTEGER DEFAULT 0,
+                FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS survey_assignments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_id   INTEGER NOT NULL,
+                emp_id      INTEGER NOT NULL,
+                assigned_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                UNIQUE(survey_id, emp_id),
+                FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE,
+                FOREIGN KEY(emp_id)    REFERENCES employees(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS survey_responses (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                survey_id    INTEGER NOT NULL,
+                emp_id       INTEGER NOT NULL,
+                emp_name     TEXT,
+                submitted_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                UNIQUE(survey_id, emp_id),
+                FOREIGN KEY(survey_id) REFERENCES surveys(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS survey_answers (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                response_id  INTEGER NOT NULL,
+                question_id  INTEGER NOT NULL,
+                answer_text  TEXT,
+                FOREIGN KEY(response_id) REFERENCES survey_responses(id) ON DELETE CASCADE
+            )""")
+
         # ── Task files (Google Drive) ─────────────────────────────────────────────
         conn.execute("""
             CREATE TABLE IF NOT EXISTS task_files (
