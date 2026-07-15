@@ -523,14 +523,14 @@
           div.style.cssText = `display:flex;flex-direction:column;align-items:${mine?'flex-end':'flex-start'};`;
           let attachHtml = '';
           if (m.attachment_drive_id) {
-            const isImg = (m.attachment_type||'').startsWith('image/');
-            const isVid = (m.attachment_type||'').startsWith('video/');
+            const _popFT = {pdf:['#ef4444','PDF'],doc:['#2563eb','DOC'],docx:['#2563eb','DOC'],xls:['#16a34a','XLS'],xlsx:['#16a34a','XLS'],csv:['#16a34a','CSV'],ppt:['#f59e0b','PPT'],pptx:['#f59e0b','PPT'],html:['#7c3aed','HTML'],htm:['#7c3aed','HTML'],zip:['#64748b','ZIP'],rar:['#64748b','ZIP']};
+            function _popBadge(n){const e=(n||'').split('.').pop().toLowerCase();const[c,l]=_popFT[e]||['#64748b',e.toUpperCase().slice(0,4)||'FILE'];return `<span style="background:${c};color:#fff;font-size:.55rem;font-weight:800;padding:2px 5px;border-radius:3px;flex-shrink:0;">${l}</span>`;}
             const url = `https://drive.google.com/file/d/${m.attachment_drive_id}/view`;
-            if (isImg) {
-              attachHtml = `<a href="${url}" target="_blank"><img src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w400" style="max-width:180px;border-radius:8px;display:block;margin-top:${m.body?'6px':'0'};"></a>`;
+            const fname = (m.attachment_name||'File').replace(/</g,'&lt;');
+            if (m.attachment_type === 'image') {
+              attachHtml = `<a href="${url}" target="_blank" style="display:block;margin-top:${m.body?'6px':'0'};"><img src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w200" style="max-width:160px;border-radius:8px;display:block;"></a>`;
             } else {
-              const icon = isVid ? '🎬' : '📎';
-              attachHtml = `<a href="${url}" target="_blank" style="display:inline-flex;align-items:center;gap:5px;font-size:.75rem;color:${mine?'#fff':'var(--primary)'};margin-top:${m.body?'4px':'0'};text-decoration:none;">${icon} ${(m.attachment_name||'File').replace(/</g,'&lt;')}</a>`;
+              attachHtml = `<a href="${url}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;margin-top:${m.body?'4px':'0'};text-decoration:none;background:rgba(0,0,0,.15);padding:5px 8px;border-radius:7px;max-width:160px;">${_popBadge(m.attachment_name||'')}<span style="font-size:.72rem;font-weight:600;color:${mine?'#fff':'var(--text)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${fname}</span></a>`;
             }
           }
           div.innerHTML = `

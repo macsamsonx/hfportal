@@ -4806,7 +4806,6 @@ async def get_calendar_events(request: Request, year: int = 0, month: int = 0):
     require_user(request)
     with get_db() as conn:
         if year and month:
-            # Return events that overlap the given month
             first = f"{year}-{month:02d}-01"
             last  = f"{year}-{month:02d}-31"
             rows = conn.execute(
@@ -4815,9 +4814,26 @@ async def get_calendar_events(request: Request, year: int = 0, month: int = 0):
                    ORDER BY start_date ASC""",
                 (last, first, first)
             ).fetchall()
+            events = [dict(r) for r in rows]
+            # Inject employee birthdays for the month
+            month_str = f"{month:02d}"
+            bday_rows = conn.execute(
+                "SELECT name, birthday FROM employees WHERE is_active=1 AND birthday IS NOT NULL AND SUBSTR(birthday,6,2)=?",
+                (month_str,)
+            ).fetchall()
+            for b in bday_rows:
+                day = b["birthday"][8:10]
+                events.append({
+                    "id": f"bday-{b['name']}", "title": f"🎂 {b['name']}'s Birthday",
+                    "description": None, "start_date": f"{year}-{month_str}-{day}",
+                    "end_date": None, "all_day": 1, "color": "#f59e0b",
+                    "event_type": "birthday", "created_by_id": None,
+                    "created_by_name": "System", "created_at": None,
+                })
         else:
             rows = conn.execute("SELECT * FROM calendar_events ORDER BY start_date DESC LIMIT 200").fetchall()
-    return JSONResponse({"events": [dict(r) for r in rows]})
+            events = [dict(r) for r in rows]
+    return JSONResponse({"events": events})
 
 
 @app.post("/api/calendar/events")

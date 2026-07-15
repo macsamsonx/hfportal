@@ -63,21 +63,26 @@
 #attach-preview button { background: none; border: none; cursor: pointer; color: var(--danger); font-size: 1rem; }
 
 /* ── Attachment in bubble ──────────────────────────────────────────────────── */
-.chat-attach-img { max-width: 220px; border-radius: 8px; cursor: pointer; display: block; margin-bottom: 4px; }
+.chat-attach-img { max-width: 180px; border-radius: 8px; cursor: pointer; display: block; margin-bottom: 4px; }
 .chat-attach-card {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 8px; padding: 8px 12px; margin-bottom: 4px;
-  text-decoration: none; color: var(--text);
-  max-width: 240px; font-size: .78rem; font-weight: 600;
-  transition: background .1s;
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(0,0,0,.12); border-radius: 8px; padding: 6px 10px; margin-bottom: 4px;
+  text-decoration: none; color: inherit;
+  max-width: 200px; font-size: .75rem; font-weight: 600;
+  transition: background .12s;
 }
-.chat-attach-card:hover { background: var(--primary-l); }
-.chat-attach-icon { font-size: 1.4rem; flex-shrink: 0; }
+.chat-attach-card:hover { background: rgba(0,0,0,.22); }
+.ft-badge {
+  font-size: .58rem; font-weight: 800; padding: 2px 5px;
+  border-radius: 3px; color: #fff; flex-shrink: 0;
+  letter-spacing: .03em; line-height: 1.5;
+}
+.ca-fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
 
 /* ── Read tick ─────────────────────────────────────────────────────────────── */
-.read-tick { font-size: .68rem; color: var(--muted); margin-left: 4px; }
-.read-tick.seen { color: #3b82f6; }
+.read-tick { font-size: .62rem; color: rgba(255,255,255,.65); margin-left: 4px; font-style: italic; }
+.read-tick.seen { color: #93c5fd; }
+/* For received messages (non-mine) the tick doesn't show, so no adjustment needed */
 
 /* ── Msg meta row ──────────────────────────────────────────────────────────── */
 .chat-msg-meta {
@@ -148,6 +153,8 @@
 .sr-time { font-size: .65rem; color: var(--muted); }
 </style>
 {% endblock %}
+
+{% macro ft_badge(name) %}{% set ext = (name or '').rsplit('.',1)[-1].lower() if '.' in (name or '') else '' %}{% set _c = {'pdf':'#ef4444','doc':'#2563eb','docx':'#2563eb','xls':'#16a34a','xlsx':'#16a34a','csv':'#16a34a','ppt':'#f59e0b','pptx':'#f59e0b','html':'#7c3aed','htm':'#7c3aed','zip':'#64748b','rar':'#64748b'} %}{% set _l = {'doc':'DOC','docx':'DOC','xls':'XLS','xlsx':'XLS','csv':'CSV','ppt':'PPT','pptx':'PPT','html':'HTML','htm':'HTML','zip':'ZIP','rar':'ZIP'} %}<span class="ft-badge" style="background:{{ _c.get(ext,'#64748b') }};">{{ _l.get(ext, ext.upper()[:4] if ext else 'FILE') }}</span>{% endmacro %}
 
 {% block content %}
 <div class="page-header">
@@ -242,19 +249,19 @@
           {% if m.attachment_type == 'image' and m.attachment_drive_id %}
             <a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
               <img class="chat-attach-img"
-                   src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w600"
+                   src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w320"
                    alt="{{ m.attachment_name or 'Image' }}"
                    onerror="this.style.display='none'">
             </a>
           {% elif m.attachment_type == 'video' and m.attachment_drive_id %}
             <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
-              <span class="chat-attach-icon">🎬</span>
-              <span>{{ m.attachment_name or 'Video' }}</span>
+              <span class="ft-badge" style="background:#0891b2;">MP4</span>
+              <span class="ca-fname">{{ m.attachment_name or 'Video' }}</span>
             </a>
           {% elif m.attachment_type and m.attachment_drive_id %}
             <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
-              <span class="chat-attach-icon">📎</span>
-              <span>{{ m.attachment_name or 'File' }}</span>
+              {{ ft_badge(m.attachment_name or '') }}
+              <span class="ca-fname">{{ m.attachment_name or 'File' }}</span>
             </a>
           {% endif %}
           <!-- Text body -->
@@ -277,7 +284,7 @@
           {% endif %}
           <span class="chat-msg-time">{{ m.created_at[11:16] if m.created_at|length > 11 else m.created_at }}</span>
           {% if m.sender_id == user.id %}
-            <span class="read-tick" id="tick-{{ m.id }}">✓</span>
+            <span class="read-tick" id="tick-{{ m.id }}">Sent</span>
           {% endif %}
         </div>
 
@@ -378,18 +385,35 @@
   }
   window.scrollToMsg = scrollToMsg;
 
+  // ── File type badge ───────────────────────────────────────────────────────
+  const _FT = {
+    pdf:  ['#ef4444','PDF'], doc:  ['#2563eb','DOC'], docx: ['#2563eb','DOC'],
+    xls:  ['#16a34a','XLS'], xlsx: ['#16a34a','XLS'], csv:  ['#16a34a','CSV'],
+    ppt:  ['#f59e0b','PPT'], pptx: ['#f59e0b','PPT'],
+    html: ['#7c3aed','HTML'], htm: ['#7c3aed','HTML'],
+    zip:  ['#64748b','ZIP'],  rar:  ['#64748b','ZIP'],
+    mp4:  ['#0891b2','MP4'],  mov:  ['#0891b2','MOV'], avi: ['#0891b2','AVI'],
+  };
+  function ftBadge(name) {
+    const ext = (name||'').split('.').pop().toLowerCase();
+    const [color, label] = _FT[ext] || ['#64748b', ext.toUpperCase().slice(0,4) || 'FILE'];
+    return `<span class="ft-badge" style="background:${color};">${label}</span>`;
+  }
+
   // ── Attachment rendering ──────────────────────────────────────────────────
   function attachHTML(m) {
     if (!m.attachment_type || !m.attachment_drive_id) return '';
+    const url = `https://drive.google.com/file/d/${m.attachment_drive_id}/view`;
     if (m.attachment_type === 'image') {
-      return `<a href="https://drive.google.com/file/d/${m.attachment_drive_id}/view" target="_blank">
-        <img class="chat-attach-img" src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w600" alt="${esc(m.attachment_name||'Image')}" onerror="this.style.display='none'">
+      return `<a href="${url}" target="_blank">
+        <img class="chat-attach-img" src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w320" alt="${esc(m.attachment_name||'Image')}" onerror="this.style.display='none'">
       </a>`;
     }
-    const icon = m.attachment_type === 'video' ? '🎬' : '📎';
-    return `<a class="chat-attach-card" href="https://drive.google.com/file/d/${m.attachment_drive_id}/view" target="_blank">
-      <span class="chat-attach-icon">${icon}</span><span>${esc(m.attachment_name||'File')}</span>
-    </a>`;
+    const name = m.attachment_name || 'File';
+    const badge = m.attachment_type === 'video'
+      ? `<span class="ft-badge" style="background:#0891b2;">MP4</span>`
+      : ftBadge(name);
+    return `<a class="chat-attach-card" href="${url}" target="_blank">${badge}<span class="ca-fname">${esc(name)}</span></a>`;
   }
 
   // ── Mention highlighting ──────────────────────────────────────────────────
@@ -474,7 +498,7 @@
          <button class="react-open-btn" onclick="toggleRxnPicker(${m.id},event)" title="React">😊+</button>
          ${actionBtns}`}
          <span class="chat-msg-time">${time}</span>
-         ${isMine ? `<span class="read-tick" id="tick-${m.id}">✓</span>` : ''}
+         ${isMine ? `<span class="read-tick" id="tick-${m.id}">Sent</span>` : ''}
        </div>` +
       `<div class="chat-reactions" id="rxn-${m.id}">${reactions}</div>` +
       `<div class="rxn-picker" id="rxnpick-${m.id}" style="bottom:calc(100% - 8px);${pickerSide}">${pickerEmojis}</div>`;
@@ -519,8 +543,9 @@
           const lastRead = data.last_read || 0;
           document.querySelectorAll('.read-tick').forEach(el=>{
             const msgId = parseInt(el.id.replace('tick-',''),10);
+            const wasSeen = el.classList.contains('seen');
             if (msgId <= lastRead) el.classList.add('seen');
-            el.textContent = msgId <= lastRead ? '✓✓' : '✓';
+            el.textContent = msgId <= lastRead ? 'Seen' : 'Sent';
           });
         }).catch(()=>{});
     }
