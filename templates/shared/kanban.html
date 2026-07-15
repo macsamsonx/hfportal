@@ -95,8 +95,9 @@
       {% endif %}
       {% for card in cards %}
       {% set client_hex = cc.get(card.client, '#64748b') %}
+      {% set is_overdue = card.due_date and card.due_date < now[:10] and card.status != 'Done' %}
       <div class="kanban-card"
-           style="border-left:3px solid {{ client_hex }};"
+           style="border-left:3px solid {% if is_overdue %}#ef4444{% else %}{{ client_hex }}{% endif %};"
            data-task-id="{{ card.id }}"
            data-own="{{ 'true' if card.emp_id == user.id else 'false' }}"
            data-role="{{ user.role }}"
@@ -105,10 +106,15 @@
            data-title="{{ card.task_title | default('') | lower }}">
 
         <!-- Urgency + Client row -->
+        {% set urg_colors = {'Low':'#64748b','Normal':'#10b981','High':'#f59e0b','Critical':'#ef4444'} %}
+        {% set urgency = card.urgency or 'Normal' %}
+        {% set is_overdue = card.due_date and card.due_date < now[:10] and card.status != 'Done' %}
         <div style="display:flex; align-items:center; gap:5px; margin-bottom:5px; flex-wrap:wrap;">
-          {% if card.urgency and card.urgency != 'Normal' %}
-            {% set urg_colors = {'Low':'#64748b','High':'#f59e0b','Critical':'#ef4444'} %}
-            <span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:99px;background:{{ urg_colors.get(card.urgency,'#64748b') }}22;color:{{ urg_colors.get(card.urgency,'#64748b') }};letter-spacing:.04em;text-transform:uppercase;">{{ card.urgency }}</span>
+          {% if urgency != 'Normal' %}
+            <span style="font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:99px;background:{{ urg_colors.get(urgency,'#64748b') }}22;color:{{ urg_colors.get(urgency,'#64748b') }};letter-spacing:.04em;text-transform:uppercase;">{{ urgency }}</span>
+          {% endif %}
+          {% if card.is_recurring %}
+            <span style="font-size:.6rem;font-weight:700;color:#7c3aed;" title="Recurring: {{ card.recur_freq }}">🔁</span>
           {% endif %}
           {% if card.client %}
             <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
@@ -123,7 +129,11 @@
         <div class="kanban-card-meta">
           <span>⏱ {{ card.hours_worked }}h</span>
           {% if card.due_date %}
-            <span style="font-size:.63rem;color:#f59e0b;font-weight:600;">📅 {{ card.due_date }}</span>
+            {% if is_overdue %}
+              <span style="font-size:.63rem;color:#ef4444;font-weight:700;">⚠️ {{ card.due_date }}</span>
+            {% else %}
+              <span style="font-size:.63rem;color:#f59e0b;font-weight:600;">📅 {{ card.due_date }}</span>
+            {% endif %}
           {% else %}
             <span class="text-xs text-muted">{{ card.date_logged }}</span>
           {% endif %}
@@ -257,6 +267,21 @@
                  data-placeholder="Optional description or context…"></div>
           </div>
           <input type="hidden" name="notes" id="kb-notes-val">
+        </div>
+        <div class="form-row mb-12" style="align-items:center;gap:12px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.84rem;">
+            <input type="checkbox" name="is_recurring" value="1" id="at-recurring-chk" onchange="document.getElementById('at-recur-freq-wrap').style.display=this.checked?'flex':'none'">
+            🔁 Recurring task
+          </label>
+          <div id="at-recur-freq-wrap" style="display:none;align-items:center;gap:6px;flex:1;">
+            <label style="font-size:.78rem;color:var(--muted);">Every</label>
+            <select name="recur_freq" class="form-select" style="flex:1;">
+              <option value="daily">Day</option>
+              <option value="weekly" selected>Week</option>
+              <option value="biweekly">2 Weeks</option>
+              <option value="monthly">Month</option>
+            </select>
+          </div>
         </div>
         <div class="flex gap-8" style="justify-content:flex-end;">
           <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('add-task-modal')">Cancel</button>

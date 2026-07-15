@@ -106,6 +106,46 @@
   padding: 4px 12px; background: var(--primary-l);
 }
 #upload-progress.open { display: block; }
+
+/* ── @mention ──────────────────────────────────────────────────────────────── */
+.mention { color: var(--primary); font-weight: 700; }
+#mention-drop {
+  position: absolute; bottom: calc(100% + 4px); left: 56px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,.15);
+  max-height: 180px; overflow-y: auto; z-index: 300; min-width: 180px;
+  display: none;
+}
+#mention-drop.open { display: block; }
+.mention-opt { padding: 7px 14px; cursor: pointer; font-size: .84rem; display: flex; align-items: center; gap: 8px; }
+.mention-opt:hover, .mention-opt.sel { background: var(--surface-2); }
+
+/* ── Edit/delete actions on hover ──────────────────────────────────────────── */
+.msg-act-btn {
+  background: none; border: none; cursor: pointer; font-size: .7rem;
+  color: var(--muted); padding: 0 2px; opacity: 0; transition: opacity .12s;
+  line-height: 1;
+}
+.chat-msg:hover .msg-act-btn { opacity: 1; }
+.chat-msg-bubble.deleted { font-style: italic; color: var(--muted) !important; }
+.msg-edited { font-size: .58rem; color: var(--muted); font-style: italic; margin-left: 3px; }
+
+/* ── Search ────────────────────────────────────────────────────────────────── */
+#chat-search-wrap {
+  display: none; padding: 8px 14px; background: var(--surface-2);
+  border-bottom: 1px solid var(--border); gap: 8px; align-items: center;
+}
+#chat-search-wrap.open { display: flex; }
+#chat-search-wrap input { flex: 1; }
+#chat-search-results { position: absolute; top: 100%; left: 0; right: 0; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 0 0 12px 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.15); max-height: 300px; overflow-y: auto; display: none; }
+#chat-search-results.open { display: block; }
+.sr-item { padding: 8px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.sr-item:hover { background: var(--surface-2); }
+.sr-sender { font-size: .7rem; font-weight: 700; color: var(--primary); margin-bottom: 2px; }
+.sr-body { font-size: .8rem; color: var(--text); }
+.sr-time { font-size: .65rem; color: var(--muted); }
 </style>
 {% endblock %}
 
@@ -166,12 +206,20 @@
           <div class="chat-contact-sub">{{ other_user.role }}</div>
         </div>
       {% endif %}
+      <button onclick="toggleChatSearch()" title="Search" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:1.1rem;color:var(--muted);padding:4px 8px;">🔍</button>
+    </div>
+
+    <!-- Search bar -->
+    <div id="chat-search-wrap" style="position:relative;">
+      <input type="text" id="chat-search-input" class="form-input" placeholder="Search messages…" style="font-size:.82rem;" oninput="doChatSearch(this.value)">
+      <button onclick="closeChatSearch()" style="background:none;border:none;cursor:pointer;font-size:1rem;color:var(--muted);">×</button>
+      <div id="chat-search-results"></div>
     </div>
 
     <div class="chat-messages" id="chat-messages">
       {% for m in messages %}
       <div class="chat-msg {% if m.sender_id == user.id %}mine{% endif %}"
-           data-id="{{ m.id }}" id="msg-wrap-{{ m.id }}" style="position:relative;">
+           data-id="{{ m.id }}" data-sender="{{ m.sender_id }}" id="msg-wrap-{{ m.id }}" style="position:relative;">
 
         <!-- Reply reference -->
         {% if m.get('reply_preview') %}
@@ -210,13 +258,23 @@
             </a>
           {% endif %}
           <!-- Text body -->
-          {% if m.body %}{{ m.body }}{% endif %}
+          {% if m.get('is_deleted') %}<span class="deleted">This message was deleted.</span>
+          {% elif m.body %}<span class="msg-body-text">{{ m.body }}</span>{% if m.edited_at %}<span class="msg-edited">(edited)</span>{% endif %}
+          {% endif %}
         </div>
 
-        <!-- Meta: time + reply btn + react btn + read tick -->
+        <!-- Meta: time + reply + react + edit/delete + read tick -->
         <div class="chat-msg-meta">
+          {% if not m.get('is_deleted') %}
           <button class="reply-hover-btn" onclick="startReply({{ m.id }}, {{ m.sender_name | tojson }}, {{ (m.body or '') | tojson }}, {{ (m.attachment_type or '') | tojson }}, {{ (m.attachment_name or '') | tojson }})" title="Reply">↩</button>
           <button class="react-open-btn" onclick="toggleRxnPicker({{ m.id }}, event)" title="React">😊+</button>
+          {% if m.sender_id == user.id %}
+            <button class="msg-act-btn" onclick="editMsg({{ m.id }})" title="Edit">✏️</button>
+          {% endif %}
+          {% if m.sender_id == user.id or user.role in ('Admin', 'HR Manager') %}
+            <button class="msg-act-btn" onclick="deleteMsg({{ m.id }})" title="Delete">🗑️</button>
+          {% endif %}
+          {% endif %}
           <span class="chat-msg-time">{{ m.created_at[11:16] if m.created_at|length > 11 else m.created_at }}</span>
           {% if m.sender_id == user.id %}
             <span class="read-tick" id="tick-{{ m.id }}">✓</span>
@@ -267,8 +325,11 @@
     <!-- Upload progress -->
     <div id="upload-progress">⏫ Uploading to Drive…</div>
 
+    <!-- @mention dropdown -->
+    <div id="mention-drop"></div>
+
     <!-- Input row -->
-    <form id="chat-form" class="chat-input-row" autocomplete="off">
+    <form id="chat-form" class="chat-input-row" autocomplete="off" style="position:relative;">
       <!-- Emoji picker -->
       <div class="chat-emoji-wrap">
         <button type="button" class="btn btn-ghost btn-sm" id="emoji-toggle">😊</button>
@@ -283,7 +344,7 @@
              style="cursor:pointer; margin:0; display:flex; align-items:center;">📎</label>
       <input type="file" id="file-input" style="display:none;"
              accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.zip,.txt">
-      <input type="text" id="chat-input" class="form-input" placeholder="Type a message…" maxlength="2000" autocomplete="off">
+      <input type="text" id="chat-input" class="form-input" placeholder="Type a message… (@ to mention)" maxlength="2000" autocomplete="off">
       <button type="submit" class="btn btn-primary">Send</button>
     </form>
   </div>
@@ -293,13 +354,15 @@
 (function() {
   const room  = {{ room | tojson }};
   const myId  = {{ user.id }};
+  const myRole = {{ user.role | tojson }};
   const isDM  = room.startsWith('dm_');
   const messagesEl = document.getElementById('chat-messages');
   const form   = document.getElementById('chat-form');
   const input  = document.getElementById('chat-input');
+  const EMPLOYEE_NAMES = {{ contacts | map(attribute='name') | list | tojson }};
   let lastId   = 0;
   let replyToId    = null;
-  let pendingAttach = null; // {drive_id, name, type, thumbnail_url, view_url}
+  let pendingAttach = null;
 
   // Seed lastId from server-rendered messages
   const idEls = messagesEl.querySelectorAll('.chat-msg[data-id]');
@@ -329,15 +392,47 @@
     </a>`;
   }
 
+  // ── Mention highlighting ──────────────────────────────────────────────────
+  function mentionBody(text) {
+    return esc(text).replace(/@([A-Za-z][A-Za-z ]{1,29}?)(?=\s|$|[^\w ])/g,
+      '<span class="mention">@$1</span>');
+  }
+
+  // Highlight @mentions in server-rendered bubbles on load
+  document.querySelectorAll('.msg-body-text').forEach(el => {
+    if (el.dataset.processed) return;
+    el.dataset.processed = '1';
+    el.innerHTML = mentionBody(el.textContent);
+  });
+
   // ── Render message ────────────────────────────────────────────────────────
   function renderMessage(m) {
     const isMine = m.sender_id === myId;
+    const canDel = isMine || myRole === 'Admin' || myRole === 'HR Manager';
     const time   = (m.created_at && m.created_at.length > 11) ? m.created_at.slice(11,16) : (m.created_at||'');
     const div    = document.createElement('div');
     div.className = 'chat-msg' + (isMine ? ' mine' : '');
     div.dataset.id = m.id;
+    div.dataset.sender = m.sender_id;
     div.id = 'msg-wrap-' + m.id;
     div.style.position = 'relative';
+
+    // Handle existing message update (edit/delete)
+    const existing = document.getElementById('msg-wrap-' + m.id);
+    if (existing) {
+      if (m.is_deleted) {
+        const b = document.getElementById('msg-' + m.id);
+        if (b) { b.classList.add('deleted'); b.innerHTML = 'This message was deleted.'; }
+      } else if (m.edited_at) {
+        const b = document.getElementById('msg-' + m.id);
+        if (b) {
+          const bodySpan = b.querySelector('.msg-body-text');
+          if (bodySpan) bodySpan.innerHTML = mentionBody(m.body||'');
+          if (!b.querySelector('.msg-edited')) b.insertAdjacentHTML('beforeend','<span class="msg-edited">(edited)</span>');
+        }
+      }
+      return null;
+    }
 
     // Reply reference
     let replyHTML = '';
@@ -362,13 +457,22 @@
       `<span onclick="doReact(${m.id},'${e}')">${e}</span>`
     ).join('');
 
+    const bodyHTML = m.is_deleted
+      ? '<span class="deleted">This message was deleted.</span>'
+      : (m.body ? `<span class="msg-body-text">${mentionBody(m.body)}</span>${m.edited_at?'<span class="msg-edited">(edited)</span>':''}` : '');
+
+    const actionBtns = m.is_deleted ? '' :
+      `${isMine ? `<button class="msg-act-btn" onclick="editMsg(${m.id})" title="Edit">✏️</button>` : ''}
+       ${canDel ? `<button class="msg-act-btn" onclick="deleteMsg(${m.id})" title="Delete">🗑️</button>` : ''}`;
+
     div.innerHTML =
       replyHTML +
       (isMine ? '' : `<div class="chat-msg-sender"></div>`) +
-      `<div class="chat-msg-bubble" id="msg-${m.id}">${attachHTML(m)}</div>` +
+      `<div class="chat-msg-bubble" id="msg-${m.id}">${attachHTML(m)}${bodyHTML}</div>` +
       `<div class="chat-msg-meta">
-         <button class="reply-hover-btn" onclick="startReply(${m.id},${JSON.stringify(m.sender_name||'')},${JSON.stringify((m.body||'').slice(0,100))},${JSON.stringify(m.attachment_type||'')},${JSON.stringify(m.attachment_name||'')})" title="Reply">↩</button>
+         ${m.is_deleted ? '' : `<button class="reply-hover-btn" onclick="startReply(${m.id},${JSON.stringify(m.sender_name||'')},${JSON.stringify((m.body||'').slice(0,100))},${JSON.stringify(m.attachment_type||'')},${JSON.stringify(m.attachment_name||'')})" title="Reply">↩</button>
          <button class="react-open-btn" onclick="toggleRxnPicker(${m.id},event)" title="React">😊+</button>
+         ${actionBtns}`}
          <span class="chat-msg-time">${time}</span>
          ${isMine ? `<span class="read-tick" id="tick-${m.id}">✓</span>` : ''}
        </div>` +
@@ -378,11 +482,6 @@
     if (!isMine) {
       const senderEl = div.querySelector('.chat-msg-sender');
       if (senderEl) senderEl.textContent = m.sender_name;
-    }
-    const bubble = div.querySelector('.chat-msg-bubble');
-    if (bubble && m.body) {
-      const txt = document.createTextNode(m.body);
-      bubble.appendChild(txt);
     }
     return div;
   }
@@ -398,11 +497,14 @@
     es.onmessage = function(e) {
       const m = JSON.parse(e.data);
       m.reactions = m.reactions || [];
-      lastId = m.id;
-      const empty = messagesEl.querySelector('.empty-state');
-      if (empty) empty.remove();
-      messagesEl.appendChild(renderMessage(m));
-      scrollToBottom();
+      if (m.id > lastId) lastId = m.id;
+      const el = renderMessage(m);
+      if (el) {
+        const empty = messagesEl.querySelector('.empty-state');
+        if (empty) empty.remove();
+        messagesEl.appendChild(el);
+        scrollToBottom();
+      }
     };
     es.onerror = function() { es.close(); setTimeout(startSSE, 3000); };
     return es;
@@ -581,6 +683,184 @@
       emojiPicker.classList.remove('open');
     }
   });
+
+  // ── Paste image support ───────────────────────────────────────────────────
+  document.addEventListener('paste', async function(e) {
+    const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+        const ext = item.type.split('/')[1] || 'png';
+        const file = new File([item.getAsFile()], `pasted-${ts}.${ext}`, {type: item.type});
+        const fd = new FormData();
+        fd.append('file', file);
+        progress.classList.add('open');
+        apName.textContent = file.name;
+        apPreview.classList.add('open');
+        try {
+          const res  = await fetch('/api/chat/upload', {method:'POST', body:fd, headers:{'X-Requested-With':'fetch'}});
+          const data = await res.json();
+          if (data.ok) {
+            pendingAttach = data;
+            if (data.thumbnail_url) { apThumb.src = data.thumbnail_url; apThumb.style.display = 'block'; }
+          }
+        } finally { progress.classList.remove('open'); }
+        break;
+      }
+    }
+  });
+
+  // ── Edit message ──────────────────────────────────────────────────────────
+  window.editMsg = function(msgId) {
+    const bubble = document.getElementById('msg-' + msgId);
+    if (!bubble) return;
+    const bodySpan = bubble.querySelector('.msg-body-text');
+    const current = bodySpan ? bodySpan.textContent : '';
+    const ta = document.createElement('textarea');
+    ta.value = current;
+    ta.style.cssText = 'width:100%;border:1px solid var(--primary);border-radius:6px;padding:4px 8px;font-size:.82rem;resize:vertical;min-height:50px;background:var(--surface);color:var(--text);font-family:inherit;';
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.style.cssText = 'margin-top:4px;padding:2px 10px;border-radius:6px;background:var(--primary);color:#fff;border:none;cursor:pointer;font-size:.76rem;';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.style.cssText = 'margin-top:4px;margin-left:6px;padding:2px 10px;border-radius:6px;background:none;border:1px solid var(--border);cursor:pointer;font-size:.76rem;color:var(--text);';
+    const wrap = document.createElement('div');
+    wrap.appendChild(ta);
+    wrap.appendChild(document.createElement('br'));
+    wrap.appendChild(saveBtn);
+    wrap.appendChild(cancelBtn);
+    const originalHTML = bubble.innerHTML;
+    bubble.innerHTML = '';
+    bubble.appendChild(wrap);
+    ta.focus();
+    saveBtn.onclick = async () => {
+      const newBody = ta.value.trim();
+      if (!newBody) return;
+      const res = await fetch('/api/chat/edit', {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'fetch'}, body: JSON.stringify({message_id: msgId, body: newBody})});
+      const data = await res.json();
+      if (data.ok) {
+        bubble.innerHTML = `<span class="msg-body-text">${mentionBody(newBody)}</span><span class="msg-edited">(edited)</span>`;
+      } else { bubble.innerHTML = originalHTML; alert(data.error || 'Could not edit.'); }
+    };
+    cancelBtn.onclick = () => { bubble.innerHTML = originalHTML; };
+  };
+
+  // ── Delete message ────────────────────────────────────────────────────────
+  window.deleteMsg = async function(msgId) {
+    if (!confirm('Delete this message?')) return;
+    const res = await fetch('/api/chat/delete', {method:'POST', headers:{'Content-Type':'application/json','X-Requested-With':'fetch'}, body: JSON.stringify({message_id: msgId})});
+    const data = await res.json();
+    if (data.ok) {
+      const bubble = document.getElementById('msg-' + msgId);
+      if (bubble) { bubble.classList.add('deleted'); bubble.innerHTML = 'This message was deleted.'; }
+    }
+  };
+
+  // ── @mention autocomplete ─────────────────────────────────────────────────
+  const mentionDrop = document.getElementById('mention-drop');
+  let mentionQuery = null, mentionSel = -1, mentionStart = -1;
+
+  input.addEventListener('keyup', function(e) {
+    if (['ArrowUp','ArrowDown','Enter','Tab','Escape'].includes(e.key)) return;
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, pos);
+    const m = before.match(/@(\w[\w ]*)$/);
+    if (m) {
+      mentionQuery = m[1].toLowerCase();
+      mentionStart = pos - m[0].length;
+      const matches = EMPLOYEE_NAMES.filter(n => n.toLowerCase().includes(mentionQuery)).slice(0,8);
+      if (matches.length) {
+        mentionDrop.innerHTML = matches.map((n,i) =>
+          `<div class="mention-opt" data-name="${n}" data-idx="${i}">👤 ${n}</div>`
+        ).join('');
+        mentionDrop.classList.add('open');
+        mentionSel = -1;
+        mentionDrop.querySelectorAll('.mention-opt').forEach(el => {
+          el.addEventListener('mousedown', function(e) { e.preventDefault(); insertMention(this.dataset.name); });
+        });
+      } else { closeMentionDrop(); }
+    } else { closeMentionDrop(); }
+  });
+
+  input.addEventListener('keydown', function(e) {
+    if (!mentionDrop.classList.contains('open')) return;
+    const opts = mentionDrop.querySelectorAll('.mention-opt');
+    if (e.key === 'ArrowDown') { e.preventDefault(); mentionSel = (mentionSel + 1) % opts.length; highlightMentionSel(opts); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); mentionSel = (mentionSel - 1 + opts.length) % opts.length; highlightMentionSel(opts); }
+    else if ((e.key === 'Enter' || e.key === 'Tab') && mentionSel >= 0) { e.preventDefault(); insertMention(opts[mentionSel].dataset.name); }
+    else if (e.key === 'Escape') { closeMentionDrop(); }
+  });
+
+  function highlightMentionSel(opts) {
+    opts.forEach((el,i) => el.classList.toggle('sel', i === mentionSel));
+  }
+  function insertMention(name) {
+    const pos = input.selectionStart;
+    const before = input.value.slice(0, mentionStart);
+    const after  = input.value.slice(pos);
+    input.value = before + '@' + name + ' ' + after;
+    input.selectionStart = input.selectionEnd = mentionStart + name.length + 2;
+    input.focus();
+    closeMentionDrop();
+  }
+  function closeMentionDrop() {
+    mentionDrop.classList.remove('open');
+    mentionQuery = null; mentionSel = -1;
+  }
+  document.addEventListener('click', e => { if (!mentionDrop.contains(e.target) && e.target !== input) closeMentionDrop(); });
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  window.toggleChatSearch = function() {
+    const wrap = document.getElementById('chat-search-wrap');
+    wrap.classList.toggle('open');
+    if (wrap.classList.contains('open')) document.getElementById('chat-search-input').focus();
+  };
+  window.closeChatSearch = function() {
+    document.getElementById('chat-search-wrap').classList.remove('open');
+    document.getElementById('chat-search-results').innerHTML = '';
+    document.getElementById('chat-search-results').classList.remove('open');
+  };
+
+  let _searchTimer = null;
+  window.doChatSearch = function(q) {
+    clearTimeout(_searchTimer);
+    const resultsEl = document.getElementById('chat-search-results');
+    if (!q || q.length < 2) { resultsEl.innerHTML = ''; resultsEl.classList.remove('open'); return; }
+    _searchTimer = setTimeout(async () => {
+      const res = await fetch(`/api/chat/search?q=${encodeURIComponent(q)}&room=${encodeURIComponent(room)}`);
+      const data = await res.json();
+      if (!data.results.length) {
+        resultsEl.innerHTML = '<div style="padding:12px 14px;font-size:.8rem;color:var(--muted);">No results.</div>';
+      } else {
+        resultsEl.innerHTML = data.results.map(r =>
+          `<div class="sr-item" onclick="scrollToMsg(${r.id});closeChatSearch()">
+            <div class="sr-sender">${esc(r.sender_name)} <span class="sr-time">${(r.created_at||'').slice(0,16)}</span></div>
+            <div class="sr-body">${esc(r.body||'').slice(0,120)}</div>
+          </div>`
+        ).join('');
+      }
+      resultsEl.classList.add('open');
+    }, 300);
+  };
+
+  // Poll for edits/deletes every 30 seconds
+  setInterval(async () => {
+    if (!lastId) return;
+    try {
+      const res = await fetch(`/api/chat/poll?room=${encodeURIComponent(room)}&after_id=${lastId}`);
+      const data = await res.json();
+      (data.messages||[]).forEach(m => {
+        if (m.id <= lastId && (m.is_deleted || m.edited_at)) {
+          const el = renderMessage(m);
+          // renderMessage handles existing messages inline (returns null)
+        }
+      });
+    } catch {}
+  }, 30000);
+
 })();
 </script>
 {% endblock %}

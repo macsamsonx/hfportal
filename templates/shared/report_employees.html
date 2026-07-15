@@ -20,7 +20,10 @@
     <h2>Employee Roster Report</h2>
     <p>{{ employees | length }} active employees · Generated {{ now_str }}</p>
   </div>
-  <button class="btn btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+  <div style="display:flex;gap:8px;">
+    <a href="/reports/employees/csv" class="btn btn-outline btn-sm">📥 Export CSV</a>
+    <button class="btn btn-primary" onclick="window.print()">🖨 Print / Save PDF</button>
+  </div>
 </div>
 
 <div class="card">

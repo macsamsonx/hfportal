@@ -26,6 +26,7 @@
       <input type="date" name="date_to" value="{{ date_to }}" class="form-input" style="height:36px; font-size:.82rem; width:150px;">
       <button type="submit" class="btn btn-outline btn-sm">Filter</button>
     </form>
+    <a href="/reports/attendance/csv?date_from={{ date_from }}&date_to={{ date_to }}" class="btn btn-outline btn-sm">📥 Export CSV</a>
     <button class="btn btn-primary" onclick="window.print()">🖨 Print</button>
   </div>
 </div>

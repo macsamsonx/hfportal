@@ -621,9 +621,42 @@ def init_db():
             ("attachment_name",     "TEXT"),
             ("attachment_type",     "TEXT"),
             ("reply_to_id",         "INTEGER"),
+            ("is_deleted",          "INTEGER DEFAULT 0"),
+            ("edited_at",           "TEXT"),
         ]:
             if col not in _chatcols:
                 conn.execute(f"ALTER TABLE chat_messages ADD COLUMN {col} {typ}")
+
+        # ── Column migrations — employees (hire_date) ─────────────────────────────
+        _ecols2 = {r[1] for r in conn.execute("PRAGMA table_info(employees)").fetchall()}
+        if "hire_date" not in _ecols2:
+            conn.execute("ALTER TABLE employees ADD COLUMN hire_date TEXT")
+
+        # ── Column migrations — work_logs (recurring) ─────────────────────────────
+        _wcols2 = {r[1] for r in conn.execute("PRAGMA table_info(work_logs)").fetchall()}
+        for col, typ in [
+            ("is_recurring",  "INTEGER DEFAULT 0"),
+            ("recur_freq",    "TEXT"),
+        ]:
+            if col not in _wcols2:
+                conn.execute(f"ALTER TABLE work_logs ADD COLUMN {col} {typ}")
+
+        # ── Calendar events ────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS calendar_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                title           TEXT    NOT NULL,
+                description     TEXT,
+                start_date      TEXT    NOT NULL,
+                end_date        TEXT,
+                all_day         INTEGER DEFAULT 1,
+                color           TEXT    DEFAULT '#2563eb',
+                event_type      TEXT    DEFAULT 'event',
+                created_by_id   INTEGER,
+                created_by_name TEXT,
+                created_at      TEXT    DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(created_by_id) REFERENCES employees(id) ON DELETE SET NULL
+            )""")
 
         # ── Task files (Google Drive) ─────────────────────────────────────────────
         conn.execute("""

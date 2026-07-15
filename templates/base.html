@@ -75,6 +75,9 @@
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
         </a>
+        <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
+          <span class="icon">📅</span> Team Calendar
+        </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
@@ -137,6 +140,9 @@
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
+        </a>
+        <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
+          <span class="icon">📅</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
@@ -206,6 +212,9 @@
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
+        </a>
+        <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
+          <span class="icon">📅</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements

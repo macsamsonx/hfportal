@@ -1029,6 +1029,8 @@ async def start_task(
     input_drive_id: str = Form(""),
     input_file_name: str = Form(""),
     input_file_size: str = Form("0"),
+    is_recurring: str = Form(""),
+    recur_freq: str = Form(""),
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
@@ -1039,14 +1041,16 @@ async def start_task(
         else:
             emp_id = user["id"]
         urgency = urgency if urgency in ("Low", "Normal", "High", "Critical") else "Normal"
+        recur = 1 if is_recurring == "1" else 0
+        freq  = recur_freq if recur and recur_freq in ("daily","weekly","biweekly","monthly") else None
         conn.execute(
             """INSERT INTO work_logs
                (emp_id, client, task_title, hours_worked, notes, output_files,
                 status, date_logged, started_at, is_running,
-                created_by_name, assigned_emp_id, due_date, urgency)
-               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?)""",
+                created_by_name, assigned_emp_id, due_date, urgency, is_recurring, recur_freq)
+               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?, ?, ?)""",
             (emp_id, client, task_title, notes, output_files or None, today,
-             user["name"], emp_id, due_date or None, urgency),
+             user["name"], emp_id, due_date or None, urgency, recur, freq),
         )
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "created",
@@ -3116,6 +3120,9 @@ async def send_chat_message(
         return JSONResponse({"ok": False, "error": "Invalid room"}, status_code=403)
     reply_id = int(reply_to_id) if reply_to_id.strip().isdigit() else None
 
+    import re as _re
+    mentions = _re.findall(r'@([A-Za-z][A-Za-z ]{1,30}?)(?=\s|$|[^\w ])', body + " ")
+
     with get_db() as conn:
         cur = conn.execute(
             """INSERT INTO chat_messages
@@ -3132,8 +3139,70 @@ async def send_chat_message(
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
             (user["id"], room, msg_id)
         )
+        # Notify @mentioned employees
+        for mention in mentions:
+            mentioned = conn.execute(
+                "SELECT id FROM employees WHERE LOWER(name) LIKE LOWER(?) AND id!=? AND is_active=1 LIMIT 1",
+                (f"%{mention.strip()}%", user["id"])
+            ).fetchone()
+            if mentioned:
+                push_notification(conn, mentioned["id"],
+                    f"{user['name']} mentioned you",
+                    body[:80], "/chat")
 
     return JSONResponse({"ok": True, "msg_id": msg_id})
+
+
+@app.post("/api/chat/edit")
+async def chat_edit(request: Request):
+    user = require_user(request)
+    data = await request.json()
+    msg_id = data.get("message_id")
+    new_body = (data.get("body") or "").strip()
+    if not msg_id or not new_body:
+        return JSONResponse({"ok": False}, status_code=400)
+    with get_db() as conn:
+        msg = conn.execute("SELECT sender_id, created_at FROM chat_messages WHERE id=? AND COALESCE(is_deleted,0)=0", (msg_id,)).fetchone()
+        if not msg or msg["sender_id"] != user["id"]:
+            return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
+        now_ts = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        conn.execute("UPDATE chat_messages SET body=?, edited_at=? WHERE id=?",
+                     (new_body[:2000], now_ts, msg_id))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/chat/delete")
+async def chat_delete(request: Request):
+    user = require_user(request)
+    data = await request.json()
+    msg_id = data.get("message_id")
+    if not msg_id:
+        return JSONResponse({"ok": False}, status_code=400)
+    with get_db() as conn:
+        msg = conn.execute("SELECT sender_id FROM chat_messages WHERE id=?", (msg_id,)).fetchone()
+        if not msg:
+            return JSONResponse({"ok": False}, status_code=404)
+        if msg["sender_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager"):
+            return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
+        conn.execute("UPDATE chat_messages SET is_deleted=1, body='This message was deleted.' WHERE id=?", (msg_id,))
+    return JSONResponse({"ok": True})
+
+
+@app.get("/api/chat/search")
+async def chat_search(request: Request, q: str = "", room: str = "group"):
+    user = require_user(request)
+    if not q or len(q) < 2:
+        return JSONResponse({"results": []})
+    if room != "group" and (not room.startswith("dm_") or str(user["id"]) not in room.split("_")[1:3]):
+        return JSONResponse({"results": []})
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, sender_name, body, created_at FROM chat_messages
+               WHERE room=? AND body LIKE ? AND COALESCE(is_deleted,0)=0
+               ORDER BY id DESC LIMIT 30""",
+            (room, f"%{q}%")
+        ).fetchall()
+    return JSONResponse({"results": [dict(r) for r in rows]})
 
 
 @app.post("/api/chat/react")
@@ -3219,6 +3288,15 @@ async def poll_chat_messages(request: Request, room: str = "group", after_id: in
                    ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
                 (user["id"], room, rows[-1]["id"])
             )
+        # Also return any edited/deleted messages the client already has
+        if after_id > 0:
+            updated = conn.execute(
+                """SELECT id, body, edited_at, is_deleted FROM chat_messages
+                   WHERE room=? AND id<=? AND (edited_at IS NOT NULL OR is_deleted=1)
+                   AND id > ? - 200""",
+                (room, after_id, after_id)
+            ).fetchall()
+            rows += [dict(r) for r in updated]
     return JSONResponse({"messages": rows})
 
 
@@ -4344,6 +4422,107 @@ async def report_leave(request: Request, date_from: str = "", date_to: str = "")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# ── CSV EXPORTS ───────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+import csv as _csv
+import io as _io
+
+def _csv_response(rows: list, headers: list, filename: str):
+    buf = _io.StringIO()
+    w = _csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    w.writeheader()
+    w.writerows(rows)
+    from fastapi.responses import Response as _Resp
+    return _Resp(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@app.get("/reports/attendance/csv")
+async def export_attendance_csv(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or get_pht_now().replace(day=1).strftime("%Y-%m-%d")
+    d_to   = date_to or today
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.name as Employee, a.date_logged as Date,
+                      a.clock_in as "Clock In", a.clock_out as "Clock Out",
+                      CASE a.late_flag WHEN 1 THEN 'Yes' ELSE 'No' END as Late,
+                      a.ip_address as IP
+               FROM attendance a JOIN employees e ON a.emp_id=e.id
+               WHERE e.role='Employee' AND a.date_logged BETWEEN ? AND ?
+               ORDER BY a.date_logged DESC, e.name""",
+            (d_from, d_to)
+        ).fetchall()
+    return _csv_response([dict(r) for r in rows],
+        ["Employee","Date","Clock In","Clock Out","Late","IP"],
+        f"attendance_{d_from}_{d_to}.csv")
+
+
+@app.get("/reports/ot/csv")
+async def export_ot_csv(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or get_pht_now().replace(day=1).strftime("%Y-%m-%d")
+    d_to   = date_to or today
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.name as Employee, o.ot_date as Date, o.ot_start as Start,
+                      o.ot_end as End, o.ot_type as Type, o.hours_computed as Hours,
+                      o.status as Status, o.reason as Reason
+               FROM overtime_requests o JOIN employees e ON o.emp_id=e.id
+               WHERE o.ot_date BETWEEN ? AND ?
+               ORDER BY o.ot_date DESC""",
+            (d_from, d_to)
+        ).fetchall()
+    return _csv_response([dict(r) for r in rows],
+        ["Employee","Date","Start","End","Type","Hours","Status","Reason"],
+        f"overtime_{d_from}_{d_to}.csv")
+
+
+@app.get("/reports/leave/csv")
+async def export_leave_csv(request: Request, date_from: str = "", date_to: str = ""):
+    user = require_role(request, "HR Manager", "Admin")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    d_from = date_from or get_pht_now().replace(day=1).strftime("%Y-%m-%d")
+    d_to   = date_to or today
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT e.name as Employee, l.leave_type as Type,
+                      l.start_date as Start, l.end_date as End,
+                      l.days_count as Days, l.status as Status, l.reason as Reason
+               FROM leave_requests l JOIN employees e ON l.emp_id=e.id
+               WHERE l.start_date BETWEEN ? AND ?
+               ORDER BY l.start_date DESC""",
+            (d_from, d_to)
+        ).fetchall()
+    return _csv_response([dict(r) for r in rows],
+        ["Employee","Type","Start","End","Days","Status","Reason"],
+        f"leave_{d_from}_{d_to}.csv")
+
+
+@app.get("/reports/employees/csv")
+async def export_employees_csv(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT name as Name, email as Email, role as Role,
+                      employment_type as Type, department as Department,
+                      shift_type as Shift, hourly_rate as Rate,
+                      hire_date as "Hire Date", birthday as Birthday,
+                      phone as Phone
+               FROM employees WHERE is_active=1 ORDER BY name"""
+        ).fetchall()
+    return _csv_response([dict(r) for r in rows],
+        ["Name","Email","Role","Type","Department","Shift","Rate","Hire Date","Birthday","Phone"],
+        "employees.csv")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # ── ADMIN / OWNER EXECUTIVE DASHBOARD ────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -4527,7 +4706,7 @@ async def admin_dashboard(request: Request):
         data = compute_payroll_for_employee(emp["id"], week_start, week_end)
         week_cost += data.get("gross_pay", 0)
 
-    # Drive storage summary
+    # Drive storage summary + birthdays/anniversaries
     with get_db() as conn:
         drive_totals = conn.execute(
             "SELECT COUNT(*) as file_count, COALESCE(SUM(file_size),0) as total_bytes FROM task_files"
@@ -4541,6 +4720,38 @@ async def admin_dashboard(request: Request):
         chat_attach_count = conn.execute(
             "SELECT COUNT(*) FROM chat_messages WHERE attachment_drive_id IS NOT NULL"
         ).fetchone()[0]
+
+        # Birthdays in next 30 days
+        _today_dt = get_pht_now()
+        _upcoming_bdays = []
+        for _offset in range(31):
+            _d = (_today_dt + timedelta(days=_offset))
+            _mmdd = _d.strftime("%m-%d")
+            _rows = conn.execute(
+                "SELECT name, birthday FROM employees WHERE is_active=1 AND birthday IS NOT NULL AND SUBSTR(birthday,6,5)=?",
+                (_mmdd,)
+            ).fetchall()
+            for _r in _rows:
+                _upcoming_bdays.append({"name": _r["name"], "date": _d.strftime("%Y-%m-%d"),
+                                        "label": _d.strftime("%b %d"), "days": _offset, "type": "birthday"})
+
+        # Work anniversaries in next 30 days (hire_date same month-day)
+        _upcoming_anniv = []
+        for _offset in range(31):
+            _d = (_today_dt + timedelta(days=_offset))
+            _mmdd = _d.strftime("%m-%d")
+            _rows = conn.execute(
+                "SELECT name, hire_date FROM employees WHERE is_active=1 AND hire_date IS NOT NULL AND SUBSTR(hire_date,6,5)=?",
+                (_mmdd,)
+            ).fetchall()
+            for _r in _rows:
+                _year_diff = _d.year - int(_r["hire_date"][:4])
+                if _year_diff > 0:
+                    _upcoming_anniv.append({"name": _r["name"], "date": _d.strftime("%Y-%m-%d"),
+                                            "label": _d.strftime("%b %d"), "days": _offset,
+                                            "years": _year_diff, "type": "anniversary"})
+
+        upcoming_celebrations = sorted(_upcoming_bdays + _upcoming_anniv, key=lambda x: x["days"])
 
     return templates.TemplateResponse(request, "admin/admin_dashboard.html", {
         "user": user,
@@ -4571,9 +4782,98 @@ async def admin_dashboard(request: Request):
         "drive_totals": dict(drive_totals),
         "drive_per_user": [dict(r) for r in drive_per_user],
         "chat_attach_count": chat_attach_count,
+        "upcoming_celebrations": upcoming_celebrations,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── TEAM CALENDAR ─────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/calendar", response_class=HTMLResponse)
+async def calendar_page(request: Request):
+    user = require_user(request)
+    return templates.TemplateResponse(request, "shared/calendar.html", {
+        "user": user,
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/api/calendar/events")
+async def get_calendar_events(request: Request, year: int = 0, month: int = 0):
+    require_user(request)
+    with get_db() as conn:
+        if year and month:
+            # Return events that overlap the given month
+            first = f"{year}-{month:02d}-01"
+            last  = f"{year}-{month:02d}-31"
+            rows = conn.execute(
+                """SELECT * FROM calendar_events
+                   WHERE start_date <= ? AND (end_date >= ? OR (end_date IS NULL AND start_date >= ?))
+                   ORDER BY start_date ASC""",
+                (last, first, first)
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM calendar_events ORDER BY start_date DESC LIMIT 200").fetchall()
+    return JSONResponse({"events": [dict(r) for r in rows]})
+
+
+@app.post("/api/calendar/events")
+async def create_calendar_event(request: Request):
+    user = require_user(request)
+    data = await request.json()
+    title = (data.get("title") or "").strip()
+    if not title:
+        return JSONResponse({"ok": False, "error": "Title required"}, status_code=400)
+    event_type = data.get("event_type", "event")
+    start_date = data.get("start_date") or get_pht_now().strftime("%Y-%m-%d")
+    end_date   = data.get("end_date") or None
+    desc       = (data.get("description") or "").strip() or None
+    color      = {"meeting":"#2563eb","deadline":"#ef4444","holiday":"#16a34a","event":"#7c3aed","birthday":"#f59e0b","anniversary":"#0891b2"}.get(event_type, "#7c3aed")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO calendar_events (title, description, start_date, end_date, event_type, color, created_by_id, created_by_name)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (title, desc, start_date, end_date, event_type, color, user["id"], user["name"])
+        )
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/calendar/events/{event_id}")
+async def update_calendar_event(request: Request, event_id: int):
+    user = require_user(request)
+    data = await request.json()
+    with get_db() as conn:
+        ev = conn.execute("SELECT created_by_id FROM calendar_events WHERE id=?", (event_id,)).fetchone()
+        if not ev:
+            return JSONResponse({"ok": False}, status_code=404)
+        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager"):
+            return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
+        title = (data.get("title") or "").strip()
+        if not title:
+            return JSONResponse({"ok": False, "error": "Title required"}, status_code=400)
+        event_type = data.get("event_type", "event")
+        color = {"meeting":"#2563eb","deadline":"#ef4444","holiday":"#16a34a","event":"#7c3aed","birthday":"#f59e0b","anniversary":"#0891b2"}.get(event_type, "#7c3aed")
+        conn.execute(
+            """UPDATE calendar_events SET title=?, description=?, start_date=?, end_date=?, event_type=?, color=? WHERE id=?""",
+            (title, data.get("description") or None, data.get("start_date"), data.get("end_date") or None, event_type, color, event_id)
+        )
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/calendar/events/{event_id}/delete")
+async def delete_calendar_event(request: Request, event_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        ev = conn.execute("SELECT created_by_id FROM calendar_events WHERE id=?", (event_id,)).fetchone()
+        if not ev:
+            return JSONResponse({"ok": False}, status_code=404)
+        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager"):
+            return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
+        conn.execute("DELETE FROM calendar_events WHERE id=?", (event_id,))
+    return JSONResponse({"ok": True})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
