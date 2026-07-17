@@ -8,7 +8,7 @@
   <a href="/hr/onboarding/assign" class="btn btn-primary">+ Assign Onboarding</a>
 </div>
 
-{% if flash %}<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>{% endif %}
+{% if flash %}<div class="alert alert-{{ flash.kind or 'info' }}" style="margin-bottom:16px;">{{ flash.msg }}</div>{% endif %}
 
 {% if assignments %}
 <div class="card">

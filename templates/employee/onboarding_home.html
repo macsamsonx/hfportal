@@ -19,7 +19,7 @@
   </div>
 </div>
 
-{% if flash %}<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>{% endif %}
+{% if flash %}<div class="alert alert-{{ flash.kind or 'info' }}" style="margin-bottom:16px;">{{ flash.msg }}</div>{% endif %}
 
 {% set day_colors = ['#2563eb','#7c3aed','#16a34a','#f59e0b','#ef4444'] %}
 {% set day_titles = ['Orientation & Documents','Personality Assessment','English Proficiency','IQ & Logic Test','Emotional Intelligence'] %}

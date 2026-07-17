@@ -5922,6 +5922,7 @@ async def onboarding_day(request: Request, day_num: int):
         "video_done": video_done,
         "best_attempts": best_attempts,
         "day_complete": day_complete,
+        "flash": get_flash(request),
         **shared_ctx(user, request),
     })
 
