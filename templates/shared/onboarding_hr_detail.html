@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Onboarding — {{ assignment.emp_name }}{% endblock %}
+{% block page_title %}Onboarding Detail{% endblock %}
+
+{% block extra_head %}
+<style>
+.ob-day { border:1.5px solid var(--border); border-radius:12px; margin-bottom:16px; overflow:hidden; }
+.ob-day-header { display:flex; align-items:center; gap:12px; padding:14px 18px; background:var(--surface-2); border-bottom:1px solid var(--border); }
+.ob-day-num { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.85rem; color:#fff; flex-shrink:0; }
+.ob-mod-row { display:flex; align-items:flex-start; gap:12px; padding:12px 18px; border-bottom:1px solid var(--border); }
+.ob-mod-row:last-child { border-bottom:none; }
+.ob-mod-icon { font-size:1.2rem; flex-shrink:0; margin-top:2px; }
+.attempt-chip { display:inline-flex; align-items:center; gap:5px; background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:3px 8px; font-size:.7rem; margin:2px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🎓 {{ assignment.emp_name }}</h2>
+    <p>Started {{ assignment.start_date }} ·
+      {% if assignment.status == 'completed' %}<span class="badge badge-green">Completed</span>
+      {% else %}<span class="badge badge-blue">In Progress</span>{% endif %}
+    </p>
+  </div>
+  <a href="/hr/onboarding" class="btn btn-outline btn-sm">← Back</a>
+</div>
+
+{% set day_colors = {1:'#2563eb',2:'#7c3aed',3:'#16a34a',4:'#f59e0b',5:'#ef4444'} %}
+{% set day_titles = {1:'Orientation & Documents',2:'Personality Assessment',3:'English Proficiency',4:'IQ & Logic Test',5:'Emotional Intelligence'} %}
+{% set type_icons = {'video':'🎬','form_fill':'📋','quiz':'📝','disc_test':'🧠','english_test':'📖','iq_test':'🔢','eq_test':'❤️'} %}
+
+{% for day_num in range(1,6) %}
+{% set day_mods = modules | selectattr('day_num','eq',day_num) | list %}
+{% set is_complete = day_num in completed_days %}
+
+<div class="ob-day">
+  <div class="ob-day-header">
+    <div class="ob-day-num" style="background:{{ day_colors[day_num] }};">{{ day_num }}</div>
+    <div style="flex:1;">
+      <div style="font-weight:800;">Day {{ day_num }} — {{ day_titles[day_num] }}</div>
+    </div>
+    {% if is_complete %}
+      <span class="badge badge-green">✓ Complete</span>
+    {% else %}
+      <span class="badge badge-gray">Pending</span>
+    {% endif %}
+  </div>
+
+  {% for mod in day_mods %}
+  {% set attempts = attempts_map.get(mod.id, []) %}
+  {% set latest = attempts[-1] if attempts else none %}
+  <div class="ob-mod-row">
+    <div class="ob-mod-icon">{{ type_icons.get(mod.module_type,'📄') }}</div>
+    <div style="flex:1;">
+      <div style="font-weight:700;font-size:.85rem;margin-bottom:4px;">{{ mod.title }}</div>
+
+      {% if mod.module_type == 'video' %}
+        {% if mod.id in video_done %}
+          <span class="badge badge-green" style="font-size:.68rem;">✓ Watched</span>
+        {% else %}
+          <span class="badge badge-gray" style="font-size:.68rem;">Not watched</span>
+        {% endif %}
+        <!-- HR: set video URL -->
+        <form method="post" action="/hr/onboarding/module/{{ mod.id }}/set-video"
+              style="display:inline-flex;gap:6px;align-items:center;margin-left:10px;">
+          <input type="text" name="video_url" value="{{ mod.video_url or '' }}"
+                 class="form-input" style="height:28px;font-size:.72rem;width:260px;"
+                 placeholder="Paste video embed URL…">
+          <button class="btn btn-outline btn-sm" style="font-size:.68rem;padding:3px 8px;">Save URL</button>
+        </form>
+
+      {% elif mod.module_type == 'form_fill' %}
+        <span class="badge badge-green" style="font-size:.68rem;">Auto-complete on assignment</span>
+
+      {% elif attempts %}
+        <!-- Show all attempts -->
+        <div style="margin-top:4px;">
+          {% for att in attempts %}
+          <div class="attempt-chip">
+            <span style="color:var(--muted);">Attempt {{ att.attempt_num }}</span>
+            {% if att.result_label %}
+              <span style="font-weight:700;color:var(--primary);">{{ att.result_label }}</span>
+            {% elif att.score_pct is not none %}
+              <span style="font-weight:700;{% if att.passed %}color:#16a34a;{% else %}color:#ef4444;{% endif %}">
+                {{ att.score_pct | round(1) }}%{% if att.passed %} ✓{% else %} ✗{% endif %}
+              </span>
+            {% endif %}
+            {% if att.time_secs %}
+              <span style="color:var(--muted);">{{ (att.time_secs // 60) }}m {{ (att.time_secs % 60) }}s</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+
+          <!-- Sub-scores for assessments -->
+          {% if latest and latest.result_data %}
+            {% set rd = latest.result_data %}
+            {% if mod.module_type in ('disc_test','eq_test','english_test','iq_test') %}
+            <div style="margin-top:6px;font-size:.72rem;color:var(--muted);">
+              Sub-scores: <code style="font-size:.7rem;">{{ rd }}</code>
+            </div>
+            {% endif %}
+          {% endif %}
+        </div>
+      {% else %}
+        <span style="font-size:.75rem;color:var(--muted);font-style:italic;">Not started yet</span>
+      {% endif %}
+    </div>
+    <div style="font-size:.7rem;color:var(--muted);text-align:right;min-width:80px;">
+      {% if attempts %} {{ attempts|length }} attempt{{ 's' if attempts|length != 1 else '' }}{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% endblock %}

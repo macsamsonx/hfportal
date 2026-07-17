@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}My Onboarding{% endblock %}
+{% block page_title %}Onboarding{% endblock %}
+
+{% block extra_head %}
+<style>
+.ob-card { border:1.5px solid var(--border); border-radius:14px; padding:20px 22px; margin-bottom:14px; display:flex; align-items:center; gap:18px; transition:box-shadow .15s; }
+.ob-card.unlocked:hover { box-shadow:0 4px 20px rgba(0,0,0,.1); }
+.ob-num { width:48px; height:48px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.25rem; font-weight:900; color:#fff; flex-shrink:0; }
+.ob-lock { font-size:1.4rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🎓 My Onboarding</h2>
+    <p>5-day program · Started {{ assignment.start_date }}</p>
+  </div>
+</div>
+
+{% if flash %}<div class="alert alert-{{ flash.type or 'info' }}" style="margin-bottom:16px;">{{ flash.message }}</div>{% endif %}
+
+{% set day_colors = ['#2563eb','#7c3aed','#16a34a','#f59e0b','#ef4444'] %}
+{% set day_titles = ['Orientation & Documents','Personality Assessment','English Proficiency','IQ & Logic Test','Emotional Intelligence'] %}
+{% set day_desc = [
+  'Fill out your profile, upload your documents, watch the company AVP, and take the orientation quiz.',
+  'Complete a 30-question personality assessment to discover your temperament profile.',
+  'Take the 60-question English proficiency test to find your CEFR level.',
+  'Complete the 35-question IQ and logical reasoning assessment.',
+  'Answer 35 statements to measure your Emotional Intelligence across 5 dimensions.'
+] %}
+
+{% for d in days_info %}
+{% set idx = d.day - 1 %}
+<div class="ob-card {% if d.unlocked %}unlocked{% endif %}"
+     style="{% if d.complete %}background:var(--surface-2);opacity:.75;{% elif not d.unlocked %}opacity:.55;{% endif %}">
+  <div class="ob-num" style="background:{{ day_colors[idx] }};">
+    {% if d.complete %}✓{% else %}{{ d.day }}{% endif %}
+  </div>
+  <div style="flex:1;">
+    <div style="font-weight:800;font-size:.95rem;margin-bottom:3px;">
+      Day {{ d.day }} — {{ day_titles[idx] }}
+    </div>
+    <div style="font-size:.78rem;color:var(--muted);">{{ day_desc[idx] }}</div>
+  </div>
+  <div style="flex-shrink:0;text-align:right;">
+    {% if d.complete %}
+      <span class="badge badge-green">✓ Done</span>
+    {% elif d.unlocked %}
+      <a href="/onboarding/day/{{ d.day }}" class="btn btn-primary btn-sm">Start Day {{ d.day }} →</a>
+    {% else %}
+      <div style="font-size:.72rem;color:var(--muted);">🔒 Locked</div>
+      <div style="font-size:.65rem;color:var(--muted);margin-top:2px;">Come back tomorrow</div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+{% if assignment.status == 'completed' %}
+<div class="card" style="text-align:center;padding:30px;margin-top:8px;">
+  <div style="font-size:3rem;margin-bottom:10px;">🎉</div>
+  <div style="font-size:1.1rem;font-weight:800;">Onboarding Complete!</div>
+  <div style="font-size:.85rem;color:var(--muted);margin-top:6px;">
+    You've completed all 5 days. Welcome to the team!
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -114,6 +114,376 @@ def get_db():
         conn.close()
 
 
+def _seed_onboarding(conn):
+    """Insert all pre-built onboarding modules and assessment questions."""
+
+    def _mod(day, mtype, title, desc="", sort=0):
+        conn.execute(
+            "INSERT INTO onboarding_modules (day_num,module_type,title,description,sort_order,is_seeded) VALUES (?,?,?,?,?,1)",
+            (day, mtype, title, desc, sort))
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def _q(mid, text, qtype, cat, order):
+        conn.execute(
+            "INSERT INTO onboarding_quiz_questions (module_id,question_text,question_type,category,sort_order) VALUES (?,?,?,?,?)",
+            (mid, text, qtype, cat, order))
+        return conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    def _opts(qid, *opts):
+        # opts: list of (text, is_correct, score_key)
+        for i, (txt, correct, key) in enumerate(opts):
+            conn.execute(
+                "INSERT INTO onboarding_quiz_options (question_id,option_text,is_correct,score_key,sort_order) VALUES (?,?,?,?,?)",
+                (qid, txt, 1 if correct else 0, key, i))
+
+    # ── Day 1 modules (HR fills video URL and adds company quiz questions) ────
+    _mod(1, "form_fill",   "Employee Profile Form",      "Fill out your personal info, emergency contacts, and upload your documents.", 0)
+    _mod(1, "video",       "Company Overview Video",     "Watch the company AVP — mission, vision, and house rules. (HR: paste video URL in settings.)", 1)
+    _mod(1, "quiz",        "Company Orientation Quiz",   "Short quiz to confirm you watched and understood the orientation video. HR will add questions.", 2)
+
+    # ── Day 2 — DISC Personality Assessment ──────────────────────────────────
+    m2 = _mod(2, "disc_test", "Personality Assessment",
+              "30 questions to identify your primary temperament (Sanguine · Choleric · Melancholic · Phlegmatic). There are no right or wrong answers.", 0)
+
+    disc_qs = [
+        ("When working on a team project, you typically:", [
+            ("Dive in enthusiastically and figure things out as you go","S"),
+            ("Take charge, set clear goals, and push for results","C"),
+            ("Plan carefully and research thoroughly before starting","M"),
+            ("Wait to understand everyone's role before contributing","P")]),
+        ("When there is a disagreement in your team, you usually:", [
+            ("Try to lighten the mood with humor and keep spirits up","S"),
+            ("Confront the issue directly and push for a quick resolution","C"),
+            ("Analyze the facts carefully before presenting your case","M"),
+            ("Try to mediate and find a compromise everyone can accept","P")]),
+        ("Your workspace is usually:", [
+            ("Colorful and decorated with personal, creative touches","S"),
+            ("Organized around efficiency — what gets results stays, the rest goes","C"),
+            ("Neat, precise, and systematically arranged","M"),
+            ("Comfortable and functional, nothing fancy","P")]),
+        ("At a social gathering, you tend to:", [
+            ("Talk to everyone and naturally become the center of attention","S"),
+            ("Take initiative and steer conversations toward meaningful topics","C"),
+            ("Prefer deep one-on-one conversations over group chatter","M"),
+            ("Go with the flow and enjoy whoever's company you're in","P")]),
+        ("When you make a mistake, your first reaction is to:", [
+            ("Laugh it off and move forward quickly","S"),
+            ("Fix it immediately and get back on track","C"),
+            ("Analyze what went wrong so it never happens again","M"),
+            ("Feel genuinely concerned about how it affected others","P")]),
+        ("Your ideal work environment is:", [
+            ("A fun, social place with lots of interaction and variety","S"),
+            ("A fast-paced environment with challenges to overcome","C"),
+            ("A quiet, organized space where you can focus deeply","M"),
+            ("A stable, harmonious environment with clear routines","P")]),
+        ("When making an important decision, you:", [
+            ("Go with your gut feeling and instincts","S"),
+            ("Decide quickly based on what best achieves the goal","C"),
+            ("Gather all available data and analyze every option","M"),
+            ("Consult with others and seek a consensus","P")]),
+        ("Friends would describe you as:", [
+            ("The fun, energetic, and spontaneous one","S"),
+            ("The confident, assertive leader","C"),
+            ("The thoughtful, precise, and reliable one","M"),
+            ("The calm, steady, and patient one","P")]),
+        ("When under pressure, you:", [
+            ("Stay positive and try to keep the team's spirits up","S"),
+            ("Take control and push harder to get results","C"),
+            ("Become more detail-oriented and cautious","M"),
+            ("Stay calm and wait for things to settle","P")]),
+        ("Your biggest strength is your:", [
+            ("Ability to inspire and energize others","S"),
+            ("Drive and determination to get things done","C"),
+            ("Attention to detail and dedication to accuracy","M"),
+            ("Patience and ability to remain calm under pressure","P")]),
+        ("When someone is upset, you:", [
+            ("Try to cheer them up with humor, stories, or positivity","S"),
+            ("Suggest practical solutions to fix the problem","C"),
+            ("Listen carefully and analyze the situation before responding","M"),
+            ("Offer quiet, steady, and consistent support","P")]),
+        ("You prefer tasks that are:", [
+            ("Creative, varied, and involve lots of people","S"),
+            ("Challenging, goal-driven, and result-oriented","C"),
+            ("Precise, systematic, and clearly defined","M"),
+            ("Steady, routine, and predictable","P")]),
+        ("Your communication style is:", [
+            ("Expressive, animated, and full of stories","S"),
+            ("Direct, brief, and to the point","C"),
+            ("Detailed, structured, and logical","M"),
+            ("Soft-spoken, diplomatic, and careful","P")]),
+        ("In a meeting, you are most likely to:", [
+            ("Share ideas enthusiastically and keep the energy high","S"),
+            ("Drive the meeting toward clear decisions and outcomes","C"),
+            ("Ask detailed questions and flag potential risks","M"),
+            ("Listen attentively and contribute when directly asked","P")]),
+        ("You feel most fulfilled when you:", [
+            ("Make others laugh, feel good, or feel inspired","S"),
+            ("Accomplish a difficult goal or overcome a challenge","C"),
+            ("Complete something perfectly, with zero errors","M"),
+            ("Help the group work together harmoniously","P")]),
+        ("Your biggest weakness is:", [
+            ("Being disorganized, easily distracted, or impulsive","S"),
+            ("Being impatient, blunt, or too demanding","C"),
+            ("Being overly critical, perfectionistic, or pessimistic","M"),
+            ("Avoiding conflict, being indecisive, or too passive","P")]),
+        ("When given free time, you prefer to:", [
+            ("Socialize, attend events, and meet new people","S"),
+            ("Work on personal goals, challenges, or projects","C"),
+            ("Read, research, organize, or pursue a detailed hobby","M"),
+            ("Relax quietly at home or spend time with close ones","P")]),
+        ("In a leadership role, you would:", [
+            ("Inspire with enthusiasm and build team spirit","S"),
+            ("Set ambitious targets and drive everyone toward results","C"),
+            ("Create detailed plans, monitor quality, and track progress","M"),
+            ("Build consensus and make sure everyone feels included","P")]),
+        ("When learning something new, you prefer:", [
+            ("Learning by doing — jump in and experiment","S"),
+            ("Getting the big picture quickly and applying it right away","C"),
+            ("Reading the manual and fully understanding the theory first","M"),
+            ("Being shown step-by-step by someone experienced","P")]),
+        ("You are most annoyed by people who are:", [
+            ("Boring, slow, or overly serious","S"),
+            ("Indecisive, inefficient, or wishy-washy","C"),
+            ("Careless, imprecise, or dismissive of quality","M"),
+            ("Aggressive, overbearing, or confrontational","P")]),
+        ("When starting a new friendship, you:", [
+            ("Open up quickly and share a lot about yourself right away","S"),
+            ("Are confident, take the lead, and make the first move","C"),
+            ("Are cautious — you take time before fully trusting someone","M"),
+            ("Are warm and friendly but prefer to let the relationship develop naturally","P")]),
+        ("Your approach to rules and procedures is:", [
+            ("You bend them if it makes things more fun or creative","S"),
+            ("You challenge them if they get in the way of results","C"),
+            ("You follow them carefully and expect others to as well","M"),
+            ("You follow them to maintain peace and order","P")]),
+        ("When you have too much to do, you:", [
+            ("Jump between tasks and try to do a little of everything","S"),
+            ("Prioritize ruthlessly and attack the most important tasks first","C"),
+            ("Make a detailed list and work through it methodically","M"),
+            ("Slow down, take a breath, and handle one thing at a time","P")]),
+        ("People come to you when they need:", [
+            ("Energy, fun, and a morale boost","S"),
+            ("Someone to get things done quickly","C"),
+            ("Careful analysis and a well-researched second opinion","M"),
+            ("A calm, steady presence and patient support","P")]),
+        ("At work, you are most motivated by:", [
+            ("Recognition, praise, and positive feedback from others","S"),
+            ("Achieving results, winning, and being the best","C"),
+            ("Doing high-quality, accurate, and thorough work","M"),
+            ("Job security, clear expectations, and a peaceful environment","P")]),
+        ("When you disagree with your manager, you:", [
+            ("Express your concern openly and with energy","S"),
+            ("State your case directly and confidently push back","C"),
+            ("Present detailed reasoning, data, and evidence to support your view","M"),
+            ("Internalize it but comply to avoid unnecessary conflict","P")]),
+        ("Your friends would say your biggest asset is your:", [
+            ("Charm and ability to make everyone feel welcome","S"),
+            ("Confidence, drive, and natural leadership","C"),
+            ("Intelligence, reliability, and depth of thought","M"),
+            ("Dependability, calmness, and steadiness","P")]),
+        ("When a project fails, you:", [
+            ("Quickly move on and look for the next opportunity","S"),
+            ("Analyze what blocked success and come back stronger","C"),
+            ("Conduct a detailed post-mortem to understand every mistake","M"),
+            ("Accept it quietly and focus on supporting the team","P")]),
+        ("Your ideal weekend is:", [
+            ("Parties, social events, concerts, and meeting new people","S"),
+            ("Adventure, sports, challenges, or achieving a personal goal","C"),
+            ("A quiet day of reading, organizing, or a detailed hobby","M"),
+            ("Staying home relaxing with family or close friends","P")]),
+        ("Others sometimes see you as:", [
+            ("Too loud, too scattered, or too impulsive","S"),
+            ("Too bossy, too blunt, or too impatient","C"),
+            ("Too picky, too critical, or too negative","M"),
+            ("Too passive, too slow to act, or too indecisive","P")]),
+    ]
+    for i, (text, opts) in enumerate(disc_qs):
+        qid = _q(m2, text, "personality", None, i)
+        _opts(qid, *[(o, False, k) for o, k in opts])
+
+    # ── Day 3 — English Proficiency Test ─────────────────────────────────────
+    m3 = _mod(3, "english_test", "English Proficiency Test",
+              "60 questions covering grammar, vocabulary, and reading comprehension. Scored to CEFR level (B1 · B2 · C1 · C2).", 0)
+
+    eng_qs = [
+        # B1 (1-20)
+        ("Choose the correct sentence:",["She doesn't like coffee","She don't like coffee","She not like coffee","She doesn't likes coffee"],0,"B1"),
+        ("What does 'frequently' mean?",["Rarely","Sometimes","Often","Never"],2,"B1"),
+        ("Complete: 'If it _____ tomorrow, we will cancel the trip.'",["will rain","would rain","rains","rained"],2,"B1"),
+        ("Choose the correct past tense: 'Yesterday, I _____ to the store.'",["go","goed","gone","went"],3,"B1"),
+        ("Choose the correct preposition: 'She is good _____ mathematics.'",["in","on","at","for"],2,"B1"),
+        ("Which is the plural of 'child'?",["Childs","Childes","Childrens","Children"],3,"B1"),
+        ("Complete: 'I have been working here _____ three years.'",["since","during","while","for"],3,"B1"),
+        ("'The meeting was _____ than expected.'",["long","longest","more long","longer"],3,"B1"),
+        ("Choose the correct article: 'She wants to be _____ engineer.'",["an","a","the","(no article)"],1,"B1"),
+        ("What is the opposite of 'arrive'?",["Come","Stay","Go","Leave"],3,"B1"),
+        ("'He _____ to Manila twice before.' (present perfect)",["go","went","was","has been"],3,"B1"),
+        ("Choose the correct sentence:",["They was late","They is late","They were late","They be late"],2,"B1"),
+        ("What does 'approximately' mean?",["Exactly","Never","Always","About / roughly"],3,"B1"),
+        ("'She asked me _____ I needed help.'",["that","what","which","if"],3,"B1"),
+        ("'By the time he arrived, the food _____ cold.'",["became","has become","was becoming","had become"],3,"B1"),
+        ("'Despite _____ hard, she failed the exam.'",["study","studied","studies","studying"],3,"B1"),
+        ("What is a synonym for 'important'?",["Minor","Small","Ordinary","Significant"],3,"B1"),
+        ("'The report must be _____ by Friday.'",["submit","submitting","to submit","submitted"],3,"B1"),
+        ("'Neither of the options _____ acceptable.'",["are","were","have been","is"],3,"B1"),
+        ("What does 'curious' mean?",["Bored","Angry","Eager to know or learn","Confident"],2,"B1"),
+        # B2 (21-40)
+        ("'She would have succeeded if she _____ harder.'",["tried","tries","would try","had tried"],3,"B2"),
+        ("The word 'ubiquitous' means:",["Rare and unusual","Confusing","Temporary","Found everywhere"],3,"B2"),
+        ("Choose the correct passive form: 'The project _____ by Friday.'",["will complete","will be complete","will completing","will be completed"],3,"B2"),
+        ("'The more you practice, _____ you become.'",["the good","better","more better","the better"],3,"B2"),
+        ("What does 'meticulous' mean?",["Careless and sloppy","Bold and adventurous","Confused","Showing great attention to detail"],3,"B2"),
+        ("Choose the correct relative clause:",["The man which called was my boss","The man that he called was my boss","The man whom called was my boss","The man who called was my boss"],3,"B2"),
+        ("'She was _____ tired that she fell asleep immediately.'",["very","too","such","so"],3,"B2"),
+        ("What does it mean to 'procrastinate'?",["Work very efficiently","Plan carefully","Rush through work","Delay or postpone tasks"],3,"B2"),
+        ("'Not only _____ late, but he also forgot his presentation.'",["he was","he is","is he","was he"],3,"B2"),
+        ("'By next year, she _____ the company for a decade.'",["will work","has worked","would work","will have worked"],3,"B2"),
+        ("What does 'articulate' mean as an adjective?",["Unable to speak clearly","Very technical","Angry","Able to express ideas fluently and clearly"],3,"B2"),
+        ("'I wish I _____ more time yesterday.'",["had","have had","would have","had had"],3,"B2"),
+        ("'He is responsible _____ managing the team.'",["of","in","with","for"],3,"B2"),
+        ("What does 'pragmatic' mean?",["Idealistic and visionary","Creative and artistic","Theoretical","Dealing with practical matters"],3,"B2"),
+        ("'Hardly _____ before the manager arrived.'",["he sat down","did he sit down","he had sat down","had he sat down"],3,"B2"),
+        ("'The results were _____ better than last quarter's.'",["extreme","massive","overly","considerably"],3,"B2"),
+        ("What does 'ambiguous' mean?",["Clear and obvious","Having only one meaning","Open to more than one interpretation","Completely wrong"],2,"B2"),
+        ("'She was promoted _____ her outstanding performance.'",["despite","because of","instead of","regardless of"],1,"B2"),
+        ("'The findings were _____ significant.' (emphatic/formal)",["greatly","deeply","highly","strongly"],2,"B2"),
+        ("What does 'perseverance' mean?",["Giving up easily","Continued effort despite difficulty","Natural talent","Quick success"],1,"B2"),
+        # C1 (41-55)
+        ("'The proposal, _____ was submitted last week, has been approved.'",["that","what","who","which"],3,"C1"),
+        ("What does 'ephemeral' mean?",["Lasting forever","Extremely important","Difficult to understand","Lasting for a very short time"],3,"C1"),
+        ("'She _____ have known better than to trust him.' (criticism of past action)",["would","could","might","should"],3,"C1"),
+        ("What does 'exacerbate' mean?",["To solve a problem","To avoid a problem","To analyze a problem","To make a problem worse"],3,"C1"),
+        ("'_____ having extensive experience, he made several errors.'",["Although","Even","However","Despite"],3,"C1"),
+        ("What does 'equivocal' mean?",["Clear and straightforward","Having two equal values","Completely wrong","Ambiguous, open to multiple interpretations"],3,"C1"),
+        ("'The chairman will _____ over the meeting.' (formal/precise)",["look","sit","manage","preside"],3,"C1"),
+        ("What does 'impetuous' mean?",["Very patient and calm","Highly organized","Extremely generous","Acting without thinking; hasty"],3,"C1"),
+        ("'He tends to _____ the importance of small details.' (minimize/overlook)",["overemphasize","acknowledge","recognize","underestimate"],3,"C1"),
+        ("Which uses 'nevertheless' correctly?",["Nevertheless he tried, he failed","He tried nevertheless, he failed","He nevertheless that he was tired continued","He was tired; nevertheless, he continued working"],3,"C1"),
+        ("What does 'tenacious' mean?",["Easily discouraged","Uncommitted","Holding firmly to a purpose; not giving up","Indifferent"],2,"C1"),
+        ("'The regulation was _____ to protect consumers.' (formal purpose)",["designing","design","been designed","designed"],3,"C1"),
+        ("What does 'covert' mean?",["Open and transparent","Noisy and obvious","Not secret","Not openly acknowledged; hidden"],3,"C1"),
+        ("'The article drew _____ between the two historical events.'",["comparing","comparable","comparatively","comparisons"],3,"C1"),
+        ("What does 'corroborate' mean?",["To contradict evidence","To ignore findings","To question assumptions","To confirm or support with evidence"],3,"C1"),
+        # C2 (56-60)
+        ("'She remained sanguine about the outcome.' Here 'sanguine' means:",["Bloody or violent","Anxious and worried","Indifferent","Optimistic and positive"],3,"C2"),
+        ("The policy had _____ consequences, affecting multiple industries simultaneously.",["peripheral","nominal","tangential","far-reaching"],3,"C2"),
+        ("Choose the sentence using the subjunctive mood correctly:",["The manager insists that he attends every meeting","The manager insists that he attended every meeting","The manager insists that he is attending every meeting","The manager insists that he attend every meeting"],3,"C2"),
+        ("What literary device involves a reference to another work or historical event to enrich meaning?",["Hyperbole","Onomatopoeia","Simile","Allusion"],3,"C2"),
+        ("'Her _____ approach meant even the smallest inefficiency was addressed.' (extremely detail-oriented)",["cavalier","perfunctory","laissez-faire","fastidious"],3,"C2"),
+    ]
+    for i, row in enumerate(eng_qs):
+        text, opts, correct_idx, cat = row
+        qid = _q(m3, text, "mc", cat, i)
+        for j, opt in enumerate(opts):
+            conn.execute(
+                "INSERT INTO onboarding_quiz_options (question_id,option_text,is_correct,sort_order) VALUES (?,?,?,?)",
+                (qid, opt, 1 if j == correct_idx else 0, j))
+
+    # ── Day 4 — IQ Test ───────────────────────────────────────────────────────
+    m4 = _mod(4, "iq_test", "Logical Reasoning & IQ Assessment",
+              "35 questions covering number sequences, verbal analogies, logical reasoning, and pattern recognition.", 0)
+
+    iq_qs = [
+        # Number sequences
+        ("What comes next: 2, 4, 8, 16, 32, ___?",["48","60","72","64"],3),
+        ("What comes next: 3, 6, 11, 18, 27, ___?",["36","35","38","40"],2),
+        ("What comes next: 1, 1, 2, 3, 5, 8, 13, ___?",["18","20","24","21"],3),
+        ("What comes next: 100, 95, 85, 70, 50, ___?",["30","35","20","25"],3),
+        ("What comes next: 2, 6, 12, 20, 30, ___?",["40","44","46","42"],3),
+        ("What comes next: 3, 9, 27, 81, ___?",["162","256","216","243"],3),
+        ("What comes next: 1, 4, 9, 16, 25, ___?",["30","34","38","36"],3),
+        ("What comes next: 5, 10, 20, 35, 55, ___?",["70","75","85","80"],3),
+        ("What comes next: 2, 5, 10, 17, 26, ___?",["35","36","40","37"],3),
+        ("What comes next: 1, 2, 4, 7, 11, ___?",["14","15","17","16"],3),
+        # Verbal analogies
+        ("Book is to Library as Painting is to ___?",["Artist","Frame","Color","Museum"],3),
+        ("Hot is to Cold as Fast is to ___?",["Quick","Speed","Run","Slow"],3),
+        ("Doctor is to Patient as Teacher is to ___?",["School","Lesson","Grade","Student"],3),
+        ("Knife is to Cut as Pen is to ___?",["Ink","Paper","Draw","Write"],3),
+        ("Bird is to Flock as Fish is to ___?",["Water","Pond","Swim","School"],3),
+        ("Eye is to See as Ear is to ___?",["Head","Sound","Nose","Hear"],3),
+        ("Warm is to Hot as Cool is to ___?",["Freeze","Ice","Temperature","Cold"],3),
+        ("Carpenter is to Wood as Sculptor is to ___?",["Art","Paint","Museum","Clay"],3),
+        # Logical reasoning
+        ("All cats are mammals. All mammals breathe air. Therefore:",
+            ["All mammals are cats","Some cats don't breathe air","All air-breathers are cats","All cats breathe air"],3),
+        ("If today is Wednesday, what day will it be 10 days from now?",["Friday","Sunday","Monday","Saturday"],3),
+        ("A train travels at 60 km/h. How far does it travel in 2.5 hours?",["120 km","130 km","160 km","150 km"],3),
+        ("In a code where A=1, B=2 … Z=26, what is the code for CAT?",["3-2-19","4-1-20","3-1-19","3-1-20"],3),
+        ("If some Blips are Blops, and all Blops are Blups, then:",
+            ["All Blips are Blups","No Blips are Blups","All Blups are Blips","Some Blips are Blups"],3),
+        ("A clock shows 3:15. What is the angle between the hour and minute hands?",["15°","22.5°","90°","7.5°"],3),
+        ("Complete: Monday, Wednesday, Friday, ___?",["Saturday","Tuesday","Thursday","Sunday"],3),
+        ("A room has 4 corners. Each corner has a cat. Each cat sees 3 other cats. How many cats are in the room?",["3","12","16","4"],3),
+        # Pattern completion
+        ("Which number does NOT belong: 2, 4, 6, 9, 10, 12?",["2","6","12","9"],3),
+        ("What letter comes next: A, C, F, J, ___?",["M","N","P","O"],3),
+        ("What comes next: 1, 2, 4, 7, 11, 16, ___?",["20","21","23","22"],3),
+        ("Which word does NOT belong: Apple, Mango, Carrot, Banana, Grape?",["Apple","Mango","Banana","Carrot"],3),
+        ("What comes next in the prime number sequence: 2, 3, 5, 7, 11, 13, ___?",["14","15","16","17"],3),
+        # Mathematical reasoning
+        ("If 3x + 7 = 22, what is x?",["3","4","6","5"],3),
+        ("A store offers 20% off a ₱500 item. What is the sale price?",["₱380","₱420","₱450","₱400"],3),
+        ("A recipe for 4 people needs 3 cups of flour. How many cups for 10 people?",["6","7","8","7.5"],3),
+        ("What is 15% of 240?",["24","30","40","36"],3),
+    ]
+    for i, (text, opts, correct_idx) in enumerate(iq_qs):
+        qid = _q(m4, text, "mc", None, i)
+        for j, opt in enumerate(opts):
+            conn.execute(
+                "INSERT INTO onboarding_quiz_options (question_id,option_text,is_correct,sort_order) VALUES (?,?,?,?)",
+                (qid, opt, 1 if j == correct_idx else 0, j))
+
+    # ── Day 5 — Emotional Intelligence (EQ) Test ─────────────────────────────
+    m5 = _mod(5, "eq_test", "Emotional Intelligence Assessment",
+              "35 statements rated 1–5 (1=Never, 5=Always). Scored across 5 dimensions: Self-Awareness · Self-Regulation · Motivation · Empathy · Social Skills.", 0)
+
+    eq_qs = [
+        # Self-Awareness (SA)
+        ("I am aware of my emotions as I experience them.","SA"),
+        ("I understand how my mood affects my performance at work.","SA"),
+        ("I can identify when I am feeling stressed before it affects my behaviour.","SA"),
+        ("I recognise my personal strengths and weaknesses accurately.","SA"),
+        ("I understand why I react the way I do in certain situations.","SA"),
+        ("I notice when my emotions are influencing my decisions.","SA"),
+        ("I can accurately predict how I will feel in different situations.","SA"),
+        # Self-Regulation (SR)
+        ("I stay calm and composed even when under significant pressure.","SR"),
+        ("I can control my emotional reactions in difficult situations.","SR"),
+        ("I think before acting, even when I am upset or frustrated.","SR"),
+        ("I can redirect negative emotions into constructive, productive action.","SR"),
+        ("I follow through on commitments even when I do not feel like it.","SR"),
+        ("I adapt easily when plans change unexpectedly.","SR"),
+        ("I avoid saying things I might regret when I am angry or frustrated.","SR"),
+        # Motivation (MO)
+        ("I set ambitious goals and work hard to achieve them.","MO"),
+        ("I stay positive and persistent even after setbacks or failures.","MO"),
+        ("I am driven more by personal satisfaction than external rewards.","MO"),
+        ("I look for ways to improve even when things are going well.","MO"),
+        ("I feel enthusiastic and energised about my work most of the time.","MO"),
+        ("I take initiative and act without being asked.","MO"),
+        ("I remain focused on long-term goals even when short-term tasks are hard.","MO"),
+        # Empathy (EM)
+        ("I can sense how others are feeling without them telling me.","EM"),
+        ("I take time to understand other people's perspectives before responding.","EM"),
+        ("I adjust my communication style based on how others seem to feel.","EM"),
+        ("I listen actively and fully when others share their concerns.","EM"),
+        ("I feel genuinely concerned when a colleague is struggling.","EM"),
+        ("I can tell when a colleague is having a bad day, even if they say nothing.","EM"),
+        ("I consider how my decisions might affect others emotionally.","EM"),
+        # Social Skills (SS)
+        ("I work well in a team and contribute positively to group dynamics.","SS"),
+        ("I can resolve conflicts effectively without damaging relationships.","SS"),
+        ("I communicate clearly and effectively with people at all levels.","SS"),
+        ("I build strong working relationships based on mutual trust and respect.","SS"),
+        ("I can influence and persuade others without being pushy or aggressive.","SS"),
+        ("I make others feel comfortable, heard, and valued in conversations.","SS"),
+        ("I am effective at motivating others toward a shared goal.","SS"),
+    ]
+    for i, (text, cat) in enumerate(eq_qs):
+        _q(m5, text, "likert", cat, i)
+
+
 def init_db():
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     os.makedirs(os.path.join(UPLOAD_DIR, "avatars"), exist_ok=True)
@@ -707,6 +1077,92 @@ def init_db():
                 answer_text  TEXT,
                 FOREIGN KEY(response_id) REFERENCES survey_responses(id) ON DELETE CASCADE
             )""")
+
+        # ── Onboarding ────────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_assignments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id      INTEGER NOT NULL UNIQUE,
+                start_date  TEXT NOT NULL,
+                status      TEXT DEFAULT 'in_progress',
+                created_by_id INTEGER,
+                created_at  TEXT DEFAULT (datetime('now','+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_modules (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                day_num     INTEGER NOT NULL,
+                module_type TEXT NOT NULL,
+                title       TEXT NOT NULL,
+                description TEXT,
+                video_url   TEXT,
+                sort_order  INTEGER DEFAULT 0,
+                is_seeded   INTEGER DEFAULT 0
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_quiz_questions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_id     INTEGER NOT NULL,
+                question_text TEXT NOT NULL,
+                question_type TEXT NOT NULL DEFAULT 'mc',
+                category      TEXT,
+                sort_order    INTEGER DEFAULT 0,
+                FOREIGN KEY(module_id) REFERENCES onboarding_modules(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_quiz_options (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                question_id INTEGER NOT NULL,
+                option_text TEXT NOT NULL,
+                is_correct  INTEGER DEFAULT 0,
+                score_key   TEXT,
+                sort_order  INTEGER DEFAULT 0,
+                FOREIGN KEY(question_id) REFERENCES onboarding_quiz_questions(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_video_progress (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id     INTEGER NOT NULL,
+                module_id  INTEGER NOT NULL,
+                watched_at TEXT DEFAULT (datetime('now','+8 hours')),
+                UNIQUE(emp_id, module_id)
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_quiz_attempts (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id        INTEGER NOT NULL,
+                module_id     INTEGER NOT NULL,
+                attempt_num   INTEGER NOT NULL DEFAULT 1,
+                score_pct     REAL DEFAULT 0,
+                time_secs     INTEGER DEFAULT 0,
+                passed        INTEGER DEFAULT 0,
+                result_label  TEXT,
+                result_data   TEXT,
+                started_at    TEXT,
+                completed_at  TEXT
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_quiz_answers (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id  INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                option_id   INTEGER,
+                answer_text TEXT,
+                FOREIGN KEY(attempt_id) REFERENCES onboarding_quiz_attempts(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS onboarding_day_completion (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id       INTEGER NOT NULL,
+                day_num      INTEGER NOT NULL,
+                completed_at TEXT DEFAULT (datetime('now','+8 hours')),
+                UNIQUE(emp_id, day_num)
+            )""")
+
+        # ── Seed onboarding questions (runs once) ─────────────────────────────────
+        if not conn.execute("SELECT 1 FROM onboarding_modules WHERE is_seeded=1 LIMIT 1").fetchone():
+            _seed_onboarding(conn)
 
         # ── Task files (Google Drive) ─────────────────────────────────────────────
         conn.execute("""

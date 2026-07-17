@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Assign Onboarding{% endblock %}
+{% block page_title %}Assign Onboarding{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div><h2>+ Assign Onboarding</h2><p>Start the 5-day program for a new hire</p></div>
+  <a href="/hr/onboarding" class="btn btn-outline btn-sm">← Back</a>
+</div>
+
+<div class="card" style="max-width:480px;">
+  <div class="card-header"><h3>New Assignment</h3></div>
+  <div style="padding:20px;">
+    <form method="post" action="/hr/onboarding/assign">
+      <div class="form-group mb-12">
+        <label class="form-label">Employee <span style="color:red">*</span></label>
+        <select name="emp_id" class="form-select" required>
+          <option value="">— Select employee —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }}{% if e.position %} · {{ e.position }}{% endif %}</option>
+          {% endfor %}
+        </select>
+        {% if not employees %}<div style="font-size:.75rem;color:var(--muted);margin-top:4px;">All active employees already have onboarding assigned.</div>{% endif %}
+      </div>
+      <div class="form-group mb-20">
+        <label class="form-label">Start Date <span style="font-size:.75rem;color:var(--muted);">(Day 1 opens on this date)</span></label>
+        <input type="date" name="start_date" class="form-input" value="{{ today_str if today_str else '' }}">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;" {% if not employees %}disabled{% endif %}>
+        🎓 Start Onboarding
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}{{ mod.title }}{% endblock %}
+{% block page_title %}{{ mod.title }}{% endblock %}
+
+{% block extra_head %}
+<style>
+.quiz-q { border:1.5px solid var(--border); border-radius:12px; padding:18px 20px; margin-bottom:14px; }
+.quiz-q-num { font-size:.7rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:6px; }
+.quiz-q-text { font-size:.9rem; font-weight:600; margin-bottom:14px; line-height:1.5; }
+.opt-row { display:flex; align-items:center; gap:10px; padding:8px 12px; border-radius:8px; border:1.5px solid var(--border); margin-bottom:7px; cursor:pointer; transition:border-color .15s, background .15s; }
+.opt-row:hover { border-color:var(--primary); background:var(--surface-2); }
+.opt-row input[type=radio] { accent-color:var(--primary); width:15px; height:15px; flex-shrink:0; cursor:pointer; }
+.opt-row label { flex:1; font-size:.85rem; cursor:pointer; }
+.opt-row.selected { border-color:var(--primary); background:rgba(37,99,235,.08); }
+/* Likert */
+.likert-row { display:flex; align-items:center; gap:6px; }
+.likert-btn { display:flex; flex-direction:column; align-items:center; gap:4px; cursor:pointer; }
+.likert-btn input[type=radio] { display:none; }
+.likert-circle { width:36px; height:36px; border-radius:50%; border:2px solid var(--border); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; transition:all .15s; }
+.likert-btn input:checked ~ .likert-circle { background:var(--primary); border-color:var(--primary); color:#fff; }
+.likert-btn:hover .likert-circle { border-color:var(--primary); }
+.likert-label { font-size:.6rem; color:var(--muted); text-align:center; }
+/* Progress bar */
+.quiz-progress { background:var(--surface-2); border-radius:6px; height:6px; overflow:hidden; margin-bottom:20px; }
+.quiz-progress-inner { height:100%; background:var(--primary); border-radius:6px; transition:width .3s; }
+/* Timer */
+.quiz-timer { font-size:.75rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+/* Result card */
+.result-card { border:2px solid var(--primary); border-radius:14px; padding:24px; text-align:center; margin-bottom:20px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set is_assessment = mod.module_type in ('disc_test','english_test','iq_test','eq_test') %}
+{% set is_eq = mod.module_type == 'eq_test' %}
+{% set day_colors = {1:'#2563eb',2:'#7c3aed',3:'#16a34a',4:'#f59e0b',5:'#ef4444'} %}
+
+<div class="page-header">
+  <div>
+    <h2>{{ mod.title }}</h2>
+    <p style="font-size:.8rem;color:var(--muted);">
+      Day {{ mod.day_num }} ·
+      {% if is_assessment %}Profile Assessment · Always passes{% else %}Quiz · 70% to pass{% endif %}
+      {% if attempt_count > 0 %} · {{ attempt_count }} attempt{{ 's' if attempt_count != 1 else '' }} taken{% endif %}
+    </p>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="quiz-timer" id="elapsed">0:00</span>
+    <a href="/onboarding/day/{{ mod.day_num }}" class="btn btn-outline btn-sm">← Back</a>
+  </div>
+</div>
+
+{# ── Last result summary ── #}
+{% if last_attempt %}
+<div class="result-card">
+  <div style="font-size:.72rem;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:8px;">
+    {% if is_assessment %}Your Previous Result{% else %}Last Attempt — Attempt #{{ last_attempt.attempt_num }}{% endif %}
+  </div>
+  {% if last_attempt.result_label %}
+    <div style="font-size:1.3rem;font-weight:800;color:var(--primary);margin-bottom:4px;">{{ last_attempt.result_label }}</div>
+  {% else %}
+    <div style="font-size:1.3rem;font-weight:800;color:{% if last_attempt.passed %}#16a34a{% else %}#ef4444{% endif %};">
+      {{ last_attempt.score_pct | round(1) if last_attempt.score_pct else 0 }}%
+      {% if last_attempt.passed %}✓ Passed{% else %}✗ Failed — keep trying!{% endif %}
+    </div>
+  {% endif %}
+  {% if last_attempt.time_secs %}
+  <div style="font-size:.72rem;color:var(--muted);margin-top:4px;">
+    Time: {{ (last_attempt.time_secs // 60) }}m {{ (last_attempt.time_secs % 60) }}s
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+
+{# ── Quiz form ── #}
+<form method="post" action="/onboarding/quiz/{{ mod.id }}/submit" id="quiz-form" onsubmit="return confirmSubmit()">
+  <input type="hidden" name="started_at" id="started_at_field" value="{{ started_at }}">
+
+  <div class="quiz-progress">
+    <div class="quiz-progress-inner" id="progress-bar" style="width:0%;"></div>
+  </div>
+
+  {% for q in questions %}
+  {% set opts = options_map.get(q.id, []) %}
+  <div class="quiz-q" id="q-block-{{ q.id }}" data-qid="{{ q.id }}">
+    <div class="quiz-q-num">Question {{ loop.index }} of {{ questions | length }}</div>
+    <div class="quiz-q-text">{{ q.question_text }}</div>
+
+    {# Likert 1-5 for EQ test #}
+    {% if q.question_type == 'likert' or (is_eq and not opts) %}
+    <div class="likert-row">
+      {% for v in [1,2,3,4,5] %}
+      <label class="likert-btn">
+        <input type="radio" name="q_{{ q.id }}" value="{{ v }}" onchange="updateProgress()">
+        <div class="likert-circle">{{ v }}</div>
+        <div class="likert-label">
+          {% if v == 1 %}Never{% elif v == 2 %}Rarely{% elif v == 3 %}Sometimes{% elif v == 4 %}Often{% else %}Always{% endif %}
+        </div>
+      </label>
+      {% endfor %}
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:.6rem;color:var(--muted);">
+      <span>Strongly Disagree</span><span>Neutral</span><span>Strongly Agree</span>
+    </div>
+
+    {# True/False #}
+    {% elif q.question_type == 'tf' %}
+    {% for opt in opts %}
+    <div class="opt-row" onclick="selectOpt(this)">
+      <input type="radio" name="q_{{ q.id }}" value="{{ opt.id }}" id="opt_{{ opt.id }}" onchange="updateProgress()">
+      <label for="opt_{{ opt.id }}">{{ opt.option_text }}</label>
+    </div>
+    {% endfor %}
+
+    {# Multiple choice (default) #}
+    {% else %}
+    {% for opt in opts %}
+    <div class="opt-row" onclick="selectOpt(this)">
+      <input type="radio" name="q_{{ q.id }}" value="{{ opt.id }}" id="opt_{{ opt.id }}" onchange="updateProgress()">
+      <label for="opt_{{ opt.id }}">{{ opt.option_text }}</label>
+    </div>
+    {% endfor %}
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:20px;">
+    <div style="font-size:.78rem;color:var(--muted);" id="answered-count">0 / {{ questions | length }} answered</div>
+    <button type="submit" class="btn btn-primary" id="submit-btn">
+      {% if last_attempt %}🔄 Submit Retake{% else %}Submit →{% endif %}
+    </button>
+  </div>
+</form>
+
+<script>
+const TOTAL = {{ questions | length }};
+let startedAt = new Date();
+
+// Timer
+setInterval(() => {
+  const secs = Math.floor((Date.now() - startedAt) / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  document.getElementById('elapsed').textContent = `${m}:${s.toString().padStart(2,'0')}`;
+}, 1000);
+
+// Progress
+function updateProgress() {
+  let answered = 0;
+  const names = new Set();
+  document.querySelectorAll('#quiz-form input[type=radio]').forEach(r => {
+    names.add(r.name);
+  });
+  names.forEach(n => {
+    if (document.querySelector(`input[name="${n}"]:checked`)) answered++;
+  });
+  const pct = Math.round(answered / TOTAL * 100);
+  document.getElementById('progress-bar').style.width = pct + '%';
+  document.getElementById('answered-count').textContent = `${answered} / ${TOTAL} answered`;
+}
+
+// Select opt-row highlight
+function selectOpt(row) {
+  const radio = row.querySelector('input[type=radio]');
+  const name = radio.name;
+  document.querySelectorAll(`input[name="${name}"]`).forEach(r => {
+    r.closest('.opt-row').classList.remove('selected');
+  });
+  radio.checked = true;
+  row.classList.add('selected');
+  updateProgress();
+}
+
+// Confirm before submit
+function confirmSubmit() {
+  const names = new Set();
+  document.querySelectorAll('#quiz-form input[type=radio]').forEach(r => names.add(r.name));
+  let answered = 0;
+  names.forEach(n => {
+    if (document.querySelector(`input[name="${n}"]:checked`)) answered++;
+  });
+  if (answered < TOTAL) {
+    return confirm(`You have ${TOTAL - answered} unanswered question(s). Submit anyway?`);
+  }
+  return true;
+}
+
+// Disable double submit
+document.getElementById('quiz-form').addEventListener('submit', function() {
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+});
+</script>
+{% endblock %}

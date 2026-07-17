@@ -5693,3 +5693,433 @@ async def my_survey_submit(request: Request, survey_id: int):
             )
     flash(request, "Survey submitted. Thank you!")
     return RedirectResponse("/my-surveys", status_code=302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── ONBOARDING ────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+import json as _json
+from datetime import date as _date, timedelta as _td
+
+def _ob_day_unlocked(start_date_str: str, day_num: int) -> bool:
+    """Day N unlocks when today >= start_date + (N-1) days."""
+    try:
+        start = _date.fromisoformat(start_date_str)
+        return _date.today() >= start + _td(days=day_num - 1)
+    except Exception:
+        return False
+
+def _ob_day_complete(conn, emp_id: int, day_num: int) -> bool:
+    return bool(conn.execute(
+        "SELECT 1 FROM onboarding_day_completion WHERE emp_id=? AND day_num=?",
+        (emp_id, day_num)).fetchone())
+
+def _ob_check_day_complete(conn, emp_id: int, day_num: int, assignment) -> bool:
+    """Check if all modules for a day are finished and mark complete if so."""
+    if _ob_day_complete(conn, emp_id, day_num):
+        return True
+    modules = conn.execute(
+        "SELECT * FROM onboarding_modules WHERE day_num=? ORDER BY sort_order", (day_num,)
+    ).fetchall()
+    for mod in modules:
+        mt = mod["module_type"]
+        if mt == "video":
+            if not conn.execute("SELECT 1 FROM onboarding_video_progress WHERE emp_id=? AND module_id=?",
+                                (emp_id, mod["id"])).fetchone():
+                return False
+        elif mt == "form_fill":
+            pass  # form is always considered done once assigned
+        elif mt in ("quiz",):
+            if not conn.execute(
+                    "SELECT 1 FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=? AND passed=1",
+                    (emp_id, mod["id"])).fetchone():
+                return False
+        elif mt in ("disc_test", "english_test", "iq_test", "eq_test"):
+            if not conn.execute(
+                    "SELECT 1 FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=?",
+                    (emp_id, mod["id"])).fetchone():
+                return False
+    now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    conn.execute("INSERT OR IGNORE INTO onboarding_day_completion (emp_id,day_num,completed_at) VALUES (?,?,?)",
+                 (emp_id, day_num, now))
+    # Check if all 5 days done → mark onboarding complete
+    done_days = conn.execute(
+        "SELECT COUNT(*) FROM onboarding_day_completion WHERE emp_id=?", (emp_id,)
+    ).fetchone()[0]
+    if done_days >= 5:
+        conn.execute("UPDATE onboarding_assignments SET status='completed' WHERE emp_id=?", (emp_id,))
+    return True
+
+
+# ── HR: list ──────────────────────────────────────────────────────────────────
+@app.get("/hr/onboarding", response_class=HTMLResponse)
+async def hr_onboarding(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        assignments = conn.execute("""
+            SELECT oa.*, e.name as emp_name, e.position as emp_position,
+                   (SELECT COUNT(*) FROM onboarding_day_completion odc WHERE odc.emp_id=oa.emp_id) as days_done
+            FROM onboarding_assignments oa
+            JOIN employees e ON e.id=oa.emp_id
+            ORDER BY oa.created_at DESC""").fetchall()
+    return templates.TemplateResponse(request, "shared/onboarding_hr.html", {
+        "user": user, "assignments": [dict(a) for a in assignments],
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.get("/hr/onboarding/assign", response_class=HTMLResponse)
+async def hr_onboarding_assign_page(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        assigned_ids = {r[0] for r in conn.execute(
+            "SELECT emp_id FROM onboarding_assignments").fetchall()}
+        employees = conn.execute(
+            "SELECT id, name, position FROM employees WHERE is_active=1 ORDER BY name"
+        ).fetchall()
+        eligible = [dict(e) for e in employees if e["id"] not in assigned_ids]
+    return templates.TemplateResponse(request, "shared/onboarding_assign.html", {
+        "user": user, "employees": eligible,
+        "today_str": get_pht_now().strftime("%Y-%m-%d"),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/hr/onboarding/assign")
+async def hr_onboarding_assign(request: Request):
+    user = require_role(request, "Admin", "HR Manager")
+    form = await request.form()
+    emp_id = form.get("emp_id", "")
+    start_date = form.get("start_date", "") or get_pht_now().strftime("%Y-%m-%d")
+    if not emp_id or not emp_id.isdigit():
+        flash(request, "Please select an employee.", "error")
+        return RedirectResponse("/hr/onboarding/assign", status_code=302)
+    with get_db() as conn:
+        now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        conn.execute(
+            "INSERT OR IGNORE INTO onboarding_assignments (emp_id,start_date,status,created_by_id,created_at) VALUES (?,?,?,?,?)",
+            (int(emp_id), start_date, "in_progress", user["id"], now))
+    flash(request, "Onboarding assigned successfully.")
+    return RedirectResponse("/hr/onboarding", status_code=302)
+
+
+@app.get("/hr/onboarding/{emp_id}", response_class=HTMLResponse)
+async def hr_onboarding_detail(request: Request, emp_id: int):
+    user = require_role(request, "Admin", "HR Manager")
+    with get_db() as conn:
+        assignment = conn.execute(
+            "SELECT oa.*, e.name as emp_name FROM onboarding_assignments oa JOIN employees e ON e.id=oa.emp_id WHERE oa.emp_id=?",
+            (emp_id,)).fetchone()
+        if not assignment:
+            flash(request, "No onboarding found for this employee.", "error")
+            return RedirectResponse("/hr/onboarding", status_code=302)
+        modules = conn.execute(
+            "SELECT * FROM onboarding_modules ORDER BY day_num, sort_order").fetchall()
+        completed_days = {r["day_num"] for r in conn.execute(
+            "SELECT day_num FROM onboarding_day_completion WHERE emp_id=?", (emp_id,)).fetchall()}
+        # All attempts per module
+        attempts = conn.execute(
+            "SELECT * FROM onboarding_quiz_attempts WHERE emp_id=? ORDER BY module_id, attempt_num",
+            (emp_id,)).fetchall()
+        attempts_map = {}
+        for a in attempts:
+            attempts_map.setdefault(a["module_id"], []).append(dict(a))
+        video_done = {r["module_id"] for r in conn.execute(
+            "SELECT module_id FROM onboarding_video_progress WHERE emp_id=?", (emp_id,)).fetchall()}
+    return templates.TemplateResponse(request, "shared/onboarding_hr_detail.html", {
+        "user": user, "assignment": dict(assignment),
+        "modules": [dict(m) for m in modules],
+        "completed_days": completed_days,
+        "attempts_map": attempts_map,
+        "video_done": video_done,
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/hr/onboarding/module/{module_id}/set-video")
+async def hr_set_video_url(request: Request, module_id: int):
+    require_role(request, "Admin", "HR Manager")
+    form = await request.form()
+    url = (form.get("video_url") or "").strip()
+    with get_db() as conn:
+        conn.execute("UPDATE onboarding_modules SET video_url=? WHERE id=?", (url or None, module_id))
+    return RedirectResponse(request.headers.get("referer", "/hr/onboarding"), status_code=302)
+
+
+# ── Employee: onboarding home ─────────────────────────────────────────────────
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_home(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        assignment = conn.execute(
+            "SELECT * FROM onboarding_assignments WHERE emp_id=?", (user["id"],)).fetchone()
+        if not assignment:
+            flash(request, "No onboarding has been assigned to you yet.")
+            return RedirectResponse("/dashboard", status_code=302)
+        completed_days = {r["day_num"] for r in conn.execute(
+            "SELECT day_num FROM onboarding_day_completion WHERE emp_id=?", (user["id"],)).fetchall()}
+    days_info = []
+    for d in range(1, 6):
+        unlocked = _ob_day_unlocked(assignment["start_date"], d)
+        complete = d in completed_days
+        days_info.append({"day": d, "unlocked": unlocked, "complete": complete})
+    return templates.TemplateResponse(request, "employee/onboarding_home.html", {
+        "user": user, "assignment": dict(assignment),
+        "days_info": days_info,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+# ── Employee: day view ─────────────────────────────────────────────────────────
+@app.get("/onboarding/day/{day_num}", response_class=HTMLResponse)
+async def onboarding_day(request: Request, day_num: int):
+    user = require_user(request)
+    if day_num < 1 or day_num > 5:
+        return RedirectResponse("/onboarding", status_code=302)
+    with get_db() as conn:
+        assignment = conn.execute(
+            "SELECT * FROM onboarding_assignments WHERE emp_id=?", (user["id"],)).fetchone()
+        if not assignment:
+            return RedirectResponse("/dashboard", status_code=302)
+        if not _ob_day_unlocked(assignment["start_date"], day_num):
+            flash(request, f"Day {day_num} is not available yet — come back on the right date!")
+            return RedirectResponse("/onboarding", status_code=302)
+        if day_num > 1 and not _ob_day_complete(conn, user["id"], day_num - 1):
+            flash(request, f"Please complete Day {day_num - 1} first.")
+            return RedirectResponse("/onboarding", status_code=302)
+        modules = conn.execute(
+            "SELECT * FROM onboarding_modules WHERE day_num=? ORDER BY sort_order", (day_num,)
+        ).fetchall()
+        video_done = {r["module_id"] for r in conn.execute(
+            "SELECT module_id FROM onboarding_video_progress WHERE emp_id=?", (user["id"],)).fetchall()}
+        best_attempts = {}
+        for mod in modules:
+            row = conn.execute(
+                "SELECT * FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=? ORDER BY completed_at DESC LIMIT 1",
+                (user["id"], mod["id"])).fetchone()
+            if row:
+                best_attempts[mod["id"]] = dict(row)
+        day_complete = _ob_check_day_complete(conn, user["id"], day_num, assignment)
+    return templates.TemplateResponse(request, "employee/onboarding_day.html", {
+        "user": user, "day_num": day_num,
+        "modules": [dict(m) for m in modules],
+        "video_done": video_done,
+        "best_attempts": best_attempts,
+        "day_complete": day_complete,
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/onboarding/module/{module_id}/watch")
+async def onboarding_mark_watched(request: Request, module_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        mod = conn.execute("SELECT * FROM onboarding_modules WHERE id=?", (module_id,)).fetchone()
+        if not mod:
+            return JSONResponse({"ok": False}, status_code=404)
+        now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        conn.execute("INSERT OR IGNORE INTO onboarding_video_progress (emp_id,module_id,watched_at) VALUES (?,?,?)",
+                     (user["id"], module_id, now))
+    return JSONResponse({"ok": True})
+
+
+# ── Employee: quiz/test ────────────────────────────────────────────────────────
+@app.get("/onboarding/quiz/{module_id}", response_class=HTMLResponse)
+async def onboarding_quiz_page(request: Request, module_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        mod = conn.execute("SELECT * FROM onboarding_modules WHERE id=?", (module_id,)).fetchone()
+        if not mod:
+            return RedirectResponse("/onboarding", status_code=302)
+        assignment = conn.execute(
+            "SELECT * FROM onboarding_assignments WHERE emp_id=?", (user["id"],)).fetchone()
+        if not assignment or not _ob_day_unlocked(assignment["start_date"], mod["day_num"]):
+            return RedirectResponse("/onboarding", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM onboarding_quiz_questions WHERE module_id=? ORDER BY sort_order",
+            (module_id,)).fetchall()
+        options_map = {}
+        for q in questions:
+            opts = conn.execute(
+                "SELECT * FROM onboarding_quiz_options WHERE question_id=? ORDER BY sort_order",
+                (q["id"],)).fetchall()
+            options_map[q["id"]] = [dict(o) for o in opts]
+        attempt_count = conn.execute(
+            "SELECT COUNT(*) FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=?",
+            (user["id"], module_id)).fetchone()[0]
+        last_attempt = conn.execute(
+            "SELECT * FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=? ORDER BY attempt_num DESC LIMIT 1",
+            (user["id"], module_id)).fetchone()
+    now_iso = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    return templates.TemplateResponse(request, "employee/onboarding_quiz.html", {
+        "user": user, "mod": dict(mod),
+        "questions": [dict(q) for q in questions],
+        "options_map": options_map,
+        "attempt_count": attempt_count,
+        "last_attempt": dict(last_attempt) if last_attempt else None,
+        "started_at": now_iso,
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/onboarding/quiz/{module_id}/submit")
+async def onboarding_quiz_submit(request: Request, module_id: int):
+    user = require_user(request)
+    form = await request.form()
+    started_at = form.get("started_at", "")
+    with get_db() as conn:
+        mod = conn.execute("SELECT * FROM onboarding_modules WHERE id=?", (module_id,)).fetchone()
+        if not mod:
+            return RedirectResponse("/onboarding", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM onboarding_quiz_questions WHERE module_id=? ORDER BY sort_order",
+            (module_id,)).fetchall()
+        attempt_num = (conn.execute(
+            "SELECT COUNT(*) FROM onboarding_quiz_attempts WHERE emp_id=? AND module_id=?",
+            (user["id"], module_id)).fetchone()[0]) + 1
+        now = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        try:
+            start_dt = get_pht_now().__class__.fromisoformat(started_at.replace(" ", "T"))
+            time_secs = int((get_pht_now() - start_dt).total_seconds())
+        except Exception:
+            time_secs = 0
+
+        mtype = mod["module_type"]
+
+        # ── DISC: count temperament tallies ───────────────────────────────────
+        if mtype == "disc_test":
+            tally = {"S": 0, "C": 0, "M": 0, "P": 0}
+            for q in questions:
+                opt_id = form.get(f"q_{q['id']}", "")
+                if opt_id and opt_id.isdigit():
+                    opt = conn.execute(
+                        "SELECT score_key FROM onboarding_quiz_options WHERE id=? AND question_id=?",
+                        (int(opt_id), q["id"])).fetchone()
+                    if opt and opt["score_key"]:
+                        tally[opt["score_key"]] = tally.get(opt["score_key"], 0) + 1
+            primary = max(tally, key=tally.get)
+            labels = {"S": "Sanguine", "C": "Choleric", "M": "Melancholic", "P": "Phlegmatic"}
+            result_label = f"Primary: {labels[primary]}"
+            result_data = _json.dumps({labels[k]: v for k, v in tally.items()})
+            conn.execute(
+                "INSERT INTO onboarding_quiz_attempts (emp_id,module_id,attempt_num,score_pct,time_secs,passed,result_label,result_data,started_at,completed_at) VALUES (?,?,?,?,?,1,?,?,?,?)",
+                (user["id"], module_id, attempt_num, 0, time_secs, result_label, result_data, started_at, now))
+            att_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            for q in questions:
+                opt_id = form.get(f"q_{q['id']}", "")
+                conn.execute("INSERT INTO onboarding_quiz_answers (attempt_id,question_id,option_id) VALUES (?,?,?)",
+                             (att_id, q["id"], int(opt_id) if opt_id and opt_id.isdigit() else None))
+
+        # ── English / IQ: score correct answers ───────────────────────────────
+        elif mtype in ("english_test", "iq_test"):
+            correct = 0
+            att_id_row = conn.execute(
+                "INSERT INTO onboarding_quiz_attempts (emp_id,module_id,attempt_num,time_secs,started_at,completed_at) VALUES (?,?,?,?,?,?)",
+                (user["id"], module_id, attempt_num, time_secs, started_at, now))
+            att_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            cats = {}
+            for q in questions:
+                opt_id = form.get(f"q_{q['id']}", "")
+                chosen_opt = None
+                is_correct = False
+                if opt_id and opt_id.isdigit():
+                    chosen_opt = conn.execute(
+                        "SELECT * FROM onboarding_quiz_options WHERE id=? AND question_id=?",
+                        (int(opt_id), q["id"])).fetchone()
+                    if chosen_opt and chosen_opt["is_correct"]:
+                        correct += 1
+                        is_correct = True
+                    cat = q["category"] or "General"
+                    cats.setdefault(cat, {"c": 0, "t": 0})
+                    cats[cat]["t"] += 1
+                    if is_correct:
+                        cats[cat]["c"] += 1
+                conn.execute("INSERT INTO onboarding_quiz_answers (attempt_id,question_id,option_id) VALUES (?,?,?)",
+                             (att_id, q["id"], int(opt_id) if opt_id and opt_id.isdigit() else None))
+            total = len(questions) or 1
+            pct = round(correct / total * 100, 1)
+            if mtype == "english_test":
+                if pct >= 85: level = "C2 — Mastery"
+                elif pct >= 70: level = "C1 — Advanced"
+                elif pct >= 55: level = "B2 — Upper-Intermediate"
+                elif pct >= 40: level = "B1 — Intermediate"
+                else: level = "A2 — Elementary"
+                result_label = level
+            else:
+                if pct >= 80: band = "Superior"
+                elif pct >= 60: band = "Above Average"
+                elif pct >= 45: band = "Average"
+                else: band = "Below Average"
+                result_label = f"IQ Band: {band}"
+            conn.execute(
+                "UPDATE onboarding_quiz_attempts SET score_pct=?,passed=1,result_label=?,result_data=? WHERE id=?",
+                (pct, result_label, _json.dumps(cats), att_id))
+
+        # ── EQ: Likert scoring ─────────────────────────────────────────────────
+        elif mtype == "eq_test":
+            dim_totals = {}
+            dim_counts = {}
+            att_id_row = conn.execute(
+                "INSERT INTO onboarding_quiz_attempts (emp_id,module_id,attempt_num,time_secs,started_at,completed_at) VALUES (?,?,?,?,?,?)",
+                (user["id"], module_id, attempt_num, time_secs, started_at, now))
+            att_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            for q in questions:
+                val = form.get(f"q_{q['id']}", "")
+                try:
+                    score = max(1, min(5, int(val)))
+                except Exception:
+                    score = 3
+                cat = q["category"] or "General"
+                dim_totals[cat] = dim_totals.get(cat, 0) + score
+                dim_counts[cat] = dim_counts.get(cat, 0) + 1
+                conn.execute("INSERT INTO onboarding_quiz_answers (attempt_id,question_id,answer_text) VALUES (?,?,?)",
+                             (att_id, q["id"], str(score)))
+            dim_avgs = {k: round(dim_totals[k] / dim_counts[k], 2) for k in dim_totals}
+            overall = round(sum(dim_totals.values()) / max(sum(dim_counts.values()), 1), 2)
+            if overall >= 3.5: eq_level = "High EQ"
+            elif overall >= 2.5: eq_level = "Moderate EQ"
+            else: eq_level = "Low EQ"
+            dim_labels = {"SA": "Self-Awareness", "SR": "Self-Regulation", "MO": "Motivation", "EM": "Empathy", "SS": "Social Skills"}
+            result_data = {dim_labels.get(k, k): v for k, v in dim_avgs.items()}
+            result_data["overall"] = overall
+            conn.execute(
+                "UPDATE onboarding_quiz_attempts SET score_pct=?,passed=1,result_label=?,result_data=? WHERE id=?",
+                (overall * 20, eq_level, _json.dumps(result_data), att_id))
+
+        # ── Standard quiz (Day 1 company quiz) ────────────────────────────────
+        else:
+            correct = 0
+            att_id_row = conn.execute(
+                "INSERT INTO onboarding_quiz_attempts (emp_id,module_id,attempt_num,time_secs,started_at,completed_at) VALUES (?,?,?,?,?,?)",
+                (user["id"], module_id, attempt_num, time_secs, started_at, now))
+            att_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+            for q in questions:
+                opt_id = form.get(f"q_{q['id']}", "")
+                is_correct = False
+                if opt_id and opt_id.isdigit():
+                    opt = conn.execute(
+                        "SELECT is_correct FROM onboarding_quiz_options WHERE id=? AND question_id=?",
+                        (int(opt_id), q["id"])).fetchone()
+                    if opt and opt["is_correct"]:
+                        correct += 1
+                        is_correct = True
+                conn.execute("INSERT INTO onboarding_quiz_answers (attempt_id,question_id,option_id) VALUES (?,?,?)",
+                             (att_id, q["id"], int(opt_id) if opt_id and opt_id.isdigit() else None))
+            total = len(questions) or 1
+            pct = round(correct / total * 100, 1)
+            passed = 1 if pct >= 70 else 0
+            conn.execute(
+                "UPDATE onboarding_quiz_attempts SET score_pct=?,passed=? WHERE id=?",
+                (pct, passed, att_id))
+            if not passed:
+                flash(request, f"You scored {pct}% — need 70% to pass. Try again!", "error")
+                return RedirectResponse(f"/onboarding/quiz/{module_id}", status_code=302)
+
+        # Check if day is now complete
+        assignment = conn.execute(
+            "SELECT * FROM onboarding_assignments WHERE emp_id=?", (user["id"],)).fetchone()
+        _ob_check_day_complete(conn, user["id"], mod["day_num"], assignment)
+
+    flash(request, "Submitted! See your results below.")
+    return RedirectResponse(f"/onboarding/day/{mod['day_num']}", status_code=302)
