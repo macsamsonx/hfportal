@@ -597,6 +597,19 @@
 </div>
 {% endif %}
 
+{# ── Onboarding Assessment Results ───────────────────────────────────────────── #}
+{% if assessments %}
+<div class="card" style="margin-top:20px;">
+  <div class="card-header">
+    <h3>🧠 Assessment Results</h3>
+    <span class="badge badge-blue">{{ assessments | length }} assessment{{ 's' if assessments | length != 1 else '' }}</span>
+  </div>
+  <div style="padding:8px 16px 16px;">
+    {% include "shared/_assessment_results.html" %}
+  </div>
+</div>
+{% endif %}
+
 {# ── Survey Results (admin only) ────────────────────────────────────────────── #}
 {% if survey_results %}
 <div class="card" style="margin-top:20px;">

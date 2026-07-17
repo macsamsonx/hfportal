@@ -70,6 +70,7 @@
   <button class="profile-tab active" onclick="switchTab('personal', this)">👤 Personal Info</button>
   <button class="profile-tab" onclick="switchTab('documents', this)">📁 Documents</button>
   <button class="profile-tab" onclick="switchTab('bank', this)">🏦 Bank &amp; Government</button>
+  {% if assessments %}<button class="profile-tab" onclick="switchTab('assessments', this)">🧠 Assessments</button>{% endif %}
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════
@@ -346,6 +347,13 @@
 
   </div>
 </div>
+
+{# ── ASSESSMENTS TAB ── #}
+{% if assessments %}
+<div id="tab-assessments" class="tab-panel">
+{% include "shared/_assessment_results.html" %}
+</div>
+{% endif %}
 
 {% endblock %}
 

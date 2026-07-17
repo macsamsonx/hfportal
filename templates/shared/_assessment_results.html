@@ -1,0 +1,171 @@
+{# Shared partial — include with `assessments` dict in context #}
+<style>
+.asr-card { border:1.5px solid var(--border); border-radius:12px; padding:20px 22px; margin-bottom:14px; }
+.asr-header { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+.asr-icon { font-size:1.5rem; }
+.asr-title { font-weight:800; font-size:.9rem; }
+.asr-label { font-size:1.25rem; font-weight:900; color:var(--primary); margin-bottom:10px; }
+.asr-bar-row { display:flex; align-items:center; gap:10px; margin-bottom:7px; }
+.asr-bar-label { font-size:.75rem; min-width:160px; color:var(--text); }
+.asr-bar-track { flex:1; height:8px; background:var(--surface-2); border-radius:4px; overflow:hidden; }
+.asr-bar-fill { height:100%; border-radius:4px; }
+.asr-bar-val { font-size:.72rem; min-width:36px; text-align:right; color:var(--muted); }
+.asr-meta { font-size:.7rem; color:var(--muted); margin-top:10px; }
+.asr-pill { display:inline-block; padding:3px 10px; border-radius:20px; font-size:.72rem; font-weight:700; color:#fff; margin-top:4px; }
+</style>
+
+{% set disc_colors = {'Sanguine':'#f59e0b','Choleric':'#ef4444','Melancholic':'#3b82f6','Phlegmatic':'#16a34a'} %}
+{% set eq_colors = {'Self-Awareness':'#6366f1','Self-Regulation':'#0891b2','Motivation':'#f59e0b','Empathy':'#ec4899','Social Skills':'#16a34a','overall':'#7c3aed'} %}
+
+{# ── DISC Personality ── #}
+{% if assessments.disc_test %}
+{% set d = assessments.disc_test %}
+<div class="asr-card">
+  <div class="asr-header">
+    <span class="asr-icon">🧠</span>
+    <div>
+      <div class="asr-title">Personality Assessment (DISC)</div>
+      <div style="font-size:.72rem;color:var(--muted);">{{ d.attempt_num }} attempt{{ 's' if d.attempt_num != 1 else '' }}</div>
+    </div>
+  </div>
+  <div class="asr-label">{{ d.result_label }}</div>
+  {% set primary = d.result_label | replace('Primary: ','') %}
+  {% if d.result_data_parsed %}
+  {% set total_disc = d.result_data_parsed.values() | list | sum %}
+  {% for name, score in d.result_data_parsed.items() %}
+  {% set pct = (score / total_disc * 100) | round(1) if total_disc > 0 else 0 %}
+  <div class="asr-bar-row">
+    <div class="asr-bar-label">{{ name }}</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ pct }}%;background:{{ disc_colors.get(name,'#64748b') }};"></div>
+    </div>
+    <div class="asr-bar-val">{{ score }}</div>
+  </div>
+  {% endfor %}
+  {% endif %}
+  <div class="asr-meta">Completed {{ d.completed_at[:10] if d.completed_at else '—' }}
+    {% if d.time_secs %} · {{ (d.time_secs // 60) }}m {{ (d.time_secs % 60) }}s{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── English Proficiency ── #}
+{% if assessments.english_test %}
+{% set d = assessments.english_test %}
+{% set cefr_color = {'C2':'#7c3aed','C1':'#2563eb','B2':'#0891b2','B1':'#16a34a','A2':'#64748b'} %}
+{% set cefr_key = d.result_label[:2] if d.result_label else 'B1' %}
+<div class="asr-card">
+  <div class="asr-header">
+    <span class="asr-icon">📖</span>
+    <div>
+      <div class="asr-title">English Proficiency</div>
+      <div style="font-size:.72rem;color:var(--muted);">{{ d.attempt_num }} attempt{{ 's' if d.attempt_num != 1 else '' }}</div>
+    </div>
+  </div>
+  <div class="asr-label">{{ d.result_label }}</div>
+  <span class="asr-pill" style="background:{{ cefr_color.get(cefr_key,'#64748b') }};">
+    {{ cefr_key }}
+  </span>
+  {% if d.score_pct is not none %}
+  <div class="asr-bar-row" style="margin-top:12px;">
+    <div class="asr-bar-label">Score</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ d.score_pct | round(1) }}%;background:#2563eb;"></div>
+    </div>
+    <div class="asr-bar-val">{{ d.score_pct | round(1) }}%</div>
+  </div>
+  {% endif %}
+  {% if d.result_data_parsed %}
+  {% for cat, info in d.result_data_parsed.items() %}
+  {% if cat != 'overall' %}
+  {% set cat_pct = (info.c / info.t * 100) | round(1) if info.t > 0 else 0 %}
+  <div class="asr-bar-row">
+    <div class="asr-bar-label" style="font-size:.7rem;">{{ cat }}</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ cat_pct }}%;background:#0891b2;"></div>
+    </div>
+    <div class="asr-bar-val">{{ info.c }}/{{ info.t }}</div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% endif %}
+  <div class="asr-meta">Completed {{ d.completed_at[:10] if d.completed_at else '—' }}
+    {% if d.time_secs %} · {{ (d.time_secs // 60) }}m {{ (d.time_secs % 60) }}s{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── IQ / Logic ── #}
+{% if assessments.iq_test %}
+{% set d = assessments.iq_test %}
+{% set iq_band = d.result_label | replace('IQ Band: ','') if d.result_label else '' %}
+{% set iq_color = {'Superior':'#7c3aed','Above Average':'#2563eb','Average':'#16a34a','Below Average':'#64748b'} %}
+<div class="asr-card">
+  <div class="asr-header">
+    <span class="asr-icon">🔢</span>
+    <div>
+      <div class="asr-title">IQ &amp; Logical Reasoning</div>
+      <div style="font-size:.72rem;color:var(--muted);">{{ d.attempt_num }} attempt{{ 's' if d.attempt_num != 1 else '' }}</div>
+    </div>
+  </div>
+  <div class="asr-label">{{ iq_band }}</div>
+  <span class="asr-pill" style="background:{{ iq_color.get(iq_band,'#64748b') }};">{{ iq_band }}</span>
+  {% if d.score_pct is not none %}
+  <div class="asr-bar-row" style="margin-top:12px;">
+    <div class="asr-bar-label">Score</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ d.score_pct | round(1) }}%;background:{{ iq_color.get(iq_band,'#64748b') }};"></div>
+    </div>
+    <div class="asr-bar-val">{{ d.score_pct | round(1) }}%</div>
+  </div>
+  {% endif %}
+  <div class="asr-meta">Completed {{ d.completed_at[:10] if d.completed_at else '—' }}
+    {% if d.time_secs %} · {{ (d.time_secs // 60) }}m {{ (d.time_secs % 60) }}s{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{# ── Emotional Intelligence ── #}
+{% if assessments.eq_test %}
+{% set d = assessments.eq_test %}
+<div class="asr-card">
+  <div class="asr-header">
+    <span class="asr-icon">❤️</span>
+    <div>
+      <div class="asr-title">Emotional Intelligence (EQ)</div>
+      <div style="font-size:.72rem;color:var(--muted);">{{ d.attempt_num }} attempt{{ 's' if d.attempt_num != 1 else '' }}</div>
+    </div>
+  </div>
+  <div class="asr-label">{{ d.result_label }}</div>
+  {% if d.result_data_parsed %}
+  {% for dim, score in d.result_data_parsed.items() %}
+  {% if dim != 'overall' %}
+  {% set dim_pct = (score / 5 * 100) | round(1) %}
+  <div class="asr-bar-row">
+    <div class="asr-bar-label">{{ dim }}</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ dim_pct }}%;background:{{ eq_colors.get(dim,'#64748b') }};"></div>
+    </div>
+    <div class="asr-bar-val">{{ score }}/5</div>
+  </div>
+  {% endif %}
+  {% endfor %}
+  {% if d.result_data_parsed.overall is defined %}
+  <div class="asr-bar-row" style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);">
+    <div class="asr-bar-label" style="font-weight:700;">Overall</div>
+    <div class="asr-bar-track">
+      <div class="asr-bar-fill" style="width:{{ (d.result_data_parsed.overall / 5 * 100) | round(1) }}%;background:#7c3aed;"></div>
+    </div>
+    <div class="asr-bar-val">{{ d.result_data_parsed.overall }}/5</div>
+  </div>
+  {% endif %}
+  {% endif %}
+  <div class="asr-meta">Completed {{ d.completed_at[:10] if d.completed_at else '—' }}
+    {% if d.time_secs %} · {{ (d.time_secs // 60) }}m {{ (d.time_secs % 60) }}s{% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if not assessments %}
+<div style="color:var(--muted);font-size:.85rem;padding:20px 0;">No assessments completed yet.</div>
+{% endif %}

@@ -1174,6 +1174,7 @@ async def profile_page(request: Request):
     user = require_user(request)
     with get_db() as conn:
         emp = conn.execute("SELECT * FROM employees WHERE id=?", (user["id"],)).fetchone()
+        assessments = _get_onboarding_assessments(conn, user["id"])
     emp_dict = dict(emp)
     emp_dict.pop("hourly_rate", None)  # employees should not see their own rate
     status, doc_count = get_compliance_status(emp_dict)
@@ -1182,6 +1183,7 @@ async def profile_page(request: Request):
         "emp": emp_dict,
         "compliance_status": status,
         "doc_count": doc_count,
+        "assessments": assessments,
         "now": get_pht_now(),
         "flash": get_flash(request),
         **shared_ctx(user, request),
@@ -2209,6 +2211,7 @@ async def employee_profile_page(request: Request, emp_id: int):
                ORDER BY sr.submitted_at DESC, sq.sort_order""",
             (emp_id,)
         ).fetchall()
+        assessments = _get_onboarding_assessments(conn, emp_id)
     # Group survey results by survey title + submitted_at
     _survey_map = {}
     for r in survey_results:
@@ -2224,6 +2227,7 @@ async def employee_profile_page(request: Request, emp_id: int):
         "tasks": [dict(t) for t in tasks],
         "payslips": [dict(p) for p in payslips],
         "survey_results": grouped_surveys,
+        "assessments": assessments,
         "compliance_status": status,
         "doc_count": doc_count,
         "today_str": today_str,
@@ -5765,6 +5769,32 @@ def _ob_check_day_complete(conn, emp_id: int, day_num: int, assignment) -> bool:
     if done_days >= 5:
         conn.execute("UPDATE onboarding_assignments SET status='completed' WHERE emp_id=?", (emp_id,))
     return True
+
+
+def _get_onboarding_assessments(conn, emp_id: int) -> dict:
+    """Return latest attempt for each assessment type keyed by module_type."""
+    rows = conn.execute("""
+        SELECT m.module_type, m.title,
+               a.result_label, a.result_data, a.score_pct, a.time_secs,
+               a.completed_at, a.attempt_num
+        FROM onboarding_modules m
+        JOIN onboarding_quiz_attempts a ON a.module_id = m.id AND a.emp_id = ?
+        WHERE m.module_type IN ('disc_test','english_test','iq_test','eq_test')
+          AND a.attempt_num = (
+              SELECT MAX(a2.attempt_num) FROM onboarding_quiz_attempts a2
+              WHERE a2.module_id = m.id AND a2.emp_id = ?
+          )
+        ORDER BY m.day_num
+    """, (emp_id, emp_id)).fetchall()
+    result = {}
+    for r in rows:
+        d = dict(r)
+        try:
+            d["result_data_parsed"] = json.loads(d["result_data"]) if d["result_data"] else {}
+        except Exception:
+            d["result_data_parsed"] = {}
+        result[d["module_type"]] = d
+    return result
 
 
 # ── HR: list ──────────────────────────────────────────────────────────────────
