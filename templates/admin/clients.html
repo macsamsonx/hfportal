@@ -11,13 +11,18 @@
   <button class="btn btn-primary" onclick="openModal('add-client-modal')">+ Add Client</button>
 </div>
 
+{% if flash_msg %}
+<div class="alert alert-{{ flash_type or 'success' }}" style="margin-bottom:14px;">{{ flash_msg }}</div>
+{% endif %}
+
 <div class="card">
   <div class="card-header"><h3>All Clients ({{ clients | length }})</h3></div>
   <div class="table-wrapper">
     <table>
       <thead>
         <tr>
-          <th style="width:36px">Color</th>
+          <th style="width:44px">Logo</th>
+          <th style="width:28px">Color</th>
           <th>Name</th>
           <th>Status</th>
           <th>Actions</th>
@@ -27,7 +32,16 @@
         {% for c in clients %}
         <tr>
           <td>
-            <span style="display:inline-block;width:20px;height:20px;border-radius:4px;
+            {% if c.logo_url %}
+              <img src="{{ c.logo_url }}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:4px;border:1px solid var(--border);">
+            {% else %}
+              <div style="width:32px;height:32px;border-radius:4px;background:{{ c.hex_color }};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.8rem;border:1px solid rgba(0,0,0,.1);">
+                {{ c.name[0] | upper }}
+              </div>
+            {% endif %}
+          </td>
+          <td>
+            <span style="display:inline-block;width:18px;height:18px;border-radius:4px;
                          background:{{ c.hex_color }};border:1px solid rgba(0,0,0,.12);"></span>
           </td>
           <td class="fw-600">{{ c.name }}</td>
@@ -42,12 +56,12 @@
             <div class="flex gap-8">
               <a href="/clients/{{ c.id }}/dashboard" class="btn btn-primary btn-sm">📊 Dashboard</a>
               <button class="btn btn-outline btn-sm"
-                      onclick="openEditClient({{ c.id }}, '{{ c.name | e }}', '{{ c.hex_color }}')">
+                      onclick="openEditClient({{ c.id }}, '{{ c.name | e }}', '{{ c.hex_color }}', '{{ (c.logo_url or '') | e }}')">
                 Edit
               </button>
               {% if user.role == 'Admin' %}
               <form method="post" action="/api/clients/{{ c.id }}/delete">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
                 <button type="submit" class="btn btn-ghost btn-sm"
                         data-confirm="Remove client '{{ c.name }}'?">Delete</button>
               </form>
@@ -56,7 +70,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="4" class="text-center text-muted">No clients yet.</td></tr>
+        <tr><td colspan="5" class="text-center text-muted">No clients yet.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -65,30 +79,36 @@
 
 <!-- Add Client Modal -->
 <div class="modal-overlay" id="add-client-modal">
-  <div class="modal" style="max-width:360px;">
+  <div class="modal" style="max-width:400px;">
     <div class="modal-header">
       <span class="modal-title">Add Client</span>
       <button class="modal-close" onclick="closeModal('add-client-modal')">×</button>
     </div>
     <form method="post" action="/api/clients">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Client Name *</label>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Client Name <span style="color:red">*</span></label>
           <input type="text" name="name" class="form-input" required placeholder="e.g. Acme Corp">
         </div>
-        <div class="form-group">
-          <label class="form-label">Color</label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;" id="color-swatches-add">
-            {% set preset_colors = ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669'] %}
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Logo URL <span style="font-size:.72rem;color:var(--muted);">(optional — paste image URL)</span></label>
+          <input type="url" name="logo_url" id="add-logo-url" class="form-input" placeholder="https://…/logo.png"
+                 oninput="previewLogo(this.value,'add-logo-preview')">
+          <img id="add-logo-preview" src="" alt="" style="display:none;width:40px;height:40px;object-fit:contain;margin-top:6px;border-radius:6px;border:1px solid var(--border);">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Brand Color</label>
+          <div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:8px;" id="color-swatches-add">
+            {% set preset_colors = ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669','#0f172a','#1e40af','#4f46e5','#be185d','#0e7490'] %}
             {% for col in preset_colors %}
               <button type="button" class="color-swatch"
-                      style="width:24px;height:24px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
+                      style="width:22px;height:22px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
                       data-color="{{ col }}" data-target="add-hex-color"
                       onclick="pickColor(this,'add-hex-color')"></button>
             {% endfor %}
           </div>
-          <input type="color" name="hex_color" id="add-hex-color" value="#3b82f6" class="form-input" style="height:38px; padding:2px 4px;">
+          <input type="color" name="hex_color" id="add-hex-color" value="#3b82f6" class="form-input" style="height:36px; padding:2px 4px;">
         </div>
       </div>
       <div class="modal-footer">
@@ -101,29 +121,35 @@
 
 <!-- Edit Client Modal -->
 <div class="modal-overlay" id="edit-client-modal">
-  <div class="modal" style="max-width:360px;">
+  <div class="modal" style="max-width:400px;">
     <div class="modal-header">
       <span class="modal-title">Edit Client</span>
       <button class="modal-close" onclick="closeModal('edit-client-modal')">×</button>
     </div>
     <form method="post" id="edit-client-form">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label">Client Name *</label>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Client Name <span style="color:red">*</span></label>
           <input type="text" name="name" id="edit-client-name" class="form-input" required>
         </div>
-        <div class="form-group">
-          <label class="form-label">Color</label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
-            {% for col in ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669'] %}
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Logo URL <span style="font-size:.72rem;color:var(--muted);">(optional)</span></label>
+          <input type="url" name="logo_url" id="edit-logo-url" class="form-input" placeholder="https://…/logo.png"
+                 oninput="previewLogo(this.value,'edit-logo-preview')">
+          <img id="edit-logo-preview" src="" alt="" style="display:none;width:40px;height:40px;object-fit:contain;margin-top:6px;border-radius:6px;border:1px solid var(--border);">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Brand Color</label>
+          <div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:8px;">
+            {% for col in ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669','#0f172a','#1e40af','#4f46e5','#be185d','#0e7490'] %}
               <button type="button" class="color-swatch"
-                      style="width:24px;height:24px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
+                      style="width:22px;height:22px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
                       data-color="{{ col }}" data-target="edit-hex-color"
                       onclick="pickColor(this,'edit-hex-color')"></button>
             {% endfor %}
           </div>
-          <input type="color" name="hex_color" id="edit-hex-color" value="#3b82f6" class="form-input" style="height:38px; padding:2px 4px;">
+          <input type="color" name="hex_color" id="edit-hex-color" value="#3b82f6" class="form-input" style="height:36px; padding:2px 4px;">
         </div>
       </div>
       <div class="modal-footer">
@@ -137,18 +163,35 @@
 
 {% block extra_js %}
 <script>
-  function openEditClient(id, name, color) {
-    document.getElementById('edit-client-form').action = '/api/clients/' + id + '/update';
-    document.getElementById('edit-client-name').value = name;
-    document.getElementById('edit-hex-color').value = color;
-    openModal('edit-client-modal');
+function openEditClient(id, name, color, logoUrl) {
+  document.getElementById('edit-client-form').action = '/api/clients/' + id + '/update';
+  document.getElementById('edit-client-name').value = name;
+  document.getElementById('edit-hex-color').value = color;
+  const logoInput = document.getElementById('edit-logo-url');
+  logoInput.value = logoUrl || '';
+  previewLogo(logoUrl || '', 'edit-logo-preview');
+  openModal('edit-client-modal');
+}
+
+function pickColor(btn, targetId) {
+  document.getElementById(targetId).value = btn.dataset.color;
+  btn.closest('[style*="flex-wrap"]').querySelectorAll('.color-swatch').forEach(b => {
+    b.style.border = '2px solid transparent';
+  });
+  btn.style.border = '2px solid #000';
+}
+
+function previewLogo(url, previewId) {
+  const img = document.getElementById(previewId);
+  if (url && url.startsWith('http')) {
+    img.src = url;
+    img.style.display = 'block';
+    img.onerror = () => { img.style.display = 'none'; };
+    img.onload = () => { img.style.display = 'block'; };
+  } else {
+    img.style.display = 'none';
+    img.src = '';
   }
-  function pickColor(btn, targetId) {
-    document.getElementById(targetId).value = btn.dataset.color;
-    btn.closest('[style*="flex-wrap"]').querySelectorAll('.color-swatch').forEach(b => {
-      b.style.border = '2px solid transparent';
-    });
-    btn.style.border = '2px solid #000';
-  }
+}
 </script>
 {% endblock %}

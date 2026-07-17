@@ -1722,26 +1722,41 @@ async def clients_page(request: Request):
 
 
 @app.post("/api/clients")
-async def add_client(request: Request, name: str = Form(...), hex_color: str = Form("#3b82f6")):
+async def add_client(request: Request):
     require_role(request, "HR Manager", "Admin")
-    name = name.strip()
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    hex_color = form.get("hex_color") or "#3b82f6"
+    logo_url = (form.get("logo_url") or "").strip()
     if not name:
+        flash(request, "Client name is required.", "error")
         return RedirectResponse("/clients", status_code=302)
     with get_db() as conn:
+        existing = conn.execute("SELECT id FROM clients WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+        if existing:
+            flash(request, f'A client named "{name}" already exists.', "error")
+            return RedirectResponse("/clients", status_code=302)
         max_order = conn.execute("SELECT COALESCE(MAX(sort_order),0) FROM clients").fetchone()[0]
-        conn.execute("INSERT OR IGNORE INTO clients (name, hex_color, sort_order) VALUES (?, ?, ?)",
-                     (name, hex_color, max_order + 1))
+        conn.execute(
+            "INSERT INTO clients (name, hex_color, logo_url, sort_order) VALUES (?, ?, ?, ?)",
+            (name, hex_color, logo_url, max_order + 1))
     flash(request, f'Client "{name}" added.')
     return RedirectResponse("/clients", status_code=302)
 
 
 @app.post("/api/clients/{client_id}/update")
-async def update_client(request: Request, client_id: int,
-                        name: str = Form(...), hex_color: str = Form("#3b82f6")):
+async def update_client(request: Request, client_id: int):
     require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    name = (form.get("name") or "").strip()
+    hex_color = form.get("hex_color") or "#3b82f6"
+    logo_url = (form.get("logo_url") or "").strip()
+    if not name:
+        flash(request, "Client name is required.", "error")
+        return RedirectResponse("/clients", status_code=302)
     with get_db() as conn:
-        conn.execute("UPDATE clients SET name=?, hex_color=? WHERE id=?",
-                     (name.strip(), hex_color, client_id))
+        conn.execute("UPDATE clients SET name=?, hex_color=?, logo_url=? WHERE id=?",
+                     (name, hex_color, logo_url, client_id))
     flash(request, "Client updated.")
     return RedirectResponse("/clients", status_code=302)
 

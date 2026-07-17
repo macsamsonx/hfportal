@@ -973,6 +973,8 @@ def init_db():
         _clcols = {r[1] for r in conn.execute("PRAGMA table_info(clients)").fetchall()}
         if "monthly_retainer" not in _clcols:
             conn.execute("ALTER TABLE clients ADD COLUMN monthly_retainer REAL DEFAULT 0")
+        if "logo_url" not in _clcols:
+            conn.execute("ALTER TABLE clients ADD COLUMN logo_url TEXT DEFAULT ''")
 
         # ── Column migrations — registration_requests ─────────────────────────────
         _regcols = {r[1] for r in conn.execute("PRAGMA table_info(registration_requests)").fetchall()}
