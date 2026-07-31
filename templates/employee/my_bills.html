@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+{% block title %}My Bills{% endblock %}
+{% block page_title %}My Bills{% endblock %}
+
+{% block extra_head %}
+<style>
+.bills-wrap {
+  max-width: 680px;
+  margin: 0 auto;
+}
+.bills-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+.bills-card-header {
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.bills-card-title {
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.bills-card-sub {
+  font-size: .72rem;
+  color: var(--muted);
+}
+
+/* ── Bill row ── */
+.bill-row-wrap {
+  border-bottom: 1px solid var(--border);
+}
+.bill-row-wrap:last-child { border-bottom: none; }
+.bill-row-wrap.is-paid { background: #f0fdf4; }
+.bill-row-wrap.is-paid.dark-paid { background: #0c2a1a; }
+
+.bill-row {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: 62px;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Checkbox */
+.bill-cb-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  flex-shrink: 0;
+  align-self: stretch;
+  cursor: pointer;
+}
+.bill-cb {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.bill-cb.checked {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+.bill-cb.checked svg { display: block; }
+.bill-cb svg { display: none; width: 13px; height: 13px; }
+
+/* Expand arrow */
+.bill-arrow {
+  width: 18px;
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: .7rem;
+  transition: transform .15s;
+  margin-right: 2px;
+}
+.bill-arrow.open { transform: rotate(90deg); }
+
+/* Date block */
+.bill-date-block {
+  min-width: 56px;
+  flex-shrink: 0;
+  margin-right: 14px;
+}
+.bill-date-day {
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: var(--text);
+  line-height: 1.1;
+}
+.bill-date-mon {
+  font-size: .6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--muted);
+}
+.bill-due-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: .6rem;
+  font-weight: 800;
+  margin-top: 2px;
+}
+.badge-days-over { background: #fee2e2; color: #dc2626; }
+.badge-days-soon { background: #fef3c7; color: #b45309; }
+
+/* Name / type */
+.bill-name-col { flex: 1; min-width: 0; padding-right: 10px; }
+.bill-name-text {
+  font-size: .9rem;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bill-name-text.paid-strike {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+.bill-type-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+}
+.type-badge {
+  font-size: .65rem;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.type-recurring { background: #ede9fe; color: #6d28d9; }
+.type-once      { background: var(--surface-2); color: var(--muted); }
+.type-paid      { color: #16a34a; font-size: .68rem; font-weight: 800; }
+
+/* Amount */
+.bill-amount-col {
+  font-size: .95rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+  padding-right: 16px;
+  color: var(--text);
+}
+.bill-amount-col.paid-strike {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+/* Expanded detail */
+.bill-detail-panel {
+  background: var(--surface-2);
+  border-top: 1px solid var(--border);
+  padding: 12px 52px 14px 52px;
+  display: none;
+}
+.bill-detail-panel.open { display: block; }
+.detail-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  border-bottom: 1px dashed var(--border);
+  font-size: .82rem;
+  gap: 12px;
+}
+.detail-kv:last-of-type { border-bottom: none; }
+.detail-kv-label { color: var(--muted); flex-shrink: 0; }
+.detail-kv-val { font-weight: 700; text-align: right; word-break: break-all; }
+.detail-actions { display: flex; gap: 7px; margin-top: 10px; }
+.detail-note { font-size: .78rem; color: var(--muted); font-style: italic; margin-top: 8px; line-height: 1.5; padding-bottom: 4px; }
+
+/* Totals footer */
+.bills-totals {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.totals-row-dark {
+  background: #1e293b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+}
+.totals-row-red {
+  background: #c0392b;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-radius: 0 0 14px 14px;
+}
+.totals-label { font-size: .78rem; font-weight: 700; color: rgba(255,255,255,.7); }
+.totals-amount { font-size: 1.1rem; font-weight: 900; font-variant-numeric: tabular-nums; color: #fff; }
+
+/* Header bar */
+.bills-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+/* Modal */
+.type-toggle { display: flex; border-radius: 8px; overflow: hidden; border: 1.5px solid var(--border); }
+.type-toggle button { flex: 1; border: none; background: var(--surface-2); color: var(--muted); font-size: .78rem; font-weight: 700; padding: 8px; cursor: pointer; transition: all .15s; }
+.type-toggle button.active { background: var(--primary); color: #fff; }
+.form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+@media (prefers-color-scheme: dark) {
+  .bill-row-wrap.is-paid { background: #0c2a1a; }
+  .type-recurring { background: #2d1b6e; color: #a78bfa; }
+}
+:root[data-theme="dark"] .bill-row-wrap.is-paid { background: #0c2a1a; }
+:root[data-theme="dark"] .type-recurring { background: #2d1b6e; color: #a78bfa; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set mon_names = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+
+<div class="bills-wrap">
+
+  <!-- Page header -->
+  <div class="bills-page-header">
+    <div>
+      <h2 style="font-size:1.2rem;font-weight:900;margin-bottom:2px;">💳 My Bills</h2>
+      <div style="font-size:.75rem;color:var(--muted);">Track and manage your personal bills</div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Add Bill</button>
+  </div>
+
+  {% if flash %}
+  <div class="alert alert-{{ flash.kind or 'info' }}" style="margin-bottom:14px;">{{ flash.msg }}</div>
+  {% endif %}
+
+  <!-- Bills card -->
+  <div class="bills-card">
+    <div class="bills-card-header">
+      <div class="bills-card-title">Bills to Pay</div>
+      <div class="bills-card-sub">
+        Sorted by due date · as of {{ today[:7] | replace('-',' ') }} ·
+        tap a bill for details, check off once paid
+      </div>
+    </div>
+
+    {% if bills %}
+      {% for b in bills %}
+      {% set is_over = b.due_date < today %}
+      {% set is_soon = not is_over and b.due_date <= soon %}
+      <div class="bill-row-wrap{% if b.paid %} is-paid{% endif %}" id="row-{{ b.id }}">
+        <div class="bill-row">
+
+          <!-- Checkbox -->
+          <div class="bill-cb-wrap" onclick="togglePaid({{ b.id }})">
+            <div class="bill-cb{% if b.paid %} checked{% endif %}" id="cb-{{ b.id }}">
+              <svg viewBox="0 0 13 11" fill="none">
+                <path d="M1.5 5.5L5 9L11.5 2" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Expand arrow -->
+          <span class="bill-arrow" id="arrow-{{ b.id }}">▶</span>
+
+          <!-- Clickable area: date + name + amount -->
+          <div style="display:flex;align-items:center;flex:1;min-width:0;" onclick="toggleDetail({{ b.id }})">
+
+            <!-- Date -->
+            <div class="bill-date-block">
+              <div class="bill-date-mon">{{ mon_names[b.due_date[5:7] | int] }}</div>
+              <div class="bill-date-day">{{ b.due_date[8:10] | int }}</div>
+              {% if not b.paid %}
+                {% if is_over %}
+                  <div class="bill-due-badge badge-days-over">Overdue</div>
+                {% elif is_soon %}
+                  <div class="bill-due-badge badge-days-soon">{{ b.due_date }} </div>
+                {% endif %}
+              {% endif %}
+            </div>
+
+            <!-- Name + type -->
+            <div class="bill-name-col">
+              <div class="bill-name-text{% if b.paid %} paid-strike{% endif %}">{{ b.name }}</div>
+              <div class="bill-type-row">
+                {% if b.paid %}
+                  <span class="type-paid">Paid</span>
+                {% else %}
+                  {% if b.type == 'recurring' %}
+                    <span class="type-badge type-recurring">Recurring</span>
+                  {% else %}
+                    <span class="type-badge type-once">One-time</span>
+                  {% endif %}
+                {% endif %}
+              </div>
+            </div>
+
+            <!-- Amount -->
+            <div class="bill-amount-col{% if b.paid %} paid-strike{% endif %}">
+              ₱{{ "{:,.2f}".format(b.amount) }}
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Expanded detail panel -->
+        <div class="bill-detail-panel" id="detail-{{ b.id }}">
+          {% if b.payee %}
+          <div class="detail-kv">
+            <span class="detail-kv-label">Account</span>
+            <span class="detail-kv-val">{{ b.payee }}</span>
+          </div>
+          {% endif %}
+          {% if b.acct_number %}
+          <div class="detail-kv">
+            <span class="detail-kv-label">Account / Card No.</span>
+            <span class="detail-kv-val">{{ b.acct_number }}</span>
+          </div>
+          {% endif %}
+          {% if b.paid_at %}
+          <div class="detail-kv">
+            <span class="detail-kv-label">Paid on</span>
+            <span class="detail-kv-val">{{ b.paid_at[:10] }}</span>
+          </div>
+          {% endif %}
+          {% if b.notes %}
+          <div class="detail-note">{{ b.notes }}</div>
+          {% endif %}
+          <div class="detail-actions">
+            <button class="btn btn-outline btn-sm"
+                    data-id="{{ b.id }}"
+                    data-name="{{ b.name | e }}"
+                    data-amount="{{ b.amount }}"
+                    data-due="{{ b.due_date }}"
+                    data-payee="{{ b.payee | e }}"
+                    data-acct="{{ b.acct_number | e }}"
+                    data-notes="{{ b.notes | e }}"
+                    data-type="{{ b.type }}"
+                    onclick="openEditModalFromEl(this)">✏️ Edit</button>
+            {% if b.type == 'recurring' and b.paid %}
+            <form method="post" action="/my-bills/{{ b.id }}/reset" style="margin:0;" onsubmit="return confirm('Reset this bill for next month?')">
+              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+              <button class="btn btn-outline btn-sm" type="submit">🔁 Next month</button>
+            </form>
+            {% endif %}
+            <form method="post" action="/my-bills/{{ b.id }}/delete" style="margin:0;" onsubmit="return confirm('Delete this bill?')">
+              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+              <button class="btn btn-sm" type="submit" style="background:#fee2e2;color:#dc2626;border:none;padding:6px 11px;border-radius:7px;font-size:.75rem;font-weight:700;cursor:pointer;">🗑 Delete</button>
+            </form>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="text-align:center;padding:48px 24px;color:var(--muted);">
+        <div style="font-size:2.5rem;margin-bottom:10px;">💳</div>
+        <p style="font-size:.9rem;line-height:1.6;">No bills yet.<br>Tap <strong>+ Add Bill</strong> to start tracking.</p>
+      </div>
+    {% endif %}
+  </div>
+
+  <!-- Totals footer -->
+  {% if bills %}
+  {% set total_all    = bills | sum(attribute='amount') %}
+  {% set total_unpaid = bills | selectattr('paid','equalto',0) | sum(attribute='amount') %}
+  <div class="bills-totals">
+    <div class="totals-row-dark">
+      <span class="totals-label">Total Bills</span>
+      <span class="totals-amount">₱{{ "{:,.2f}".format(total_all) }}</span>
+    </div>
+    <div class="totals-row-red">
+      <span class="totals-label">Still Need to Pay</span>
+      <span class="totals-amount">₱{{ "{:,.2f}".format(total_unpaid) }}</span>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Add / Edit Modal -->
+<div class="modal-overlay" id="modal-overlay" style="display:none;align-items:flex-end;" onclick="handleOverlayClick(event)">
+  <div class="modal" id="modal">
+    <div style="display:flex;align-items:center;margin-bottom:18px;">
+      <div style="font-size:1rem;font-weight:800;flex:1;" id="modal-title">Add Bill</div>
+      <button class="btn btn-outline btn-sm" onclick="closeModal()">✕</button>
+    </div>
+
+    <form id="bill-form" method="post" action="/my-bills/add">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <input type="hidden" name="type" id="bill-type" value="recurring">
+
+      <div class="form-group">
+        <label>Type</label>
+        <div class="type-toggle">
+          <button type="button" id="type-btn-recurring" class="active" onclick="setType('recurring')">🔁 Recurring</button>
+          <button type="button" id="type-btn-one_time" onclick="setType('one_time')">1️⃣ One-time</button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Bill Name <span style="color:#ef4444;">*</span></label>
+        <input type="text" name="name" id="f-name" placeholder="e.g. Meralco, Globe Postpaid…" maxlength="80" required>
+      </div>
+
+      <div class="form-row-2">
+        <div class="form-group">
+          <label>Amount (₱) <span style="color:#ef4444;">*</span></label>
+          <input type="number" name="amount" id="f-amount" placeholder="0.00" min="0" step="0.01" required>
+        </div>
+        <div class="form-group">
+          <label>Due Date <span style="color:#ef4444;">*</span></label>
+          <input type="date" name="due_date" id="f-due" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Payee / Account Name</label>
+        <input type="text" name="payee" id="f-payee" placeholder="e.g. Meralco, BPI Credit Card">
+      </div>
+
+      <div class="form-group">
+        <label>Account / Card Number</label>
+        <input type="text" name="acct_number" id="f-acct" placeholder="e.g. 4123 **** **** 5678">
+      </div>
+
+      <div class="form-group">
+        <label>Notes</label>
+        <textarea name="notes" id="f-notes" rows="2" placeholder="Optional notes…" style="resize:vertical;"></textarea>
+      </div>
+
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+        <button type="button" class="btn btn-outline btn-sm" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">Save Bill</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+/* ── Expand / collapse ── */
+const _open = new Set();
+function toggleDetail(id) {
+  const panel = document.getElementById('detail-'+id);
+  const arrow = document.getElementById('arrow-'+id);
+  if (_open.has(id)) {
+    _open.delete(id);
+    panel.classList.remove('open');
+    arrow.classList.remove('open');
+  } else {
+    _open.add(id);
+    panel.classList.add('open');
+    arrow.classList.add('open');
+  }
+}
+
+/* ── Paid toggle ── */
+function togglePaid(id) {
+  fetch('/my-bills/'+id+'/toggle-paid', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','X-Requested-With':'fetch'},
+    body: '{}'
+  }).then(r=>r.json()).then(d=>{ if (d.ok) location.reload(); });
+}
+
+/* ── Modal ── */
+function openAddModal() {
+  document.getElementById('bill-form').action = '/my-bills/add';
+  document.getElementById('modal-title').textContent = 'Add Bill';
+  document.getElementById('bill-form').reset();
+  setType('recurring');
+  document.getElementById('f-due').value = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-overlay').style.display = 'flex';
+  setTimeout(()=>document.getElementById('f-name').focus(), 100);
+}
+
+function openEditModalFromEl(btn) {
+  document.getElementById('bill-form').action = '/my-bills/'+btn.dataset.id+'/edit';
+  document.getElementById('modal-title').textContent = 'Edit Bill';
+  document.getElementById('f-name').value   = btn.dataset.name   || '';
+  document.getElementById('f-amount').value = btn.dataset.amount || '';
+  document.getElementById('f-due').value    = btn.dataset.due    || '';
+  document.getElementById('f-payee').value  = btn.dataset.payee  || '';
+  document.getElementById('f-acct').value   = btn.dataset.acct   || '';
+  document.getElementById('f-notes').value  = btn.dataset.notes  || '';
+  setType(btn.dataset.type || 'recurring');
+  document.getElementById('modal-overlay').style.display = 'flex';
+}
+
+function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
+function handleOverlayClick(e) { if (e.target === document.getElementById('modal-overlay')) closeModal(); }
+
+function setType(t) {
+  document.getElementById('bill-type').value = t;
+  document.getElementById('type-btn-recurring').classList.toggle('active', t==='recurring');
+  document.getElementById('type-btn-one_time').classList.toggle('active', t==='one_time');
+}
+</script>
+{% endblock %}

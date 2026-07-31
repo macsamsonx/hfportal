@@ -84,6 +84,9 @@
         <a href="/onboarding" class="nav-link {% if request.url.path.startswith('/onboarding') %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
         </a>
+        <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
+          <span class="icon">💳</span> My Bills
+        </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
@@ -177,6 +180,9 @@
 
       {% elif user.role == 'Admin' %}
         <div class="nav-section">Operations</div>
+        <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
+          <span class="icon">🏠</span> My Dashboard
+        </a>
         <a href="/admin-dashboard" class="nav-link {% if request.url.path == '/admin-dashboard' %}active{% endif %}">
           <span class="icon">📈</span> Executive View
         </a>
@@ -221,6 +227,9 @@
         </a>
         <a href="/hr/onboarding" class="nav-link {% if '/hr/onboarding' in request.url.path %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
+        </a>
+        <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
+          <span class="icon">💳</span> My Bills
         </a>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll

@@ -2,445 +2,522 @@
 {% block title %}Dashboard{% endblock %}
 {% block page_title %}My Dashboard{% endblock %}
 
+{% block extra_head %}
+<style>
+/* ── Stat grid ── */
+.dash-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.dash-stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  min-height: 100px;
+}
+.dash-stat-icon { font-size: 1.4rem; line-height: 1; }
+.dash-stat-label { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
+.dash-stat-value { font-size: 1.5rem; font-weight: 900; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
+.dash-stat-sub { font-size: .68rem; color: var(--muted); }
+.dash-stat.accent { background: var(--primary); border-color: var(--primary); }
+.dash-stat.accent .dash-stat-label,
+.dash-stat.accent .dash-stat-value,
+.dash-stat.accent .dash-stat-sub { color: #fff; }
+.dash-stat.accent .dash-stat-value { color: rgba(255,255,255,.95); }
+
+/* ── Verse square ── */
+.verse-square {
+  background: var(--primary);
+  border-radius: 14px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: var(--shadow);
+  min-height: 100px;
+  position: relative;
+  overflow: hidden;
+}
+.verse-square::before {
+  content: '✝';
+  position: absolute; top: -8px; right: 4px;
+  font-size: 4rem; color: rgba(255,255,255,.08);
+  pointer-events: none; user-select: none; line-height: 1;
+}
+.verse-text { font-size: .75rem; font-style: italic; color: rgba(255,255,255,.9); line-height: 1.5; position: relative; }
+.verse-ref  { font-size: .62rem; font-weight: 700; color: rgba(255,255,255,.6); position: relative; }
+
+/* ── Clock square ── */
+.clock-square {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  box-shadow: var(--shadow);
+  min-height: 100px;
+  text-align: center;
+}
+.clock-time { font-size: 1.45rem; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1; }
+.clock-date { font-size: .65rem; color: var(--muted); margin-top: 2px; }
+
+/* ── Attendance strip ── */
+.att-strip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 20px;
+}
+
+/* ── Section card ── */
+.dash-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+.dash-section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px; border-bottom: 1px solid var(--border);
+  font-weight: 800; font-size: .9rem;
+}
+
+/* ── My cards (assigned) ── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  padding: 14px;
+}
+.task-card-box {
+  background: var(--surface-2);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.task-card-title { font-weight: 700; font-size: .85rem; line-height: 1.3; }
+.task-card-meta  { display: flex; gap: 5px; flex-wrap: wrap; align-items: center; }
+.task-card-actions { display: flex; gap: 5px; margin-top: 4px; }
+
+/* ── Transfer button ── */
+.btn-transfer {
+  font-size: .72rem; font-weight: 700; padding: 4px 10px; border-radius: 6px;
+  background: var(--surface); border: 1.5px solid var(--border); color: var(--text);
+  cursor: pointer; transition: all .15s;
+}
+.btn-transfer:hover { border-color: var(--primary); color: var(--primary); }
+
+/* ── Status stripes on task-card ── */
+.task-card-box[data-status="In Progress"] { border-left: 3px solid #2563eb; }
+.task-card-box[data-status="For Review"]  { border-left: 3px solid #f59e0b; }
+.task-card-box[data-status="Todo"]        { border-left: 3px solid #94a3b8; }
+.task-card-box[data-status="Done"]        { border-left: 3px solid #16a34a; }
+
+/* ── Task log table ── */
+.log-tab { padding: 9px 14px; font-size: .8rem; font-weight: 600; border: none; background: none; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.log-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.35} }
+</style>
+{% endblock %}
+
 {% block content %}
 
-{# ── Client colour map ─────────────────────────────────────────────────────── #}
+{# ── Client colour map ── #}
 {% set cc = {} %}
-{% for c in clients %}
-  {% set _ = cc.update({c.name: c.hex_color}) %}
-{% endfor %}
+{% for c in clients %}{% set _ = cc.update({c.name: c.hex_color}) %}{% endfor %}
+{% set tasks_today = tasks_month | selectattr('date_logged','eq',today) | list %}
+{% set tasks_week  = tasks_month | selectattr('date_logged','ge',week_start) | selectattr('date_logged','le',week_end) | list %}
+{% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
 
-{# ── Date filters ──────────────────────────────────────────────────────────── #}
-{% set tasks_today  = tasks_month | selectattr('date_logged', 'eq', today)  | list %}
-{% set tasks_week   = tasks_month | selectattr('date_logged', 'ge', week_start) | selectattr('date_logged', 'le', week_end) | list %}
-
-{# ── Birthday banner ──────────────────────────────────────────────────────── #}
+{# ── Birthday banner ── #}
 {% if birthday_people %}
-<div style="background:linear-gradient(135deg,#fef08a,#fde047); border:1px solid #facc15; border-radius:12px;
-            padding:14px 20px; margin-bottom:16px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+<div style="background:linear-gradient(135deg,#fef08a,#fde047);border:1px solid #facc15;border-radius:12px;
+            padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
   <div style="font-size:2rem;">🎂</div>
   <div>
-    <div style="font-weight:800; font-size:1rem; color:#713f12;">Happy Birthday!</div>
-    <div style="font-size:.88rem; color:#92400e; margin-top:2px;">
-      {% for b in birthday_people %}
-        <strong>{{ b.name }}</strong>{% if not loop.last %}, {% endif %}
-      {% endfor %}
+    <div style="font-weight:800;font-size:1rem;color:#713f12;">Happy Birthday!</div>
+    <div style="font-size:.88rem;color:#92400e;margin-top:2px;">
+      {% for b in birthday_people %}<strong>{{ b.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
       — wishing you a wonderful day! 🎉
     </div>
   </div>
 </div>
 {% endif %}
 
-{# ── Bible verse banner ──────────────────────────────────────────────────────── #}
-{% if verse %}
-<div style="background:var(--primary); border-radius:12px; padding:20px 28px; margin-bottom:20px; text-align:center; position:relative; overflow:hidden;">
-  <div style="position:absolute; inset:0; opacity:.08; font-size:8rem; line-height:1; display:flex; align-items:center; justify-content:center; pointer-events:none; user-select:none;">✝</div>
-  <div style="font-size:1.08rem; font-weight:600; color:#fff; line-height:1.6; font-style:italic; position:relative;">
-    "{{ verse.verse }}"
-  </div>
-  <div style="font-size:.78rem; color:rgba(255,255,255,.75); margin-top:8px; font-weight:600; position:relative;">
-    — {{ verse.ref }}
-  </div>
-</div>
-{% endif %}
+{# ── STAT + VERSE GRID ── #}
+<div class="dash-stat-grid">
 
-{# ── TOP ROW: clock + stats + attendance ──────────────────────────────────── #}
-<div style="display:flex; gap:12px; align-items:stretch; margin-bottom:20px; flex-wrap:wrap;">
-
-  <!-- Live clock (PHT) -->
-  <div class="card" style="padding:14px 20px; text-align:center; flex:0 0 auto; min-width:160px;">
-    <div id="live-clock-big" style="font-size:1.6rem; font-weight:800; line-height:1; font-variant-numeric:tabular-nums; color:var(--primary);"></div>
-    <div class="text-xs text-muted mt-4" id="live-date-big"></div>
-    <div class="mt-6"><span class="badge badge-blue">{{ user.shift_type }} Shift</span></div>
-    <div class="mt-4" style="font-size:.65rem; color:var(--muted);">Philippine Time</div>
+  <!-- Live clock -->
+  <div class="clock-square">
+    <div id="live-clock-big" class="clock-time">--:--:--</div>
+    <div id="live-date-big" class="clock-date"></div>
+    <div style="margin-top:4px;"><span class="badge badge-blue" style="font-size:.62rem;">{{ user.shift_type }} Shift</span></div>
   </div>
+
+  <!-- Bible verse -->
+  {% if verse %}
+  <div class="verse-square" style="grid-column: span 2;">
+    <div class="verse-text">"{{ verse.verse }}"</div>
+    <div class="verse-ref">— {{ verse.ref }}</div>
+  </div>
+  {% endif %}
 
   <!-- Hours this week -->
-  <div class="stat-card" style="flex:1; min-width:140px;">
-    <div class="stat-icon blue">⏱</div>
-    <div>
-      <div class="stat-label">Hours This Week</div>
-      <div class="stat-value">{{ week_hours }}</div>
-      {% set ot = [week_hours - 40, 0] | max %}
-      <div class="stat-sub">{% if ot > 0 %}OT: +{{ ot }}h{% else %}Regular{% endif %}</div>
-    </div>
+  <div class="dash-stat">
+    <div class="dash-stat-icon">⏱</div>
+    <div class="dash-stat-label">This Week</div>
+    <div class="dash-stat-value">{{ week_hours }}h</div>
+    {% set ot = [week_hours - 40, 0] | max %}
+    <div class="dash-stat-sub">{% if ot > 0 %}OT +{{ ot }}h{% else %}Regular{% endif %}</div>
   </div>
 
   <!-- Done today -->
-  <div class="stat-card" style="flex:1; min-width:140px;">
-    <div class="stat-icon green">✅</div>
-    <div>
-      <div class="stat-label">Done Today</div>
-      <div class="stat-value">{{ tasks_today | selectattr('status', 'eq', 'Done') | list | length }}</div>
-      <div class="stat-sub">{{ tasks_today | length }} tasks today</div>
-    </div>
+  <div class="dash-stat">
+    <div class="dash-stat-icon">✅</div>
+    <div class="dash-stat-label">Done Today</div>
+    <div class="dash-stat-value">{{ tasks_today | selectattr('status','eq','Done') | list | length }}</div>
+    <div class="dash-stat-sub">of {{ tasks_today | length }} tasks</div>
   </div>
 
-  <!-- Timesheet status widget -->
-  {% set ts_icon = {'Draft':'📝','Submitted':'📤','Approved':'✅','Returned':'↩️'} %}
-  {% set ts_grad = {
-    'Approved': 'linear-gradient(135deg,#16a34a,#4ade80)',
-    'Returned': 'linear-gradient(135deg,#dc2626,#f87171)',
-    'Submitted': 'linear-gradient(135deg,#2563eb,#60a5fa)',
-    'Draft':    'linear-gradient(135deg,#d97706,#fbbf24)'
-  } %}
-  <a href="/my-timesheet" style="flex:1; min-width:140px; text-decoration:none;">
-    <div style="border-radius:var(--radius); padding:20px 22px;
-                background:{{ ts_grad.get(timesheet_status, 'linear-gradient(135deg,#64748b,#94a3b8)') }};
-                display:flex; align-items:center; gap:12px; color:#fff; box-shadow:var(--shadow);">
-      <div style="font-size:1.8rem; opacity:.9;">{{ ts_icon.get(timesheet_status, '🗓️') }}</div>
-      <div>
-        <div style="font-size:.68rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; opacity:.8;">Timesheet</div>
-        <div style="font-size:1.05rem; font-weight:800; margin-top:2px;">{{ timesheet_status or 'No Entry' }}</div>
-        <div style="font-size:.72rem; opacity:.7; margin-top:2px;">this week</div>
-      </div>
+  <!-- VL balance -->
+  {% if vl_enabled %}
+  <div class="dash-stat">
+    <div class="dash-stat-icon">🏖</div>
+    <div class="dash-stat-label">VL Balance</div>
+    <div class="dash-stat-value">{{ vl_balance }}</div>
+    <div class="dash-stat-sub">of {{ vl_total }} days</div>
+  </div>
+  {% endif %}
+
+  <!-- SL balance -->
+  {% if sl_enabled %}
+  <div class="dash-stat">
+    <div class="dash-stat-icon">🏥</div>
+    <div class="dash-stat-label">SL Balance</div>
+    <div class="dash-stat-value">{{ sl_balance }}</div>
+    <div class="dash-stat-sub">of {{ sl_total }} days</div>
+  </div>
+  {% endif %}
+
+  <!-- Timesheet status -->
+  {% set ts_color = {'Approved':'#16a34a','Returned':'#dc2626','Submitted':'#2563eb','Draft':'#d97706'} %}
+  <a href="/my-timesheet" style="text-decoration:none;">
+    <div class="dash-stat" style="border-color:{{ ts_color.get(timesheet_status,'#94a3b8') }}22;background:{{ ts_color.get(timesheet_status,'#94a3b8') }}10;">
+      <div class="dash-stat-icon">🗓</div>
+      <div class="dash-stat-label">Timesheet</div>
+      <div class="dash-stat-value" style="font-size:1rem;color:{{ ts_color.get(timesheet_status,'var(--muted)') }};">{{ timesheet_status or 'No Entry' }}</div>
+      <div class="dash-stat-sub">this week</div>
     </div>
   </a>
 
-  <!-- Pending requests widget -->
+  <!-- Pending -->
   {% set total_pending = (pending_ot_mine or 0) + (pending_leave_mine or 0) %}
   {% if total_pending > 0 or for_review_mine > 0 %}
-  <div class="stat-card yellow" style="flex:1; min-width:120px;">
-    <div class="stat-icon yellow">⏳</div>
-    <div>
-      <div class="stat-label">Pending</div>
-      <div class="stat-value">{{ total_pending + for_review_mine }}</div>
-      <div class="stat-sub">
-        {% if pending_ot_mine %}{{ pending_ot_mine }} OT{% endif %}
-        {% if pending_leave_mine %}{% if pending_ot_mine %} · {% endif %}{{ pending_leave_mine }} Leave{% endif %}
-        {% if for_review_mine %}{% if total_pending %} · {% endif %}{{ for_review_mine }} Review{% endif %}
-      </div>
+  <div class="dash-stat" style="border-color:#f59e0b44;background:#f59e0b0a;">
+    <div class="dash-stat-icon">⏳</div>
+    <div class="dash-stat-label">Pending</div>
+    <div class="dash-stat-value" style="color:#d97706;">{{ total_pending + for_review_mine }}</div>
+    <div class="dash-stat-sub">
+      {% if pending_ot_mine %}{{ pending_ot_mine }} OT{% endif %}
+      {% if pending_leave_mine %}{% if pending_ot_mine %} · {% endif %}{{ pending_leave_mine }} Leave{% endif %}
+      {% if for_review_mine %}{% if total_pending %} · {% endif %}{{ for_review_mine }} Review{% endif %}
     </div>
   </div>
   {% endif %}
 
-  <!-- Attendance / Clock in-out — BIG card -->
-  <div class="card" style="flex:3; min-width:300px; padding:20px 24px;">
+</div>
 
-    {# ── Dynamic Island Status Bar ────────────────────────────────────── #}
-    {% if attendance and attendance.clock_in %}
-      {% if attendance.clock_out %}
-        <!-- Clocked Out — pill -->
-        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
-                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
-                    box-shadow:0 2px 12px rgba(0,0,0,.4); font-family:monospace; min-height:54px;">
-          <span style="width:10px;height:10px;border-radius:50%;background:#6b7280;flex-shrink:0;"></span>
-          <div style="flex:1;">
-            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#9ca3af; font-weight:700;">Shift Complete</div>
-            <div style="font-size:.95rem; font-weight:800; color:#e5e7eb;">
-              {{ attendance.clock_in[:5] }} → {{ attendance.clock_out[:5] }}
-              {% if active_hours %}<span style="opacity:.5; font-size:.75rem; margin-left:8px;">{{ active_hours }}h worked</span>{% endif %}
-            </div>
+{# ── ATTENDANCE STRIP ── #}
+<div class="att-strip" style="margin-bottom:20px;">
+  {% if attendance and attendance.clock_in %}
+    {% if attendance.clock_out %}
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:#6b7280;flex-shrink:0;"></div>
+        <div>
+          <div style="font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);">Shift Complete</div>
+          <div style="font-size:1rem;font-weight:800;">{{ attendance.clock_in[:5] }} → {{ attendance.clock_out[:5] }}
+            {% if active_hours %}<span style="font-size:.75rem;color:var(--muted);margin-left:8px;">{{ active_hours }}h worked</span>{% endif %}
           </div>
-          <span style="font-size:1.1rem;">⏹</span>
         </div>
-
-      {% elif attendance.is_on_break %}
-        <!-- On Break — pill -->
-        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
-                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
-                    box-shadow:0 2px 16px rgba(251,146,60,.25); font-family:monospace; min-height:54px;"
-             id="break-status-bar"
-             data-break-min="{{ break_minutes }}">
-          <span style="width:10px;height:10px;border-radius:50%;background:#fb923c;flex-shrink:0;
-                       animation:pulse-dot 1.5s infinite;"></span>
-          <div style="flex:1;">
-            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#fb923c; font-weight:700;">On Break</div>
-            <div id="break-elapsed" style="font-size:1.15rem; font-weight:800; color:#fb923c; font-variant-numeric:tabular-nums;">
-              {{ (break_minutes | int) }}:00
-            </div>
-          </div>
-          <form method="post" action="/api/break/end">
+      </div>
+    {% elif attendance.is_on_break %}
+      <div style="display:flex;align-items:center;gap:12px;" id="break-status-bar" data-break-min="{{ break_minutes }}">
+        <div style="width:10px;height:10px;border-radius:50%;background:#fb923c;flex-shrink:0;animation:pulse-dot 1.5s infinite;"></div>
+        <div style="flex:1;">
+          <div style="font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#fb923c;">On Break</div>
+          <div id="break-elapsed" style="font-size:1rem;font-weight:800;color:#fb923c;font-variant-numeric:tabular-nums;">{{ (break_minutes|int) }}:00</div>
+        </div>
+        <form method="post" action="/api/break/end">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-success btn-sm">▶ Resume</button>
+        </form>
+      </div>
+    {% else %}
+      <div style="display:flex;align-items:center;gap:12px;" id="active-status-bar"
+           data-clock-in="{{ attendance.clock_in }}" data-break-min="{{ break_minutes }}">
+        <div style="width:10px;height:10px;border-radius:50%;background:#4ade80;flex-shrink:0;animation:pulse-dot 1.5s infinite;"></div>
+        <div style="flex:1;">
+          <div style="font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#16a34a;">Active</div>
+          <div id="running-elapsed" style="font-size:1rem;font-weight:800;color:#16a34a;font-variant-numeric:tabular-nums;">--:--:--</div>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
+          <form method="post" action="/api/break/start">
             <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-            <button type="submit" class="btn btn-success btn-sm" style="border-radius:9999px; padding:5px 14px;">▶ Resume</button>
+            <button type="submit" class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;font-weight:600;padding:5px 12px;border-radius:7px;">⏸ Break</button>
+          </form>
+          <form method="post" action="/api/clock-out" style="display:flex;gap:4px;align-items:center;">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <input type="time" name="clock_time" value="{{ now[11:16] if now else '' }}"
+                   style="border:1px solid var(--border);border-radius:6px;background:var(--surface-2);color:var(--text);padding:3px 6px;font-size:.72rem;width:82px;">
+            <button type="submit" class="btn btn-danger btn-sm">■ Clock Out</button>
           </form>
         </div>
-
-      {% else %}
-        <!-- Active / Clocked In — pill -->
-        <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
-                    display:flex; align-items:center; gap:12px; margin-bottom:14px;
-                    box-shadow:0 2px 16px rgba(74,222,128,.2); font-family:monospace; min-height:54px;"
-             id="active-status-bar"
-             data-clock-in="{{ attendance.clock_in }}"
-             data-break-min="{{ break_minutes }}">
-          <span style="width:10px;height:10px;border-radius:50%;background:#4ade80;flex-shrink:0;
-                       animation:pulse-dot 1.5s infinite;"></span>
-          <div style="flex:1;">
-            <div style="font-size:.58rem; letter-spacing:.14em; text-transform:uppercase; color:#4ade80; font-weight:700;">Active</div>
-            <div id="running-elapsed" style="font-size:1.3rem; font-weight:800; color:#4ade80; font-variant-numeric:tabular-nums;">
-              --:--:--
-            </div>
-          </div>
-          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
-            <form method="post" action="/api/break/start">
-              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-              <button type="submit" class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;font-weight:600;border-radius:9999px;padding:5px 12px;">⏸</button>
-            </form>
-            <form method="post" action="/api/clock-out" style="display:flex; gap:4px; align-items:center;">
-              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-              <input type="time" name="clock_time" value="{{ now[11:16] if now else '' }}"
-                     style="border:1px solid #374151;border-radius:6px;background:#1f2937;color:#e5e7eb;padding:3px 6px;font-size:.72rem;width:82px;">
-              <button type="submit" class="btn btn-danger btn-sm" style="border-radius:9999px;padding:5px 12px;">■</button>
-            </form>
-          </div>
-        </div>
-      {% endif %}
-
-    {% else %}
-      <!-- Not Clocked In — pill -->
-      <div style="background:#1a1a1a; border-radius:9999px; padding:10px 22px;
-                  display:flex; align-items:center; gap:12px; margin-bottom:14px;
-                  font-family:monospace; min-height:54px;">
-        <span style="width:10px;height:10px;border-radius:50%;background:#374151;flex-shrink:0;"></span>
-        <div style="font-size:.88rem; color:#6b7280;">Not clocked in today</div>
       </div>
     {% endif %}
+  {% else %}
+    <form method="post" action="/api/clock-in">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+        <div style="flex:1;min-width:160px;">
+          <label class="form-label" style="font-size:.72rem;">Clock In Time (PHT)</label>
+          <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:44px;font-size:1.1rem;font-weight:700;text-align:center;">
+        </div>
+        <button type="submit" class="btn btn-success" style="height:44px;font-weight:700;font-size:1rem;padding:0 24px;">▶ Clock In</button>
+      </div>
+    </form>
+  {% endif %}
 
-    {# ── Clock In form or Time adjustment ─────────────────────────────── #}
-    {% if not attendance %}
-      <form method="post" action="/api/clock-in">
-        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-        <div style="display:flex; gap:8px; align-items:flex-end;">
-          <div class="form-group" style="margin:0; flex:1;">
-            <label class="form-label" style="font-size:.72rem;">Clock In Time (PHT)</label>
-            <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:44px; font-size:1.1rem; font-weight:700; text-align:center;">
-          </div>
-          <button type="submit" class="btn btn-success" style="height:44px; font-weight:700; font-size:1rem; padding:0 24px;">
-            ▶ Clock In
-          </button>
-        </div>
-      </form>
-    {% elif attendance.clock_in %}
-      <!-- Time adjustment form -->
-      <form method="post" action="/api/attendance/edit" style="display:flex; gap:8px; align-items:flex-end;">
-        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-        <div class="form-group" style="margin:0; flex:1;">
-          <label class="form-label" style="font-size:.7rem;">Time In</label>
-          <input type="time" name="clock_in_time" class="form-input"
-                 style="height:36px; padding:4px 8px; font-size:.88rem; font-weight:700; text-align:center;"
-                 value="{{ attendance.clock_in[:5] if attendance.clock_in else '' }}">
-        </div>
-        <div class="form-group" style="margin:0; flex:1;">
-          <label class="form-label" style="font-size:.7rem;">Time Out</label>
-          <input type="time" name="clock_out_time" class="form-input"
-                 style="height:36px; padding:4px 8px; font-size:.88rem; font-weight:700; text-align:center;"
-                 value="{{ attendance.clock_out[:5] if attendance.clock_out else '' }}">
-        </div>
-        <button type="submit" class="btn btn-outline btn-sm" style="height:36px;">Adjust</button>
-      </form>
-    {% endif %}
-  </div>
-
+  {% if attendance and attendance.clock_in %}
+  <form method="post" action="/api/attendance/edit" style="display:flex;gap:8px;align-items:flex-end;margin-top:12px;padding-top:12px;border-top:1px solid var(--border);">
+    <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+    <div style="flex:1;">
+      <label class="form-label" style="font-size:.65rem;">Adjust Time In</label>
+      <input type="time" name="clock_in_time" class="form-input" style="height:34px;padding:4px 8px;font-size:.85rem;font-weight:700;text-align:center;" value="{{ attendance.clock_in[:5] if attendance.clock_in else '' }}">
+    </div>
+    <div style="flex:1;">
+      <label class="form-label" style="font-size:.65rem;">Adjust Time Out</label>
+      <input type="time" name="clock_out_time" class="form-input" style="height:34px;padding:4px 8px;font-size:.85rem;font-weight:700;text-align:center;" value="{{ attendance.clock_out[:5] if attendance.clock_out else '' }}">
+    </div>
+    <button type="submit" class="btn btn-outline btn-sm" style="height:34px;">Save</button>
+  </form>
+  {% endif %}
 </div>
 
-{# ── TWO-COLUMN BODY ──────────────────────────────────────────────────────────── #}
-<div style="display:grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start;">
-
-  <!-- LEFT: Start Task form -->
-  <div class="card">
-    <div class="card-header">
-      <h3>▶ Log Task</h3>
-    </div>
-    <div class="card-body">
-      <form id="start-task-form" method="post" action="/api/tasks">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-        <div class="form-group">
-          <label class="form-label">Client</label>
-          <select name="client" class="form-select" required>
-            {% for c in clients %}
-              <option value="{{ c.name }}">{{ c.name }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Task Title</label>
-          <input name="task_title" type="text" class="form-input"
-                 placeholder="What are you working on?" required>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Output Files (Drive Path)</label>
-          <input name="output_files" type="text" class="form-input"
-                 placeholder="Paste Google Drive link or file path…">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Notes (optional)</label>
-          <textarea name="notes" class="form-textarea" rows="2"
-                    placeholder="Steps, deliverables, links…"></textarea>
-        </div>
-        <button type="submit" id="start-task-btn" class="btn btn-primary btn-full"
-                style="font-size:.9rem; padding:10px; font-weight:600;">
-          + Log Task
-        </button>
-      </form>
-    </div>
+{# ── MY ASSIGNED CARDS ── #}
+{% if my_cards %}
+<div class="dash-section">
+  <div class="dash-section-header">
+    <span>📌 My Assigned Cards <span class="badge badge-blue" style="font-weight:700;font-size:.7rem;margin-left:6px;">{{ my_cards | length }}</span></span>
+    <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.72rem;">View Board</a>
   </div>
-
-  <!-- RIGHT: Task logs with tabs -->
-  <div class="card">
-    <div class="card-header" style="flex-wrap:wrap; gap:8px;">
-      <h3>Task Logs</h3>
-      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-        {% set running_count = tasks_month | selectattr('is_running', 'eq', 1) | list | length %}
-        {% if running_count %}
-          <span class="badge badge-green pulse">{{ running_count }} running</span>
-        {% endif %}
+  <div class="card-grid">
+    {% for card in my_cards %}
+    {% set client_hex = cc.get(card.client, '#64748b') %}
+    <div class="task-card-box" data-status="{{ card.status }}">
+      <div class="task-card-title">{{ card.task_title }}</div>
+      <div class="task-card-meta">
+        <span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:.62rem;font-weight:700;background:{{ client_hex }}22;color:{{ client_hex }};">{{ card.client or '—' }}</span>
+        <span class="badge badge-{{ sc.get(card.status,'gray') }}" style="font-size:.62rem;">{{ card.status }}</span>
+        {% if card.due_date %}<span style="font-size:.62rem;color:var(--muted);">Due {{ card.due_date }}</span>{% endif %}
+      </div>
+      {% if card.reviewer_name %}<div style="font-size:.65rem;color:var(--muted);">👤 Reviewer: {{ card.reviewer_name }}</div>{% endif %}
+      <div class="task-card-actions">
+        <button class="btn-transfer" onclick="openTransfer({{ card.id }}, '{{ card.task_title | e }}')">↗ Transfer</button>
+        <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.7rem;padding:3px 9px;">Open</a>
       </div>
     </div>
-
-    <!-- Period tabs -->
-    <div style="padding:0 20px; border-bottom:1px solid var(--border);">
-      <div style="display:flex; gap:0;">
-        <button class="log-tab active" data-period="today" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--primary); border-bottom:2px solid var(--primary); margin-bottom:-1px;">
-          Today <span class="badge badge-blue" style="margin-left:4px;">{{ tasks_today | length }}</span>
-        </button>
-        <button class="log-tab" data-period="week" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px;">
-          This Week <span class="badge badge-gray" style="margin-left:4px;">{{ tasks_week | length }}</span>
-        </button>
-        <button class="log-tab" data-period="month" style="padding:10px 16px; font-size:.82rem; font-weight:600; border:none; background:none; cursor:pointer; color:var(--muted); border-bottom:2px solid transparent; margin-bottom:-1px;">
-          This Month <span class="badge badge-gray" style="margin-left:4px;">{{ tasks_month | length }}</span>
-        </button>
-      </div>
-    </div>
-
-    {% if tasks_month %}
-      <div class="table-wrapper">
-        <table id="task-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Task</th>
-              <th>Client</th>
-              <th>Hours / Timer</th>
-              <th>Status</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {% for task in tasks_month %}
-            {% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
-            {% set client_hex = cc.get(task.client, '#64748b') %}
-            {% set is_today = task.date_logged == today %}
-            {% set in_week = task.date_logged >= week_start and task.date_logged <= week_end %}
-            {% set running = task.is_running == 1 %}
-            <tr class="task-row {% if running %}task-row-running{% elif is_today %}task-row-today{% endif %}"
-                data-period="{{ 'today' if is_today else '' }} {{ 'week' if in_week else '' }} month"
-                style="{% if running %}background:#f0fdf4; border-left:3px solid #22c55e;{% elif is_today %}background:#f8fafc;{% endif %}">
-              <td class="text-xs nowrap" style="color:var(--muted);">
-                {{ task.date_logged[5:] }}
-                {% if is_today %}<div style="color:var(--success);font-weight:700;font-size:.65rem;">TODAY</div>{% endif %}
-              </td>
-              <td class="fw-600" style="max-width:160px;">
-                <div class="truncate">{{ task.task_title }}</div>
-                {% if task.notes %}
-                  <div class="text-xs text-muted mt-2 truncate">{{ task.notes }}</div>
-                {% endif %}
-                {% if task.reviewer_name %}
-                  <div class="text-xs mt-2" style="color:var(--primary);">👤 {{ task.reviewer_name }}</div>
-                {% endif %}
-              </td>
-              <td>
-                <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;
-                             font-size:.68rem;font-weight:700;
-                             background:{{ client_hex }}22;color:{{ client_hex }};">
-                  {{ task.client or '—' }}
-                </span>
-              </td>
-              <td>
-                {% if running %}
-                  <span class="task-timer pulse" data-started="{{ task.started_at }}"
-                        style="font-size:.78rem; font-weight:700; color:var(--success);">
-                    starting…
-                  </span>
-                {% else %}
-                  <span style="font-weight:600;">{{ task.hours_worked }}h</span>
-                {% endif %}
-              </td>
-              <td>
-                <span class="badge badge-{{ sc[task.status] or 'gray' }}">{{ task.status }}</span>
-              </td>
-              <td>
-                <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                  {% if running %}
-                    <form method="post" action="/api/tasks/{{ task.id }}/stop">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-                      <button type="submit" class="btn btn-danger btn-sm">■ Stop</button>
-                    </form>
-                  {% else %}
-                    <button class="btn btn-outline btn-sm edit-task-btn"
-                            data-id="{{ task.id }}"
-                            data-client="{{ task.client | default('') | e }}"
-                            data-title="{{ task.task_title | e }}"
-                            data-hours="{{ task.hours_worked }}"
-                            data-output="{{ task.output_files | default('') | e }}"
-                            data-notes="{{ task.notes | default('') | e }}">
-                      Edit
-                    </button>
-                    <form method="post" action="/api/tasks/{{ task.id }}/delete"
-                          onsubmit="return confirm('Delete this task?')">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-                      <button type="submit" class="btn btn-ghost btn-sm"
-                              style="color:var(--danger);">✕</button>
-                    </form>
-                  {% endif %}
-                </div>
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-    {% else %}
-      <div class="empty-state">
-        <div class="emoji">📭</div>
-        <p>No tasks this month. Use the form to start one.</p>
-      </div>
-    {% endif %}
-
-    <!-- Summary footer per period -->
-    <div id="period-summary" style="padding:10px 20px; border-top:1px solid var(--border); font-size:.78rem; color:var(--muted); display:flex; gap:16px; flex-wrap:wrap;">
-      <!-- filled by JS -->
-    </div>
-  </div>
-
-</div>
-
-{% if reviewer_cards %}
-{# ── Cards I'm Reviewing ───────────────────────────────────────────────────── #}
-<div class="card mt-4" style="margin-top:20px;">
-  <div class="card-header">
-    <h3>👤 Cards I'm Reviewing</h3>
-    <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.75rem;">View Board</a>
-  </div>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr>
-          <th>Task</th>
-          <th>Assigned To</th>
-          <th>Client</th>
-          <th>Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for card in reviewer_cards %}
-        <tr style="cursor:pointer;" onclick="window.location='/kanban'">
-          <td class="fw-600" style="font-size:.87rem;">{{ card.task_title }}</td>
-          <td class="text-sm">{{ card.emp_name or '—' }}</td>
-          <td class="text-sm">{{ card.client or '—' }}</td>
-          <td>
-            {% set sc2 = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
-            <span class="badge badge-{{ sc2.get(card.status, 'gray') }}">{{ card.status }}</span>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    {% endfor %}
   </div>
 </div>
 {% endif %}
 
-{# ── Edit Task Modal ─────────────────────────────────────────────────────────── #}
+{# ── CARDS I'M REVIEWING ── #}
+{% if reviewer_cards %}
+<div class="dash-section">
+  <div class="dash-section-header">
+    <span>👤 Cards I'm Reviewing <span class="badge badge-yellow" style="font-size:.7rem;margin-left:6px;">{{ reviewer_cards | length }}</span></span>
+    <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.72rem;">View Board</a>
+  </div>
+  <div class="card-grid">
+    {% for card in reviewer_cards %}
+    {% set client_hex = cc.get(card.client, '#64748b') %}
+    <div class="task-card-box" data-status="{{ card.status }}">
+      <div class="task-card-title">{{ card.task_title }}</div>
+      <div class="task-card-meta">
+        <span style="display:inline-flex;align-items:center;padding:2px 7px;border-radius:99px;font-size:.62rem;font-weight:700;background:{{ client_hex }}22;color:{{ client_hex }};">{{ card.client or '—' }}</span>
+        <span class="badge badge-{{ sc.get(card.status,'gray') }}" style="font-size:.62rem;">{{ card.status }}</span>
+      </div>
+      <div style="font-size:.65rem;color:var(--muted);">Assigned to: {{ card.emp_name or '—' }}</div>
+      <div class="task-card-actions">
+        <button class="btn-transfer" onclick="openTransfer({{ card.id }}, '{{ card.task_title | e }}')">↗ Transfer</button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{# ── LOG TASK + TASK LOG ── #}
+<div style="display:grid;grid-template-columns:300px 1fr;gap:16px;align-items:start;flex-wrap:wrap;">
+
+  <!-- Log Task form -->
+  <div class="dash-section">
+    <div class="dash-section-header">▶ Log Task</div>
+    <div style="padding:16px;">
+      <form id="start-task-form" method="post" action="/api/tasks">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div class="form-group">
+          <label class="form-label">Client</label>
+          <select name="client" class="form-select" required>
+            {% for c in clients %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Task Title</label>
+          <input name="task_title" type="text" class="form-input" placeholder="What are you working on?" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Output Files</label>
+          <input name="output_files" type="text" class="form-input" placeholder="Google Drive link…">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <textarea name="notes" class="form-textarea" rows="2" placeholder="Steps, deliverables…"></textarea>
+        </div>
+        <button type="submit" id="start-task-btn" class="btn btn-primary btn-full" style="font-size:.9rem;padding:10px;font-weight:600;">+ Log Task</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Task logs -->
+  <div class="dash-section">
+    <div class="dash-section-header">
+      <span>Task Logs
+        {% set running_count = tasks_month | selectattr('is_running','eq',1) | list | length %}
+        {% if running_count %}<span class="badge badge-green pulse" style="margin-left:6px;">{{ running_count }} running</span>{% endif %}
+      </span>
+    </div>
+    <div style="padding:0 16px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;gap:0;">
+        <button class="log-tab active" data-period="today">Today <span class="badge badge-blue" style="margin-left:3px;font-size:.6rem;">{{ tasks_today | length }}</span></button>
+        <button class="log-tab" data-period="week">This Week <span class="badge badge-gray" style="margin-left:3px;font-size:.6rem;">{{ tasks_week | length }}</span></button>
+        <button class="log-tab" data-period="month">This Month <span class="badge badge-gray" style="margin-left:3px;font-size:.6rem;">{{ tasks_month | length }}</span></button>
+      </div>
+    </div>
+
+    {% if tasks_month %}
+    <div class="table-wrapper">
+      <table id="task-table">
+        <thead>
+          <tr><th>Date</th><th>Task</th><th>Client</th><th>Hours</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for task in tasks_month %}
+          {% set client_hex = cc.get(task.client,'#64748b') %}
+          {% set is_today = task.date_logged == today %}
+          {% set in_week  = task.date_logged >= week_start and task.date_logged <= week_end %}
+          {% set running  = task.is_running == 1 %}
+          <tr class="task-row {% if running %}task-row-running{% elif is_today %}task-row-today{% endif %}"
+              data-period="{{ 'today' if is_today else '' }} {{ 'week' if in_week else '' }} month"
+              style="{% if running %}background:#f0fdf4;border-left:3px solid #22c55e;{% endif %}">
+            <td class="text-xs nowrap" style="color:var(--muted);">{{ task.date_logged[5:] }}{% if is_today %}<div style="color:var(--success);font-weight:700;font-size:.6rem;">TODAY</div>{% endif %}</td>
+            <td class="fw-600" style="max-width:160px;">
+              <div class="truncate">{{ task.task_title }}</div>
+              {% if task.notes %}<div class="text-xs text-muted mt-2 truncate">{{ task.notes }}</div>{% endif %}
+              {% if task.reviewer_name %}<div class="text-xs mt-2" style="color:var(--primary);">👤 {{ task.reviewer_name }}</div>{% endif %}
+            </td>
+            <td><span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:.65rem;font-weight:700;background:{{ client_hex }}22;color:{{ client_hex }};">{{ task.client or '—' }}</span></td>
+            <td>
+              {% if running %}
+                <span class="task-timer pulse" data-started="{{ task.started_at }}" style="font-size:.78rem;font-weight:700;color:var(--success);">starting…</span>
+              {% else %}
+                <span style="font-weight:600;">{{ task.hours_worked }}h</span>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-{{ sc.get(task.status,'gray') }}">{{ task.status }}</span></td>
+            <td>
+              <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                {% if running %}
+                  <form method="post" action="/api/tasks/{{ task.id }}/stop">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                    <button type="submit" class="btn btn-danger btn-sm">■ Stop</button>
+                  </form>
+                {% else %}
+                  <button class="btn btn-outline btn-sm edit-task-btn"
+                          data-id="{{ task.id }}"
+                          data-client="{{ task.client | default('') | e }}"
+                          data-title="{{ task.task_title | e }}"
+                          data-hours="{{ task.hours_worked }}"
+                          data-output="{{ task.output_files | default('') | e }}"
+                          data-notes="{{ task.notes | default('') | e }}">Edit</button>
+                  <form method="post" action="/api/tasks/{{ task.id }}/delete" onsubmit="return confirm('Delete this task?')">
+                    <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                    <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);">✕</button>
+                  </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty-state"><div class="emoji">📭</div><p>No tasks this month.</p></div>
+    {% endif %}
+
+    <div id="period-summary" style="padding:10px 16px;border-top:1px solid var(--border);font-size:.78rem;color:var(--muted);display:flex;gap:16px;"></div>
+  </div>
+
+</div>
+
+{# ── TRANSFER MODAL ── #}
+<div class="modal-overlay" id="transferModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Transfer Card</span>
+      <button class="modal-close" onclick="closeModal('transferModal')">✕</button>
+    </div>
+    <div class="modal-body">
+      <p id="transfer-card-name" style="font-size:.85rem;font-weight:700;margin-bottom:14px;color:var(--text);"></p>
+      <div class="form-group">
+        <label class="form-label">Transfer to</label>
+        <select id="transfer-emp-id" class="form-select">
+          {% for e in active_employees %}
+            {% if e.id != user.id %}
+            <option value="{{ e.id }}">{{ e.name }}</option>
+            {% endif %}
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeModal('transferModal')">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="doTransfer()">Transfer Card</button>
+    </div>
+  </div>
+</div>
+
+{# ── EDIT TASK MODAL ── #}
 <div class="modal-overlay" id="editModal">
   <div class="modal">
     <div class="modal-header">
@@ -454,15 +531,12 @@
           <div class="form-group">
             <label class="form-label">Client</label>
             <select name="client" id="edit_client" class="form-select" required>
-              {% for c in clients %}
-                <option value="{{ c.name }}">{{ c.name }}</option>
-              {% endfor %}
+              {% for c in clients %}<option value="{{ c.name }}">{{ c.name }}</option>{% endfor %}
             </select>
           </div>
           <div class="form-group">
             <label class="form-label">Hours Worked</label>
-            <input name="hours_worked" id="edit_hours" type="number"
-                   class="form-input" min="0.25" max="24" step="0.25" required>
+            <input name="hours_worked" id="edit_hours" type="number" class="form-input" min="0.25" max="24" step="0.25" required>
           </div>
         </div>
         <div class="form-group">
@@ -470,9 +544,8 @@
           <input name="task_title" id="edit_title" type="text" class="form-input" required>
         </div>
         <div class="form-group">
-          <label class="form-label">Output Files (Drive Path)</label>
-          <input name="output_files" id="edit_output_files" type="text" class="form-input"
-                 placeholder="Paste Google Drive link or file path…">
+          <label class="form-label">Output Files</label>
+          <input name="output_files" id="edit_output_files" type="text" class="form-input">
         </div>
         <div class="form-group">
           <label class="form-label">Notes</label>
@@ -487,15 +560,14 @@
   </div>
 </div>
 
-<!-- Task submit loading overlay -->
-<div id="task-loading" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:9999;
-     align-items:center; justify-content:center; flex-direction:column; gap:16px;">
-  <div style="background:#fff; border-radius:16px; padding:32px 48px; text-align:center; box-shadow:0 20px 40px rgba(0,0,0,.3);">
-    <div style="font-size:2rem; margin-bottom:12px;">⏳</div>
-    <div style="font-weight:700; font-size:1rem; color:var(--text); margin-bottom:6px;">Saving task…</div>
-    <div style="font-size:.82rem; color:var(--muted);">Please wait a moment</div>
-    <div style="margin-top:16px; height:4px; background:var(--border); border-radius:99px; overflow:hidden; width:200px;">
-      <div id="task-loading-bar" style="height:100%; width:0%; background:var(--primary); border-radius:99px; transition:width 3s linear;"></div>
+<!-- Task submit overlay -->
+<div id="task-loading" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:16px;">
+  <div style="background:var(--surface);border-radius:16px;padding:32px 48px;text-align:center;box-shadow:0 20px 40px rgba(0,0,0,.3);">
+    <div style="font-size:2rem;margin-bottom:12px;">⏳</div>
+    <div style="font-weight:700;font-size:1rem;color:var(--text);margin-bottom:6px;">Saving task…</div>
+    <div style="font-size:.82rem;color:var(--muted);">Please wait a moment</div>
+    <div style="margin-top:16px;height:4px;background:var(--border);border-radius:99px;overflow:hidden;width:200px;">
+      <div id="task-loading-bar" style="height:100%;width:0%;background:var(--primary);border-radius:99px;transition:width 3s linear;"></div>
     </div>
   </div>
 </div>
@@ -504,167 +576,111 @@
 
 {% block extra_js %}
 <script>
-// ── PHT Live clocks ────────────────────────────────────────────────────────────
+// ── PHT Clock ──────────────────────────────────────────────────────────────────
 function tickPHT() {
   const now = new Date();
   const bigEl = document.getElementById('live-clock-big');
   const dateEl = document.getElementById('live-date-big');
-  if (bigEl) bigEl.textContent = now.toLocaleTimeString('en-PH', {
-    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-  if (dateEl) dateEl.textContent = now.toLocaleDateString('en-PH', {
-    timeZone: 'Asia/Manila', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
-  });
+  if (bigEl) bigEl.textContent = now.toLocaleTimeString('en-PH', {timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  if (dateEl) dateEl.textContent = now.toLocaleDateString('en-PH', {timeZone:'Asia/Manila',weekday:'short',month:'short',day:'numeric',year:'numeric'});
 }
-setInterval(tickPHT, 1000);
-tickPHT();
+setInterval(tickPHT, 1000); tickPHT();
 
-// Pre-fill clock-in time with PHT
 const clockInInput = document.getElementById('clock-in-input');
 if (clockInInput) {
-  const phtTime = new Date().toLocaleTimeString('en-PH', {
-    timeZone: 'Asia/Manila', hour: '2-digit', minute: '2-digit', hour12: false
-  });
-  clockInInput.value = phtTime;
+  clockInInput.value = new Date().toLocaleTimeString('en-PH', {timeZone:'Asia/Manila',hour:'2-digit',minute:'2-digit',hour12:false});
 }
 
-// ── Active shift elapsed timer (status bar) ────────────────────────────────────
+// ── Active shift elapsed ───────────────────────────────────────────────────────
 (function() {
   const bar = document.getElementById('active-status-bar');
   const el  = document.getElementById('running-elapsed');
   if (!bar || !el) return;
-  const clockInStr = bar.dataset.clockIn;   // HH:MM:SS
+  const clockInStr = bar.dataset.clockIn;
   const breakMin   = parseFloat(bar.dataset.breakMin) || 0;
   if (!clockInStr) return;
-
   function calcElapsed() {
     const now = new Date();
-    const phtNow = new Date(now.toLocaleString('en-US', {timeZone: 'Asia/Manila'}));
+    const phtNow = new Date(now.toLocaleString('en-US', {timeZone:'Asia/Manila'}));
     const parts = clockInStr.split(':').map(Number);
-    const startMs = new Date(phtNow);
-    startMs.setHours(parts[0], parts[1], parts[2] || 0, 0);
-    let diffSec = Math.max(0, Math.floor((phtNow - startMs) / 1000) - Math.floor(breakMin * 60));
-    const h = Math.floor(diffSec / 3600);
-    const m = Math.floor((diffSec % 3600) / 60);
-    const s = diffSec % 60;
-    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+    const start = new Date(phtNow); start.setHours(parts[0], parts[1], parts[2]||0, 0);
+    let diffSec = Math.max(0, Math.floor((phtNow - start)/1000) - Math.floor(breakMin*60));
+    const h=Math.floor(diffSec/3600), m=Math.floor((diffSec%3600)/60), s=diffSec%60;
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
   }
-
-  function tick() { el.textContent = calcElapsed(); }
-  setInterval(tick, 1000);
-  tick();
+  setInterval(()=>{ el.textContent = calcElapsed(); }, 1000);
+  el.textContent = calcElapsed();
 })();
 
-// ── Break elapsed counter (moving MM:SS) ──────────────────────────────────────
+// ── Break elapsed ──────────────────────────────────────────────────────────────
 (function() {
   const bar = document.getElementById('break-status-bar');
   const el  = document.getElementById('break-elapsed');
   if (!bar || !el) return;
-  let totalSec = Math.round(parseFloat(bar.dataset.breakMin || 0) * 60);
-  function tickBreak() {
-    totalSec++;
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    el.textContent = m + ':' + String(s).padStart(2, '0');
-  }
-  setInterval(tickBreak, 1000);
+  let totalSec = Math.round(parseFloat(bar.dataset.breakMin||0)*60);
+  setInterval(()=>{ totalSec++; el.textContent = Math.floor(totalSec/60)+':'+String(totalSec%60).padStart(2,'0'); }, 1000);
 })();
 
 // ── Running task timers ────────────────────────────────────────────────────────
 const _IS_ON_BREAK = {{ 'true' if attendance and attendance.is_on_break else 'false' }};
 const _BREAK_START = {% if active_break %}"{{ active_break.break_start }}"{% else %}null{% endif %};
-
 function updateTimers() {
-  document.querySelectorAll('.task-timer').forEach(function(el) {
-    const raw = el.dataset.started;
-    if (!raw) return;
-    const started = new Date(raw.replace(' ', 'T'));
+  document.querySelectorAll('.task-timer').forEach(el => {
+    const raw = el.dataset.started; if (!raw) return;
+    const started = new Date(raw.replace(' ','T'));
     let elapsed;
     if (_IS_ON_BREAK && _BREAK_START) {
-      // Freeze at the time the break started
-      const breakStart = new Date(_BREAK_START.replace(' ', 'T'));
-      elapsed = Math.floor((breakStart.getTime() - started.getTime()) / 1000);
+      elapsed = Math.floor((new Date(_BREAK_START.replace(' ','T')) - started)/1000);
     } else {
-      elapsed = Math.floor((Date.now() - started.getTime()) / 1000);
+      elapsed = Math.floor((Date.now()-started.getTime())/1000);
     }
-    if (elapsed < 0) elapsed = 0;
-    const hh = Math.floor(elapsed / 3600).toString().padStart(2, '0');
-    const mm = Math.floor((elapsed % 3600) / 60).toString().padStart(2, '0');
-    const ss = (elapsed % 60).toString().padStart(2, '0');
-    el.textContent = hh + ':' + mm + ':' + ss;
+    if (elapsed<0) elapsed=0;
+    el.textContent = String(Math.floor(elapsed/3600)).padStart(2,'0')+':'+
+                     String(Math.floor((elapsed%3600)/60)).padStart(2,'0')+':'+
+                     String(elapsed%60).padStart(2,'0');
   });
 }
-setInterval(updateTimers, 1000);
-updateTimers();
+setInterval(updateTimers,1000); updateTimers();
 
-// ── 3-second loading on task submit ───────────────────────────────────────────
+// ── Task submit loading ────────────────────────────────────────────────────────
 document.getElementById('start-task-form').addEventListener('submit', function(e) {
   e.preventDefault();
-  const form = this;
-  const overlay = document.getElementById('task-loading');
-  const bar = document.getElementById('task-loading-bar');
-  overlay.style.display = 'flex';
-  setTimeout(() => { bar.style.width = '100%'; }, 50);
-  setTimeout(() => form.submit(), 3000);
+  const form=this, overlay=document.getElementById('task-loading'), bar=document.getElementById('task-loading-bar');
+  overlay.style.display='flex';
+  setTimeout(()=>bar.style.width='100%',50);
+  setTimeout(()=>form.submit(),3000);
 });
 
 // ── Log period tabs ────────────────────────────────────────────────────────────
 const tabs = document.querySelectorAll('.log-tab');
 const rows = document.querySelectorAll('.task-row');
 const summaryEl = document.getElementById('period-summary');
-
 function filterTasks(period) {
-  let visibleRows = 0;
-  let totalHours = 0;
-
+  let visibleRows=0, totalHours=0;
   rows.forEach(row => {
-    const periods = row.dataset.period || '';
-    const show = period === 'month' ? true : periods.includes(period);
+    const show = period==='month' ? true : (row.dataset.period||'').includes(period);
     row.style.display = show ? '' : 'none';
     if (show) {
       visibleRows++;
-      // Find hours in this row
       const timerEl = row.querySelector('.task-timer');
-      if (!timerEl) {
-        const hoursCell = row.cells[3];
-        if (hoursCell) {
-          const text = hoursCell.textContent.trim().replace('h', '');
-          const h = parseFloat(text);
-          if (!isNaN(h)) totalHours += h;
-        }
-      }
+      if (!timerEl) { const h=parseFloat((row.cells[3]?.textContent||'').replace('h','')); if (!isNaN(h)) totalHours+=h; }
     }
   });
-
-  if (summaryEl) {
-    summaryEl.innerHTML = `
-      <span><strong>${visibleRows}</strong> tasks</span>
-      <span><strong>${totalHours.toFixed(2)}h</strong> logged</span>
-    `;
-  }
+  if (summaryEl) summaryEl.innerHTML = `<span><strong>${visibleRows}</strong> tasks</span><span><strong>${totalHours.toFixed(2)}h</strong> logged</span>`;
 }
-
 tabs.forEach(tab => {
-  tab.addEventListener('click', () => {
-    tabs.forEach(t => {
-      t.style.color = 'var(--muted)';
-      t.style.borderBottom = '2px solid transparent';
-      t.classList.remove('active');
-    });
-    tab.style.color = 'var(--primary)';
-    tab.style.borderBottom = '2px solid var(--primary)';
+  tab.addEventListener('click', ()=>{
+    tabs.forEach(t=>t.classList.remove('active'));
     tab.classList.add('active');
     filterTasks(tab.dataset.period);
   });
 });
-
-// Init with today
 filterTasks('today');
 
 // ── Edit task modal ────────────────────────────────────────────────────────────
-document.querySelectorAll('.edit-task-btn').forEach(function(btn) {
+document.querySelectorAll('.edit-task-btn').forEach(btn => {
   btn.addEventListener('click', function() {
-    document.getElementById('editTaskForm').action = '/api/tasks/' + this.dataset.id + '/edit';
+    document.getElementById('editTaskForm').action = '/api/tasks/'+this.dataset.id+'/edit';
     document.getElementById('edit_client').value       = this.dataset.client;
     document.getElementById('edit_title').value        = this.dataset.title;
     document.getElementById('edit_hours').value        = this.dataset.hours;
@@ -673,5 +689,30 @@ document.querySelectorAll('.edit-task-btn').forEach(function(btn) {
     openModal('editModal');
   });
 });
+
+// ── Transfer card ──────────────────────────────────────────────────────────────
+let _transferTaskId = null;
+function openTransfer(taskId, title) {
+  _transferTaskId = taskId;
+  document.getElementById('transfer-card-name').textContent = title;
+  openModal('transferModal');
+}
+function doTransfer() {
+  if (!_transferTaskId) return;
+  const empId = parseInt(document.getElementById('transfer-emp-id').value);
+  if (!empId) return;
+  fetch('/api/tasks/'+_transferTaskId+'/transfer', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({emp_id: empId})
+  }).then(r=>r.json()).then(d=>{
+    if (d.ok) {
+      closeModal('transferModal');
+      location.reload();
+    } else {
+      alert(d.error || 'Transfer failed');
+    }
+  }).catch(()=>alert('Transfer failed'));
+}
 </script>
 {% endblock %}

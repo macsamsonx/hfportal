@@ -861,6 +861,24 @@ async def dashboard(request: Request):
         ).fetchall()
         reviewer_cards = [dict(c) for c in reviewer_cards]
 
+        # My assigned cards (from kanban, not just task logs)
+        my_cards = conn.execute(
+            """SELECT w.*, e.name as emp_name FROM work_logs w
+               LEFT JOIN employees e ON w.emp_id=e.id
+               WHERE w.emp_id=? AND COALESCE(w.is_archived,0)=0 AND w.status != 'Done'
+               ORDER BY
+                 CASE w.status WHEN 'In Progress' THEN 0 WHEN 'For Review' THEN 1 WHEN 'Todo' THEN 2 ELSE 3 END,
+                 w.timestamp DESC""",
+            (user["id"],)
+        ).fetchall()
+        my_cards = [dict(c) for c in my_cards]
+
+        # Active employees for transfer dropdown
+        active_employees = conn.execute(
+            "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
+        ).fetchall()
+        active_employees = [dict(e) for e in active_employees]
+
     vl_total = int(user.get("vl_days_per_year") or 15)
     sl_total = int(user.get("sl_days_per_year") or 15)
     verse = random.choice(BIBLE_VERSES)
@@ -893,6 +911,8 @@ async def dashboard(request: Request):
         "birthday_people": birthday_people,
         "verse": verse,
         "reviewer_cards": reviewer_cards,
+        "my_cards": my_cards,
+        "active_employees": active_employees,
         **shared_ctx(user, request),
     })
 
@@ -1569,6 +1589,64 @@ async def assign_task(request: Request, task_id: int):
                 (user["id"], task_id, user["id"]),
             )
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/tasks/{task_id}/transfer")
+async def transfer_task(request: Request, task_id: int):
+    user = require_user(request)
+    data = await request.json()
+    new_emp_id = data.get("emp_id")
+    if not new_emp_id:
+        return JSONResponse({"error": "emp_id required"}, status_code=400)
+    with get_db() as conn:
+        task = conn.execute(
+            "SELECT w.*, e.name as old_emp_name FROM work_logs w LEFT JOIN employees e ON w.emp_id=e.id WHERE w.id=?",
+            (task_id,)
+        ).fetchone()
+        if not task:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        # Only the card owner, reviewer, or HR/Admin can transfer
+        is_owner    = task["emp_id"] == user["id"]
+        is_reviewer = task["reviewer_name"] == user["name"]
+        is_manager  = user["role"] in ("HR Manager", "Admin")
+        if not (is_owner or is_reviewer or is_manager):
+            return JSONResponse({"error": "Not authorized"}, status_code=403)
+        new_emp = conn.execute("SELECT id, name FROM employees WHERE id=? AND is_active=1", (new_emp_id,)).fetchone()
+        if not new_emp:
+            return JSONResponse({"error": "Employee not found"}, status_code=404)
+        old_emp_id   = task["emp_id"]
+        old_emp_name = task["old_emp_name"] or "Unknown"
+        new_emp_name = new_emp["name"]
+        conn.execute(
+            "UPDATE work_logs SET emp_id=?, assigned_emp_id=? WHERE id=?",
+            (new_emp_id, new_emp_id, task_id)
+        )
+        log_card_activity(conn, task_id, user["name"], "transferred",
+                          f"{old_emp_name} → {new_emp_name}")
+        title_short = (task["task_title"] or "")[:50]
+        # Notify old assignee
+        if old_emp_id and old_emp_id != user["id"]:
+            push_notification(conn, old_emp_id,
+                f"Card Transferred Away",
+                f'"{title_short}" was transferred from you to {new_emp_name} by {user["name"]}.',
+                "/kanban")
+        # Notify new assignee
+        if new_emp_id != user["id"]:
+            push_notification(conn, new_emp_id,
+                f"Card Transferred to You",
+                f'"{title_short}" was assigned to you by {user["name"]}.',
+                "/kanban")
+        # Notify reviewer if any and different from actor
+        if task["reviewer_name"]:
+            reviewer = conn.execute(
+                "SELECT id FROM employees WHERE name=? AND is_active=1", (task["reviewer_name"],)
+            ).fetchone()
+            if reviewer and reviewer["id"] != user["id"]:
+                push_notification(conn, reviewer["id"],
+                    "Card Reassigned",
+                    f'"{title_short}" you\'re reviewing was transferred to {new_emp_name}.',
+                    "/kanban")
+    return JSONResponse({"ok": True, "new_emp_name": new_emp_name})
 
 
 @app.post("/api/tasks/{task_id}/set-due-date")
@@ -4790,6 +4868,23 @@ async def admin_dashboard(request: Request):
 
         upcoming_celebrations = sorted(_upcoming_bdays + _upcoming_anniv, key=lambda x: x["days"])
 
+        soon_str = (now.date() + timedelta(days=3)).isoformat()
+        # My bills reminder (admin's own bills, unpaid, sorted by due date)
+        my_bills_list = conn.execute(
+            """SELECT * FROM employee_bills WHERE emp_id=? AND paid=0
+               ORDER BY due_date ASC LIMIT 10""",
+            (user["id"],)
+        ).fetchall()
+        my_bills_list = [dict(b) for b in my_bills_list]
+        my_bills_total = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM employee_bills WHERE emp_id=?",
+            (user["id"],)
+        ).fetchone()[0]
+        my_bills_unpaid = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM employee_bills WHERE emp_id=? AND paid=0",
+            (user["id"],)
+        ).fetchone()[0]
+
     return templates.TemplateResponse(request, "admin/admin_dashboard.html", {
         "user": user,
         "active_employees": active_employees,
@@ -4820,6 +4915,10 @@ async def admin_dashboard(request: Request):
         "drive_per_user": [dict(r) for r in drive_per_user],
         "chat_attach_count": chat_attach_count,
         "upcoming_celebrations": upcoming_celebrations,
+        "my_bills_list": my_bills_list,
+        "my_bills_total": my_bills_total,
+        "my_bills_unpaid": my_bills_unpaid,
+        "soon_str": soon_str,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
@@ -5712,6 +5811,151 @@ async def my_survey_submit(request: Request, survey_id: int):
             )
     flash(request, "Survey submitted. Thank you!")
     return RedirectResponse("/my-surveys", status_code=302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── BILL TRACKER ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/my-bills", response_class=HTMLResponse)
+async def my_bills(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        bills = conn.execute(
+            "SELECT * FROM employee_bills WHERE emp_id=? ORDER BY due_date ASC, paid ASC",
+            (user["id"],)
+        ).fetchall()
+    today_str = get_pht_now().date().isoformat()
+    soon_str  = (get_pht_now().date() + timedelta(days=3)).isoformat()
+    return templates.TemplateResponse(request, "employee/my_bills.html", {
+        "user": user,
+        "bills": [dict(b) for b in bills],
+        "today": today_str,
+        "soon":  soon_str,
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/my-bills/add")
+async def my_bills_add(request: Request):
+    user = require_user(request)
+    fd = await request.form()
+    name   = (fd.get("name") or "").strip()
+    btype  = fd.get("type") or "recurring"
+    amount = fd.get("amount") or "0"
+    due    = (fd.get("due_date") or "").strip()
+    payee  = (fd.get("payee") or "").strip()
+    acct   = (fd.get("acct_number") or "").strip()
+    notes  = (fd.get("notes") or "").strip()
+    if not name or not due:
+        flash(request, "Bill name and due date are required.", "error")
+        return RedirectResponse("/my-bills", status_code=302)
+    try:
+        amount = float(amount)
+    except ValueError:
+        amount = 0.0
+    with get_db() as conn:
+        conn.execute(
+            "INSERT INTO employee_bills (emp_id,name,type,amount,due_date,payee,acct_number,notes) VALUES (?,?,?,?,?,?,?,?)",
+            (user["id"], name, btype, amount, due, payee, acct, notes)
+        )
+    flash(request, f"Bill '{name}' added.", "success")
+    return RedirectResponse("/my-bills", status_code=302)
+
+
+@app.post("/my-bills/{bill_id}/edit")
+async def my_bills_edit(request: Request, bill_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        bill = conn.execute(
+            "SELECT * FROM employee_bills WHERE id=? AND emp_id=?", (bill_id, user["id"])
+        ).fetchone()
+        if not bill:
+            flash(request, "Bill not found.", "error")
+            return RedirectResponse("/my-bills", status_code=302)
+        fd = await request.form()
+        name   = (fd.get("name") or "").strip()
+        btype  = fd.get("type") or bill["type"]
+        due    = (fd.get("due_date") or "").strip()
+        payee  = (fd.get("payee") or "").strip()
+        acct   = (fd.get("acct_number") or "").strip()
+        notes  = (fd.get("notes") or "").strip()
+        try:
+            amount = float(fd.get("amount") or 0)
+        except ValueError:
+            amount = 0.0
+        # If recurring and amount/due changed, un-mark paid
+        paid = bill["paid"]
+        paid_at = bill["paid_at"]
+        if bill["type"] == "recurring" and (amount != bill["amount"] or due != bill["due_date"]):
+            paid = 0
+            paid_at = None
+        conn.execute(
+            """UPDATE employee_bills SET name=?,type=?,amount=?,due_date=?,payee=?,acct_number=?,notes=?,paid=?,paid_at=?
+               WHERE id=? AND emp_id=?""",
+            (name, btype, amount, due, payee, acct, notes, paid, paid_at, bill_id, user["id"])
+        )
+    flash(request, "Bill updated.", "success")
+    return RedirectResponse("/my-bills", status_code=302)
+
+
+@app.post("/my-bills/{bill_id}/delete")
+async def my_bills_delete(request: Request, bill_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        conn.execute("DELETE FROM employee_bills WHERE id=? AND emp_id=?", (bill_id, user["id"]))
+    flash(request, "Bill deleted.", "success")
+    return RedirectResponse("/my-bills", status_code=302)
+
+
+@app.post("/my-bills/{bill_id}/toggle-paid")
+async def my_bills_toggle_paid(request: Request, bill_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        bill = conn.execute(
+            "SELECT * FROM employee_bills WHERE id=? AND emp_id=?", (bill_id, user["id"])
+        ).fetchone()
+        if not bill:
+            return {"ok": False}
+        new_paid = 0 if bill["paid"] else 1
+        paid_at = get_pht_now().isoformat() if new_paid else None
+        conn.execute(
+            "UPDATE employee_bills SET paid=?, paid_at=? WHERE id=? AND emp_id=?",
+            (new_paid, paid_at, bill_id, user["id"])
+        )
+    return {"ok": True, "paid": bool(new_paid)}
+
+
+@app.post("/my-bills/{bill_id}/reset")
+async def my_bills_reset(request: Request, bill_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        bill = conn.execute(
+            "SELECT * FROM employee_bills WHERE id=? AND emp_id=? AND type='recurring'",
+            (bill_id, user["id"])
+        ).fetchone()
+        if not bill:
+            flash(request, "Bill not found.", "error")
+            return RedirectResponse("/my-bills", status_code=302)
+        from datetime import date
+        due = date.fromisoformat(bill["due_date"])
+        # Advance by 1 month
+        month = due.month + 1
+        year  = due.year + (1 if month > 12 else 0)
+        month = month if month <= 12 else month - 12
+        try:
+            next_due = due.replace(year=year, month=month)
+        except ValueError:
+            import calendar
+            last_day = calendar.monthrange(year, month)[1]
+            next_due = due.replace(year=year, month=month, day=last_day)
+        conn.execute(
+            "UPDATE employee_bills SET due_date=?, paid=0, paid_at=NULL WHERE id=? AND emp_id=?",
+            (next_due.isoformat(), bill_id, user["id"])
+        )
+    flash(request, "Bill reset for next month.", "success")
+    return RedirectResponse("/my-bills", status_code=302)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

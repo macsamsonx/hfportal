@@ -78,6 +78,52 @@ BIBLE_VERSES = [
     {"verse": "In all your ways acknowledge him, and he will make straight your paths.", "ref": "Proverbs 3:6"},
     {"verse": "The Lord will fight for you; you need only to be still.", "ref": "Exodus 14:14"},
     {"verse": "My grace is sufficient for you, for my power is made perfect in weakness.", "ref": "2 Corinthians 12:9"},
+    {"verse": "The Lord is my strength and my shield; in him my heart trusts, and I am helped.", "ref": "Psalm 28:7"},
+    {"verse": "I praise you, for I am fearfully and wonderfully made. Wonderful are your works; my soul knows it very well.", "ref": "Psalm 139:14"},
+    {"verse": "Be still, and know that I am God.", "ref": "Psalm 46:10"},
+    {"verse": "He has made everything beautiful in its time.", "ref": "Ecclesiastes 3:11"},
+    {"verse": "Love is patient and kind; love does not envy or boast; it is not arrogant or rude.", "ref": "1 Corinthians 13:4-5"},
+    {"verse": "The steadfast love of the Lord never ceases; his mercies never come to an end; they are new every morning.", "ref": "Lamentations 3:22-23"},
+    {"verse": "This is the day that the Lord has made; let us rejoice and be glad in it.", "ref": "Psalm 118:24"},
+    {"verse": "So whether you eat or drink or whatever you do, do it all for the glory of God.", "ref": "1 Corinthians 10:31"},
+    {"verse": "God is our refuge and strength, an ever-present help in trouble.", "ref": "Psalm 46:1"},
+    {"verse": "The Lord is good, a strong hold in the day of trouble; and he knoweth them that trust in him.", "ref": "Nahum 1:7"},
+    {"verse": "Create in me a clean heart, O God, and renew a right spirit within me.", "ref": "Psalm 51:10"},
+    {"verse": "Even youths shall faint and be weary, and young men shall fall exhausted; but they who wait for the Lord shall renew their strength.", "ref": "Isaiah 40:30-31"},
+    {"verse": "The heart of man plans his way, but the Lord establishes his steps.", "ref": "Proverbs 16:9"},
+    {"verse": "Rejoice in the Lord always; again I will say, rejoice.", "ref": "Philippians 4:4"},
+    {"verse": "For the word of God is living and active, sharper than any two-edged sword.", "ref": "Hebrews 4:12"},
+    {"verse": "Let your light shine before others, so that they may see your good works and give glory to your Father in heaven.", "ref": "Matthew 5:16"},
+    {"verse": "Now to him who is able to do far more abundantly than all that we ask or think, according to the power at work within us.", "ref": "Ephesians 3:20"},
+    {"verse": "Do not let kindness and truth leave you; bind them around your neck, write them on the tablet of your heart.", "ref": "Proverbs 3:3"},
+    {"verse": "Humble yourselves, therefore, under the mighty hand of God so that at the proper time he may exalt you.", "ref": "1 Peter 5:6"},
+    {"verse": "Cast all your anxiety on him because he cares for you.", "ref": "1 Peter 5:7"},
+    {"verse": "For by grace you have been saved through faith. And this is not your own doing; it is the gift of God.", "ref": "Ephesians 2:8"},
+    {"verse": "Be kind to one another, tenderhearted, forgiving one another, as God in Christ forgave you.", "ref": "Ephesians 4:32"},
+    {"verse": "A joyful heart is good medicine, but a crushed spirit dries up the bones.", "ref": "Proverbs 17:22"},
+    {"verse": "Honor the Lord with your wealth and with the firstfruits of all your produce.", "ref": "Proverbs 3:9"},
+    {"verse": "The righteous will flourish like a palm tree, they will grow like a cedar of Lebanon.", "ref": "Psalm 92:12"},
+    {"verse": "For the Lord your God is with you wherever you go.", "ref": "Joshua 1:9"},
+    {"verse": "Not by might, nor by power, but by my Spirit, says the Lord of hosts.", "ref": "Zechariah 4:6"},
+    {"verse": "But the Lord is faithful. He will establish you and guard you against the evil one.", "ref": "2 Thessalonians 3:3"},
+    {"verse": "I have learned, in whatever situation I am, to be content.", "ref": "Philippians 4:11"},
+    {"verse": "Let us not become weary in doing good, for at the proper time we will reap a harvest if we do not give up.", "ref": "Galatians 6:9"},
+    {"verse": "Keep your life free from love of money, and be content with what you have, for he has said, 'I will never leave you nor forsake you.'", "ref": "Hebrews 13:5"},
+    {"verse": "And whatever you do, in word or deed, do everything in the name of the Lord Jesus, giving thanks to God the Father through him.", "ref": "Colossians 3:17"},
+    {"verse": "The Lord will guide you always; he will satisfy your needs in a sun-scorched land.", "ref": "Isaiah 58:11"},
+    {"verse": "May the God of hope fill you with all joy and peace in believing, so that by the power of the Holy Spirit you may abound in hope.", "ref": "Romans 15:13"},
+    {"verse": "For I am the Lord your God who takes hold of your right hand and says to you, Do not fear; I will help you.", "ref": "Isaiah 41:13"},
+    {"verse": "Those who trust in the Lord are like Mount Zion, which cannot be shaken but endures forever.", "ref": "Psalm 125:1"},
+    {"verse": "Jesus Christ is the same yesterday and today and forever.", "ref": "Hebrews 13:8"},
+    {"verse": "Whoever refreshes others will be refreshed.", "ref": "Proverbs 11:25"},
+    {"verse": "Do everything without grumbling or arguing, so that you may become blameless and pure.", "ref": "Philippians 2:14-15"},
+    {"verse": "As iron sharpens iron, so one person sharpens another.", "ref": "Proverbs 27:17"},
+    {"verse": "The Lord makes firm the steps of the one who delights in him.", "ref": "Psalm 37:23"},
+    {"verse": "Above all, love each other deeply, because love covers over a multitude of sins.", "ref": "1 Peter 4:8"},
+    {"verse": "Set your minds on things above, not on earthly things.", "ref": "Colossians 3:2"},
+    {"verse": "I have set the Lord always before me. Because he is at my right hand, I will not be shaken.", "ref": "Psalm 16:8"},
+    {"verse": "By wisdom a house is built, and through understanding it is established.", "ref": "Proverbs 24:3"},
+    {"verse": "Taste and see that the Lord is good; blessed is the one who takes refuge in him.", "ref": "Psalm 34:8"},
 ]
 
 
@@ -1254,6 +1300,23 @@ def init_db():
             CREATE TABLE IF NOT EXISTS company_settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT
+            )""")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS employee_bills (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id      INTEGER NOT NULL,
+                name        TEXT NOT NULL,
+                type        TEXT NOT NULL DEFAULT 'recurring',
+                amount      REAL NOT NULL DEFAULT 0,
+                due_date    TEXT NOT NULL,
+                payee       TEXT DEFAULT '',
+                acct_number TEXT DEFAULT '',
+                notes       TEXT DEFAULT '',
+                paid        INTEGER NOT NULL DEFAULT 0,
+                paid_at     TEXT,
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
             )""")
 
         # ── Seed clients ──────────────────────────────────────────────────────────

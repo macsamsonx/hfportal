@@ -377,6 +377,54 @@
 
 </div>
 
+{# ── Bills Reminder ──────────────────────────────────────────────────────────── #}
+{% if my_bills_list or my_bills_total %}
+<div class="card" style="margin-top:16px;">
+  <div class="card-header" style="justify-content:space-between;">
+    <h3>💳 My Bills Reminder</h3>
+    <a href="/my-bills" class="btn btn-outline btn-sm" style="font-size:.72rem;">Manage Bills →</a>
+  </div>
+  <div style="padding:0 0 0 0;">
+    {% if my_bills_list %}
+      {% set mon_names = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] %}
+      {% for b in my_bills_list %}
+      {% set today_str2 = today_str %}
+      {% set is_over = b.due_date < today_str2 %}
+      {% set is_soon = not is_over and b.due_date <= soon_str %}
+      <div style="display:flex;align-items:center;gap:12px;padding:11px 16px;border-bottom:1px solid var(--border);{% if is_over %}background:#fef2f2;{% elif is_soon %}background:#fffbeb;{% endif %}">
+        <div style="min-width:52px;text-align:center;flex-shrink:0;">
+          <div style="font-size:.62rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">{{ mon_names[b.due_date[5:7]|int] }}</div>
+          <div style="font-size:1.15rem;font-weight:900;line-height:1.1;color:var(--text);">{{ b.due_date[8:10] }}</div>
+          {% if is_over %}
+            <div style="font-size:.6rem;font-weight:700;color:#dc2626;background:#fee2e2;border-radius:4px;padding:1px 4px;margin-top:2px;">Overdue</div>
+          {% elif is_soon %}
+            <div style="font-size:.6rem;font-weight:700;color:#d97706;background:#fef3c7;border-radius:4px;padding:1px 4px;margin-top:2px;">Soon</div>
+          {% endif %}
+        </div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:700;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ b.name }}</div>
+          <div style="font-size:.7rem;color:var(--muted);">{{ 'Recurring' if b.type == 'recurring' else 'One-time' }}{% if b.payee %} · {{ b.payee }}{% endif %}</div>
+        </div>
+        <div style="font-size:.95rem;font-weight:800;font-variant-numeric:tabular-nums;flex-shrink:0;color:{% if is_over %}#dc2626{% else %}var(--text){% endif %};">₱{{ "{:,.2f}".format(b.amount) }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:.85rem;">No unpaid bills. You're all caught up! 🎉</div>
+    {% endif %}
+    <div style="display:flex;border-top:1px solid var(--border);">
+      <div style="flex:1;padding:12px 16px;border-right:1px solid var(--border);">
+        <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:3px;">Total Bills</div>
+        <div style="font-size:1rem;font-weight:900;font-variant-numeric:tabular-nums;">₱{{ "{:,.2f}".format(my_bills_total) }}</div>
+      </div>
+      <div style="flex:1;padding:12px 16px;background:#c0392b;border-radius:0 0 var(--radius) 0;">
+        <div style="font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:rgba(255,255,255,.7);margin-bottom:3px;">Still to Pay</div>
+        <div style="font-size:1rem;font-weight:900;font-variant-numeric:tabular-nums;color:#fff;">₱{{ "{:,.2f}".format(my_bills_unpaid) }}</div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 {# ── Upcoming Celebrations ──────────────────────────────────────────────────── #}
 <div class="card" style="margin-top:16px;">
   <div class="card-header">
