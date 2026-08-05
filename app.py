@@ -328,6 +328,16 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
     ctx["vl_enabled"] = bool(user.get("vl_enabled", 1))
     ctx["sl_enabled"] = bool(user.get("sl_enabled", 1))
     ctx["now"] = get_pht_now().isoformat()
+    with get_db() as conn:
+        ctx["pending_compliance_count"] = conn.execute(
+            """SELECT COUNT(*) FROM compliance_documents cd
+               WHERE cd.is_required=1 AND cd.is_active=1
+               AND NOT EXISTS (
+                   SELECT 1 FROM document_acknowledgments da
+                   WHERE da.doc_id=cd.id AND da.emp_id=? AND da.acknowledged_at IS NOT NULL
+               )""",
+            (uid,)
+        ).fetchone()[0]
     return ctx
 
 
@@ -377,6 +387,19 @@ async def login_post(
             )
             audit(conn, emp["id"], emp["name"], "login", ip=ip)
             request.session["user_id"] = emp["id"]
+            # Redirect to compliance gate if required docs are pending
+            pending_docs = conn.execute(
+                """SELECT COUNT(*) FROM compliance_documents cd
+                   WHERE cd.is_required=1 AND cd.is_active=1
+                   AND NOT EXISTS (
+                       SELECT 1 FROM document_acknowledgments da
+                       WHERE da.doc_id=cd.id AND da.emp_id=? AND da.acknowledged_at IS NOT NULL
+                   )""",
+                (emp["id"],)
+            ).fetchone()[0]
+            if pending_docs > 0:
+                flash(request, f"Please review and sign {pending_docs} required document(s) before continuing.", "warning")
+                return RedirectResponse("/compliance", status_code=302)
             dest = "/dashboard" if emp["role"] == "Employee" else "/kanban"
             return RedirectResponse(dest, status_code=302)
         _record_login_fail(ip)
@@ -2829,7 +2852,18 @@ async def change_ot_status(
 # ── LEAVE MANAGEMENT ──────────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
-LEAVE_TYPES = ["Vacation Leave", "Sick Leave", "Emergency Leave", "Unpaid Leave"]
+LEAVE_TYPES = [
+    "Vacation Leave",
+    "Sick Leave",
+    "Emergency Leave",
+    "Unpaid Leave",
+    "Maternity Leave",        # RA 11210 — 105 days
+    "Paternity Leave",        # RA 8187 — 7 days
+    "Solo Parent Leave",      # RA 8972 — 7 days
+    "VAWC Leave",             # RA 9262 — 10 days
+    "Special Leave Benefit",  # RA 9710 — 2 months (gynecological disorder)
+    "Bereavement Leave",
+]
 
 @app.get("/my-leave", response_class=HTMLResponse)
 async def my_leave_page(request: Request):
@@ -5956,6 +5990,471 @@ async def my_bills_reset(request: Request, bill_id: int):
         )
     flash(request, "Bill reset for next month.", "success")
     return RedirectResponse("/my-bills", status_code=302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── COMPLIANCE DOCUMENTS ──────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/compliance", response_class=HTMLResponse)
+async def compliance_list(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        docs = conn.execute(
+            "SELECT * FROM compliance_documents WHERE is_active=1 ORDER BY sort_order"
+        ).fetchall()
+        acks = conn.execute(
+            "SELECT doc_id, acknowledged_at FROM document_acknowledgments WHERE emp_id=? AND acknowledged_at IS NOT NULL",
+            (user["id"],)
+        ).fetchall()
+    ack_map = {a["doc_id"]: a["acknowledged_at"] for a in acks}
+    docs_out = []
+    for d in docs:
+        dd = dict(d)
+        dd["signed"] = dd["id"] in ack_map
+        dd["signed_at"] = ack_map.get(dd["id"])
+        docs_out.append(dd)
+    pending = sum(1 for d in docs_out if d["is_required"] and not d["signed"])
+    return templates.TemplateResponse(request, "employee/my_compliance.html", {
+        "user": user,
+        "docs": docs_out,
+        "pending": pending,
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/compliance/documents/{doc_id}", response_class=HTMLResponse)
+async def compliance_view_doc(request: Request, doc_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        doc = conn.execute(
+            "SELECT * FROM compliance_documents WHERE id=? AND is_active=1", (doc_id,)
+        ).fetchone()
+        if not doc:
+            flash(request, "Document not found.", "error")
+            return RedirectResponse("/compliance", status_code=302)
+        ack = conn.execute(
+            "SELECT * FROM document_acknowledgments WHERE emp_id=? AND doc_id=?",
+            (user["id"], doc_id)
+        ).fetchone()
+        now_str = get_pht_now().isoformat(sep=" ", timespec="seconds")
+        if not ack:
+            conn.execute(
+                "INSERT INTO document_acknowledgments (emp_id, doc_id, doc_version, viewed_at) VALUES (?,?,?,?)",
+                (user["id"], doc_id, doc["version"], now_str)
+            )
+        elif not ack["viewed_at"]:
+            conn.execute(
+                "UPDATE document_acknowledgments SET viewed_at=? WHERE emp_id=? AND doc_id=?",
+                (now_str, user["id"], doc_id)
+            )
+    return templates.TemplateResponse(request, "employee/compliance_doc.html", {
+        "user": user,
+        "doc": dict(doc),
+        "ack": dict(ack) if ack else {},
+        "already_signed": bool(ack and ack["acknowledged_at"]) if ack else False,
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/compliance/documents/{doc_id}/acknowledge")
+async def compliance_acknowledge(request: Request, doc_id: int):
+    user = require_user(request)
+    form = await request.form()
+    esign_name = (form.get("esign_name") or "").strip()
+    form_data  = form.get("form_data", "")
+    if not esign_name:
+        flash(request, "Please type your full name to sign.", "error")
+        return RedirectResponse(f"/compliance/documents/{doc_id}", status_code=302)
+    ip = request.client.host if request.client else ""
+    ua = request.headers.get("user-agent", "")[:300]
+    now_str = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    with get_db() as conn:
+        doc = conn.execute("SELECT * FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
+        if not doc:
+            flash(request, "Document not found.", "error")
+            return RedirectResponse("/compliance", status_code=302)
+        existing = conn.execute(
+            "SELECT id FROM document_acknowledgments WHERE emp_id=? AND doc_id=?",
+            (user["id"], doc_id)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                """UPDATE document_acknowledgments
+                   SET acknowledged_at=?, esign_name=?, ip_address=?, user_agent=?, form_data=?
+                   WHERE emp_id=? AND doc_id=?""",
+                (now_str, esign_name, ip, ua, form_data, user["id"], doc_id)
+            )
+        else:
+            conn.execute(
+                """INSERT INTO document_acknowledgments
+                   (emp_id, doc_id, doc_version, viewed_at, acknowledged_at, esign_name, ip_address, user_agent, form_data)
+                   VALUES (?,?,?,?,?,?,?,?,?)""",
+                (user["id"], doc_id, doc["version"], now_str, now_str, esign_name, ip, ua, form_data)
+            )
+    flash(request, f"✓ '{doc['title']}' acknowledged and signed.", "success")
+    # Check if all required docs are now done — redirect home
+    with get_db() as conn:
+        pending = conn.execute(
+            """SELECT COUNT(*) FROM compliance_documents cd
+               WHERE cd.is_required=1 AND cd.is_active=1
+               AND NOT EXISTS (
+                   SELECT 1 FROM document_acknowledgments da
+                   WHERE da.doc_id=cd.id AND da.emp_id=? AND da.acknowledged_at IS NOT NULL
+               )""",
+            (user["id"],)
+        ).fetchone()[0]
+    if pending == 0:
+        flash(request, "All required documents signed. Welcome!", "success")
+        dest = "/dashboard" if user["role"] == "Employee" else "/kanban"
+        return RedirectResponse(dest, status_code=302)
+    return RedirectResponse("/compliance", status_code=302)
+
+
+# ── Admin: Compliance Document Management ─────────────────────────────────────
+
+@app.get("/hr/compliance", response_class=HTMLResponse)
+async def hr_compliance_admin(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        docs = conn.execute(
+            "SELECT * FROM compliance_documents ORDER BY sort_order"
+        ).fetchall()
+        docs_out = []
+        for d in docs:
+            dd = dict(d)
+            dd["signed_count"] = conn.execute(
+                "SELECT COUNT(*) FROM document_acknowledgments WHERE doc_id=? AND acknowledged_at IS NOT NULL",
+                (d["id"],)
+            ).fetchone()[0]
+            dd["emp_count"] = conn.execute(
+                "SELECT COUNT(*) FROM employees WHERE is_active=1 AND role='Employee'"
+            ).fetchone()[0]
+            docs_out.append(dd)
+        ack_records = conn.execute(
+            """SELECT da.*, e.name as emp_name, cd.title as doc_title
+               FROM document_acknowledgments da
+               JOIN employees e ON e.id = da.emp_id
+               JOIN compliance_documents cd ON cd.id = da.doc_id
+               WHERE da.acknowledged_at IS NOT NULL
+               ORDER BY da.acknowledged_at DESC LIMIT 50"""
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/hr_compliance.html", {
+        "user": user,
+        "docs": docs_out,
+        "ack_records": [dict(r) for r in ack_records],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/hr/compliance/documents/{doc_id}/upload")
+async def hr_compliance_upload_pdf(request: Request, doc_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    pdf_file = form.get("pdf_file")
+    if not pdf_file or not hasattr(pdf_file, "filename") or not pdf_file.filename:
+        flash(request, "Please select a PDF file to upload.", "error")
+        return RedirectResponse("/hr/compliance", status_code=302)
+    import os, aiofiles
+    upload_dir = os.path.join("static", "compliance_docs")
+    os.makedirs(upload_dir, exist_ok=True)
+    safe_name = f"doc_{doc_id}_{get_pht_now().strftime('%Y%m%d%H%M%S')}.pdf"
+    save_path = os.path.join(upload_dir, safe_name)
+    async with aiofiles.open(save_path, "wb") as f:
+        await f.write(await pdf_file.read())
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE compliance_documents SET file_path=?, updated_at=? WHERE id=?",
+            (save_path, get_pht_now().isoformat(sep=" ", timespec="seconds"), doc_id)
+        )
+        doc = conn.execute("SELECT title FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
+    flash(request, f"PDF uploaded for '{doc['title']}'.", "success")
+    return RedirectResponse("/hr/compliance", status_code=302)
+
+
+@app.post("/hr/compliance/documents/{doc_id}/clear-pdf")
+async def hr_compliance_clear_pdf(request: Request, doc_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE compliance_documents SET file_path=NULL, updated_at=? WHERE id=?",
+            (get_pht_now().isoformat(sep=" ", timespec="seconds"), doc_id)
+        )
+        doc = conn.execute("SELECT title FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
+    flash(request, f"PDF cleared for '{doc['title']}'. Filler template will be shown.", "success")
+    return RedirectResponse("/hr/compliance", status_code=302)
+
+
+@app.post("/hr/compliance/documents/{doc_id}/toggle-required")
+async def hr_compliance_toggle_required(request: Request, doc_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        cur = conn.execute("SELECT is_required FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
+        if not cur:
+            flash(request, "Document not found.", "error")
+            return RedirectResponse("/hr/compliance", status_code=302)
+        conn.execute("UPDATE compliance_documents SET is_required=? WHERE id=?",
+                     (0 if cur["is_required"] else 1, doc_id))
+    return RedirectResponse("/hr/compliance", status_code=302)
+
+
+@app.get("/api/compliance/ack-detail/{doc_id}")
+async def compliance_ack_detail(request: Request, doc_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT da.*, e.name as emp_name, e.department
+               FROM document_acknowledgments da
+               JOIN employees e ON e.id = da.emp_id
+               WHERE da.doc_id=?
+               ORDER BY da.acknowledged_at DESC NULLS LAST""",
+            (doc_id,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── INCIDENTS & DISCIPLINARY ───────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+INCIDENT_TYPES = [
+    "Tardiness / Late", "Absenteeism / AWOL", "Insubordination",
+    "Misconduct / Disrespect", "Policy Violation", "Performance Issue",
+    "OSHS / Safety Violation", "Data Privacy Violation", "Harassment",
+    "Theft / Dishonesty", "Other",
+]
+
+
+@app.get("/incidents", response_class=HTMLResponse)
+async def incidents_list(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    status_filter = request.query_params.get("status", "")
+    with get_db() as conn:
+        q = """SELECT i.*, e.name as subject_name, r.name as reporter_name
+               FROM incidents i
+               LEFT JOIN employees e ON e.id = i.subject_emp_id
+               LEFT JOIN employees r ON r.id = i.reported_by
+               {}
+               ORDER BY i.created_at DESC"""
+        if status_filter:
+            rows = conn.execute(q.format("WHERE i.status=?"), (status_filter,)).fetchall()
+        else:
+            rows = conn.execute(q.format(""), ()).fetchall()
+        employees = conn.execute(
+            "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/incidents.html", {
+        "user": user,
+        "incidents": [dict(r) for r in rows],
+        "employees": [dict(e) for e in employees],
+        "incident_types": INCIDENT_TYPES,
+        "status_filter": status_filter,
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/incidents/add")
+async def incidents_add(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    incident_date  = form.get("incident_date", "").strip()
+    incident_type  = form.get("incident_type", "").strip()
+    description    = form.get("description", "").strip()
+    subject_emp_id = form.get("subject_emp_id", "").strip()
+    location       = form.get("location", "").strip()
+    witnesses      = form.get("witnesses", "").strip()
+    if not incident_date or not incident_type or not description:
+        flash(request, "Date, type, and description are required.", "error")
+        return RedirectResponse("/incidents", status_code=302)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO incidents
+               (reported_by, subject_emp_id, incident_date, incident_type,
+                description, location, witnesses, created_by_name)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (user["id"],
+             int(subject_emp_id) if subject_emp_id else None,
+             incident_date, incident_type, description,
+             location, witnesses, user["name"])
+        )
+    flash(request, "Incident report filed.", "success")
+    return RedirectResponse("/incidents", status_code=302)
+
+
+@app.get("/incidents/{incident_id}", response_class=HTMLResponse)
+async def incident_detail(request: Request, incident_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        inc = conn.execute(
+            """SELECT i.*, e.name as subject_name, e.email as subject_email,
+                      r.name as reporter_name
+               FROM incidents i
+               LEFT JOIN employees e ON e.id = i.subject_emp_id
+               LEFT JOIN employees r ON r.id = i.reported_by
+               WHERE i.id=?""",
+            (incident_id,)
+        ).fetchone()
+        if not inc:
+            flash(request, "Incident not found.", "error")
+            return RedirectResponse("/incidents", status_code=302)
+        actions = conn.execute(
+            "SELECT * FROM disciplinary_actions WHERE incident_id=? ORDER BY issued_at",
+            (incident_id,)
+        ).fetchall()
+        employees = conn.execute(
+            "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/incident_detail.html", {
+        "user": user,
+        "inc": dict(inc),
+        "actions": [dict(a) for a in actions],
+        "employees": [dict(e) for e in employees],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/incidents/{incident_id}/issue-nte")
+async def incident_issue_nte(request: Request, incident_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    subject_matter = form.get("subject_matter", "").strip()
+    due_date       = form.get("due_date", "").strip()
+    emp_id         = form.get("emp_id", "").strip()
+    if not subject_matter or not emp_id:
+        flash(request, "Subject matter and employee are required.", "error")
+        return RedirectResponse(f"/incidents/{incident_id}", status_code=302)
+    now_str = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO disciplinary_actions
+               (incident_id, emp_id, action_type, subject_matter, issued_by, issued_at, due_date)
+               VALUES (?,?,?,?,?,?,?)""",
+            (incident_id, int(emp_id), "NTE", subject_matter, user["name"], now_str, due_date)
+        )
+        conn.execute("UPDATE incidents SET status='NTE Issued' WHERE id=?", (incident_id,))
+        # notify employee
+        emp = conn.execute("SELECT * FROM employees WHERE id=?", (int(emp_id),)).fetchone()
+        if emp:
+            push_notification(conn, int(emp_id),
+                "Notice to Explain Issued",
+                f"Please respond to the NTE regarding: {subject_matter[:80]}",
+                f"/my-incidents/{incident_id}")
+    flash(request, "Notice to Explain issued and employee notified.", "success")
+    return RedirectResponse(f"/incidents/{incident_id}", status_code=302)
+
+
+@app.post("/incidents/{incident_id}/issue-nod")
+async def incident_issue_nod(request: Request, incident_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
+    decision       = form.get("decision", "").strip()
+    penalty        = form.get("penalty", "").strip()
+    emp_id         = form.get("emp_id", "").strip()
+    if not decision or not emp_id:
+        flash(request, "Decision and employee are required.", "error")
+        return RedirectResponse(f"/incidents/{incident_id}", status_code=302)
+    now_str = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO disciplinary_actions
+               (incident_id, emp_id, action_type, subject_matter, issued_by, issued_at, decision, decision_at, decided_by, penalty)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
+            (incident_id, int(emp_id), "NOD", "Notice of Decision", user["name"],
+             now_str, decision, now_str, user["name"], penalty)
+        )
+        conn.execute("UPDATE incidents SET status='Closed' WHERE id=?", (incident_id,))
+        push_notification(conn, int(emp_id),
+            "Notice of Decision",
+            f"HR has issued a decision on your case: {decision[:80]}",
+            f"/my-incidents/{incident_id}")
+    flash(request, "Notice of Decision issued.", "success")
+    return RedirectResponse(f"/incidents/{incident_id}", status_code=302)
+
+
+@app.post("/incidents/{incident_id}/dismiss")
+async def incident_dismiss(request: Request, incident_id: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute("UPDATE incidents SET status='Dismissed' WHERE id=?", (incident_id,))
+    flash(request, "Incident dismissed.", "success")
+    return RedirectResponse(f"/incidents/{incident_id}", status_code=302)
+
+
+# ── Employee: My Incidents / NTEs ──────────────────────────────────────────────
+
+@app.get("/my-incidents", response_class=HTMLResponse)
+async def my_incidents(request: Request):
+    user = require_user(request)
+    with get_db() as conn:
+        incs = conn.execute(
+            """SELECT i.*, da.action_type, da.id as action_id,
+                      da.subject_matter, da.due_date, da.employee_response,
+                      da.response_at, da.decision, da.penalty
+               FROM incidents i
+               LEFT JOIN disciplinary_actions da
+                   ON da.incident_id=i.id AND da.action_type='NTE'
+               WHERE i.subject_emp_id=?
+               ORDER BY i.created_at DESC""",
+            (user["id"],)
+        ).fetchall()
+    return templates.TemplateResponse(request, "employee/my_incidents.html", {
+        "user": user,
+        "incidents": [dict(r) for r in incs],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/my-incidents/{incident_id}", response_class=HTMLResponse)
+async def my_incident_detail(request: Request, incident_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        inc = conn.execute(
+            "SELECT * FROM incidents WHERE id=? AND subject_emp_id=?",
+            (incident_id, user["id"])
+        ).fetchone()
+        if not inc:
+            flash(request, "Incident not found.", "error")
+            return RedirectResponse("/my-incidents", status_code=302)
+        actions = conn.execute(
+            "SELECT * FROM disciplinary_actions WHERE incident_id=? ORDER BY issued_at",
+            (incident_id,)
+        ).fetchall()
+    return templates.TemplateResponse(request, "employee/my_incidents.html", {
+        "user": user,
+        "incidents": [],
+        "single_inc": dict(inc),
+        "actions": [dict(a) for a in actions],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/my-incidents/{incident_id}/respond")
+async def my_incident_respond(request: Request, incident_id: int):
+    user = require_user(request)
+    form = await request.form()
+    response_text = (form.get("employee_response") or "").strip()
+    if not response_text:
+        flash(request, "Response cannot be empty.", "error")
+        return RedirectResponse(f"/my-incidents/{incident_id}", status_code=302)
+    now_str = get_pht_now().isoformat(sep=" ", timespec="seconds")
+    with get_db() as conn:
+        # update the most recent NTE for this incident
+        conn.execute(
+            """UPDATE disciplinary_actions SET employee_response=?, response_at=?
+               WHERE incident_id=? AND emp_id=? AND action_type='NTE'
+               AND (employee_response IS NULL OR employee_response='')""",
+            (response_text, now_str, incident_id, user["id"])
+        )
+        conn.execute("UPDATE incidents SET status='Response Received' WHERE id=?", (incident_id,))
+    flash(request, "Your response has been submitted to HR.", "success")
+    return RedirectResponse("/my-incidents", status_code=302)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

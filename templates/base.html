@@ -87,6 +87,12 @@
         <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
           <span class="icon">💳</span> My Bills
         </a>
+        <a href="/compliance" class="nav-link {% if request.url.path.startswith('/compliance') or request.url.path.startswith('/my-incidents') %}active{% endif %}">
+          <span class="icon">📄</span> Compliance Docs
+          {% if pending_compliance_count and pending_compliance_count > 0 %}
+            <span class="nav-badge" style="background:#ef4444;">{{ pending_compliance_count }}</span>
+          {% endif %}
+        </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
@@ -140,6 +146,12 @@
         </a>
         <a href="/hr/onboarding" class="nav-link {% if '/hr/onboarding' in request.url.path %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
+        </a>
+        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
+          <span class="icon">⚖️</span> Incidents &amp; Discipline
+        </a>
+        <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
+          <span class="icon">📄</span> Compliance Docs
         </a>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll
@@ -227,6 +239,12 @@
         </a>
         <a href="/hr/onboarding" class="nav-link {% if '/hr/onboarding' in request.url.path %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
+        </a>
+        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
+          <span class="icon">⚖️</span> Incidents &amp; Discipline
+        </a>
+        <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
+          <span class="icon">📄</span> Compliance Docs
         </a>
         <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
           <span class="icon">💳</span> My Bills

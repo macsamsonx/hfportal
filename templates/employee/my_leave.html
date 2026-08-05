@@ -80,6 +80,12 @@
             {% if 'Vacation' in r.leave_type %}<span class="badge badge-green">{{ r.leave_type }}</span>
             {% elif 'Sick' in r.leave_type %}<span class="badge badge-blue">{{ r.leave_type }}</span>
             {% elif 'Emergency' in r.leave_type %}<span class="badge badge-red">{{ r.leave_type }}</span>
+            {% elif 'Maternity' in r.leave_type %}<span class="badge" style="background:#fce7f3;color:#be185d;">{{ r.leave_type }}</span>
+            {% elif 'Paternity' in r.leave_type %}<span class="badge" style="background:#dbeafe;color:#1d4ed8;">{{ r.leave_type }}</span>
+            {% elif 'Solo Parent' in r.leave_type %}<span class="badge" style="background:#fef9c3;color:#b45309;">{{ r.leave_type }}</span>
+            {% elif 'VAWC' in r.leave_type %}<span class="badge" style="background:#fee2e2;color:#991b1b;">{{ r.leave_type }}</span>
+            {% elif 'Special' in r.leave_type %}<span class="badge" style="background:#f3e8ff;color:#7c3aed;">{{ r.leave_type }}</span>
+            {% elif 'Bereavement' in r.leave_type %}<span class="badge" style="background:#f1f5f9;color:#475569;">{{ r.leave_type }}</span>
             {% else %}<span class="badge badge-gray">{{ r.leave_type }}</span>{% endif %}
           </td>
           <td class="fw-600">{{ r.start_date }}</td>

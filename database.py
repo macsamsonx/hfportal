@@ -1319,6 +1319,113 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
             )""")
 
+        # ── HR Compliance ─────────────────────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS compliance_documents (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                doc_key     TEXT UNIQUE NOT NULL,
+                title       TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                version     TEXT DEFAULT '1.0',
+                file_path   TEXT,
+                is_required INTEGER NOT NULL DEFAULT 1,
+                is_active   INTEGER NOT NULL DEFAULT 1,
+                sort_order  INTEGER DEFAULT 0,
+                created_at  TEXT DEFAULT (datetime('now','localtime')),
+                updated_at  TEXT
+            )""")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS document_acknowledgments (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id          INTEGER NOT NULL,
+                doc_id          INTEGER NOT NULL,
+                doc_version     TEXT DEFAULT '',
+                viewed_at       TEXT,
+                acknowledged_at TEXT,
+                esign_name      TEXT DEFAULT '',
+                ip_address      TEXT DEFAULT '',
+                user_agent      TEXT DEFAULT '',
+                form_data       TEXT DEFAULT '',
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE,
+                FOREIGN KEY(doc_id) REFERENCES compliance_documents(id) ON DELETE CASCADE
+            )""")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS incidents (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                reported_by     INTEGER NOT NULL,
+                subject_emp_id  INTEGER,
+                incident_date   TEXT NOT NULL,
+                incident_type   TEXT NOT NULL,
+                description     TEXT NOT NULL,
+                location        TEXT DEFAULT '',
+                witnesses       TEXT DEFAULT '',
+                status          TEXT NOT NULL DEFAULT 'Open',
+                created_at      TEXT DEFAULT (datetime('now','localtime')),
+                created_by_name TEXT DEFAULT '',
+                FOREIGN KEY(reported_by) REFERENCES employees(id),
+                FOREIGN KEY(subject_emp_id) REFERENCES employees(id)
+            )""")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS disciplinary_actions (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                incident_id       INTEGER NOT NULL,
+                emp_id            INTEGER NOT NULL,
+                action_type       TEXT NOT NULL,
+                subject_matter    TEXT NOT NULL,
+                issued_by         TEXT DEFAULT '',
+                issued_at         TEXT DEFAULT (datetime('now','localtime')),
+                due_date          TEXT,
+                employee_response TEXT DEFAULT '',
+                response_at       TEXT,
+                decision          TEXT DEFAULT '',
+                decision_at       TEXT,
+                decided_by        TEXT DEFAULT '',
+                penalty           TEXT DEFAULT '',
+                FOREIGN KEY(incident_id) REFERENCES incidents(id),
+                FOREIGN KEY(emp_id) REFERENCES employees(id)
+            )""")
+
+        # ── payslip receipt acknowledgment (migration) ────────────────────────────
+        try:
+            conn.execute("ALTER TABLE payslip_logs ADD COLUMN acknowledged_at TEXT")
+            conn.execute("ALTER TABLE payslip_logs ADD COLUMN acknowledged_by TEXT")
+        except Exception:
+            pass
+
+        # ── Seed compliance documents ─────────────────────────────────────────────
+        if conn.execute("SELECT COUNT(*) FROM compliance_documents").fetchone()[0] == 0:
+            conn.executemany(
+                """INSERT INTO compliance_documents
+                   (doc_key, title, description, version, is_required, is_active, sort_order)
+                   VALUES (?, ?, ?, ?, 1, 1, ?)""",
+                [
+                    ("handbook",    "Employee Handbook & Code of Conduct",
+                     "Company policies, core values, workplace guidelines, and standards of conduct.",
+                     "1.0", 1),
+                    ("contract",    "Employment Contract Acknowledgment",
+                     "Acknowledgment of receipt and understanding of your employment contract terms and conditions.",
+                     "1.0", 2),
+                    ("nda",         "Non-Disclosure Agreement (NDA)",
+                     "Confidentiality agreement covering company, client, and proprietary information.",
+                     "1.0", 3),
+                    ("data_privacy","Sensitive Data Processing Consent",
+                     "Specific consent for processing sensitive personal information including personality and skills assessments.",
+                     "1.0", 4),
+                    ("health_decl", "Health & Medical Declaration",
+                     "Pre-employment health declaration as required by DOLE OSHS Rule 1060. Must be renewed annually.",
+                     "1.0", 5),
+                    ("oshs",        "OSHS Safety Orientation Acknowledgment",
+                     "Occupational Safety & Health Standards orientation and workplace safety procedures (DOLE OSHS Rule 1040).",
+                     "1.0", 6),
+                    ("cctv",        "Workplace Monitoring Consent",
+                     "Consent to CCTV surveillance and digital activity monitoring in accordance with RA 10173.",
+                     "1.0", 7),
+                ]
+            )
+
         # ── Seed clients ──────────────────────────────────────────────────────────
         if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:
             conn.executemany(

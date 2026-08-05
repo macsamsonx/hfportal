@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Incidents & Discipline{% endblock %}
+{% block content %}
+<style>
+.inc-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px; }
+.inc-header h1 { font-size:22px; font-weight:700; }
+.inc-filter-bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+.filter-btn { padding:6px 14px; border:1px solid var(--border); border-radius:20px; font-size:12px; font-weight:600; cursor:pointer; background:var(--surface); color:var(--text); text-decoration:none; transition:all 0.15s; }
+.filter-btn:hover, .filter-btn.active { background:var(--accent,#1d4ed8); color:#fff; border-color:var(--accent,#1d4ed8); }
+
+.inc-table-wrap { overflow-x:auto; margin-bottom:28px; }
+.inc-table { width:100%; border-collapse:collapse; font-size:13px; white-space:nowrap; }
+.inc-table th { text-align:left; padding:10px 14px; background:var(--surface2,#f8fafc); border-bottom:1px solid var(--border); font-size:11px; letter-spacing:0.07em; text-transform:uppercase; color:var(--muted); }
+.inc-table td { padding:10px 14px; border-bottom:1px solid var(--border); }
+.inc-table tr:last-child td { border-bottom:none; }
+.inc-table tbody tr:hover td { background:var(--surface2,#f8fafc); cursor:pointer; }
+.inc-table .subject-cell { font-weight:600; }
+.inc-table .type-cell { max-width:160px; white-space:normal; }
+
+.status-badge { display:inline-block; font-size:10px; font-weight:700; padding:2px 8px; border-radius:4px; }
+.status-Open         { background:#fef9c3; color:#b45309; }
+.status-NTE_Issued   { background:#fee2e2; color:#dc2626; }
+.status-Response     { background:#e0e7ff; color:#3730a3; }
+.status-Closed       { background:#dcfce7; color:#15803d; }
+.status-Dismissed    { background:#f1f5f9; color:#64748b; }
+
+/* Add incident modal */
+.modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:var(--surface); border-radius:14px; padding:28px; max-width:580px; width:90vw; max-height:90vh; overflow-y:auto; }
+.modal-box h2 { font-size:18px; font-weight:700; margin-bottom:16px; }
+.form-row { margin-bottom:14px; }
+.form-row label { display:block; font-size:12px; font-weight:600; margin-bottom:4px; color:var(--muted); }
+.form-row input, .form-row select, .form-row textarea {
+  width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:8px;
+  font-size:13px; background:var(--surface); color:var(--text);
+}
+.form-row textarea { resize:vertical; min-height:80px; }
+.modal-actions { display:flex; gap:10px; margin-top:18px; justify-content:flex-end; }
+.btn-cancel { padding:8px 18px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); cursor:pointer; font-size:13px; }
+.btn-file   { padding:8px 18px; background:#1d4ed8; color:#fff; border:none; border-radius:8px; cursor:pointer; font-size:13px; font-weight:600; }
+</style>
+
+<div class="inc-header">
+  <div>
+    <h1>⚖️ Incidents &amp; Discipline</h1>
+    <p style="color:var(--muted);font-size:13px;">Track workplace incidents, issue Notices to Explain, and record Notices of Decision.</p>
+  </div>
+  <button class="btn btn-primary" onclick="document.getElementById('add-inc-modal').classList.add('open')">
+    + File Incident Report
+  </button>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.kind }} mb-3">{{ flash.msg }}</div>
+{% endif %}
+
+<div class="inc-filter-bar">
+  <a href="/incidents" class="filter-btn {% if not status_filter %}active{% endif %}">All</a>
+  <a href="/incidents?status=Open" class="filter-btn {% if status_filter=='Open' %}active{% endif %}">Open</a>
+  <a href="/incidents?status=NTE+Issued" class="filter-btn {% if status_filter=='NTE Issued' %}active{% endif %}">NTE Issued</a>
+  <a href="/incidents?status=Response+Received" class="filter-btn {% if status_filter=='Response Received' %}active{% endif %}">Response Received</a>
+  <a href="/incidents?status=Closed" class="filter-btn {% if status_filter=='Closed' %}active{% endif %}">Closed</a>
+  <a href="/incidents?status=Dismissed" class="filter-btn {% if status_filter=='Dismissed' %}active{% endif %}">Dismissed</a>
+</div>
+
+<div class="inc-table-wrap">
+  {% if incidents %}
+  <table class="inc-table">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Date</th>
+        <th>Subject</th>
+        <th>Type</th>
+        <th>Status</th>
+        <th>Reported By</th>
+        <th>Filed</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for inc in incidents %}
+      <tr onclick="window.location='/incidents/{{ inc.id }}'">
+        <td style="color:var(--muted)">{{ inc.id }}</td>
+        <td>{{ inc.incident_date }}</td>
+        <td class="subject-cell">{{ inc.subject_name or '(General)' }}</td>
+        <td class="type-cell" style="white-space:normal;">{{ inc.incident_type }}</td>
+        <td>
+          <span class="status-badge status-{{ inc.status | replace(' ', '_') | replace('/', '') }}">
+            {{ inc.status }}
+          </span>
+        </td>
+        <td>{{ inc.reporter_name }}</td>
+        <td style="color:var(--muted)">{{ inc.created_at[:10] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div style="text-align:center; padding:48px 0; color:var(--muted);">
+    <div style="font-size:40px; margin-bottom:10px;">✅</div>
+    <p style="font-size:15px; font-weight:600;">No incidents found.</p>
+    <p style="font-size:13px;">
+      {% if status_filter %}Filter: "{{ status_filter }}" — <a href="/incidents">Clear filter</a>
+      {% else %}Workplace records look clean.{% endif %}
+    </p>
+  </div>
+  {% endif %}
+</div>
+
+<!-- Add Incident Modal -->
+<div class="modal-overlay" id="add-inc-modal" onclick="if(event.target===this)this.classList.remove('open')">
+  <div class="modal-box">
+    <h2>📋 File Incident Report</h2>
+    <form method="post" action="/incidents/add">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+      <div class="form-row">
+        <label>Incident Date *</label>
+        <input type="date" name="incident_date" required value="{{ now[:10] if now else '' }}">
+      </div>
+      <div class="form-row">
+        <label>Incident Type *</label>
+        <select name="incident_type" required>
+          <option value="">— Select —</option>
+          {% for t in incident_types %}
+          <option value="{{ t }}">{{ t }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Subject Employee (leave blank if general)</label>
+        <select name="subject_emp_id">
+          <option value="">— None / General —</option>
+          {% for e in employees %}
+          <option value="{{ e.id }}">{{ e.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Description of Incident *</label>
+        <textarea name="description" required placeholder="Describe what happened, when, how, and any immediate action taken…"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Location / Platform</label>
+        <input type="text" name="location" placeholder="e.g. Office, Slack, Client call…">
+      </div>
+      <div class="form-row">
+        <label>Witnesses (if any)</label>
+        <input type="text" name="witnesses" placeholder="Names of witnesses (comma-separated)">
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" onclick="document.getElementById('add-inc-modal').classList.remove('open')">Cancel</button>
+        <button type="submit" class="btn-file">File Incident Report</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

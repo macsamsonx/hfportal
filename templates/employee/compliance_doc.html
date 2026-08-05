@@ -1,0 +1,474 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title }}{% endblock %}
+{% block content %}
+<style>
+.doc-viewer-header {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 20px;
+}
+.doc-viewer-header a {
+  color: var(--muted); text-decoration: none; font-size: 13px;
+  display: flex; align-items: center; gap: 4px;
+}
+.doc-viewer-header a:hover { color: var(--accent); }
+.doc-viewer-header h1 { font-size: 20px; font-weight: 700; margin-left: 8px; }
+
+/* Document paper */
+.doc-paper {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 48px 56px;
+  max-width: 820px;
+  margin: 0 auto 28px;
+  color: #0f172a;
+  font-family: Georgia, serif;
+  font-size: 14px;
+  line-height: 1.8;
+}
+@media (prefers-color-scheme: dark) {
+  .doc-paper { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+}
+:root[data-theme="dark"] .doc-paper { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+:root[data-theme="light"] .doc-paper { background: #fff; border-color: #e2e8f0; color: #0f172a; }
+
+.doc-paper .doc-logo {
+  text-align: center; margin-bottom: 32px;
+  font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.1em;
+}
+.doc-paper .doc-logo strong { display: block; font-size: 18px; font-family: system-ui; letter-spacing: 0; color: inherit; }
+.doc-paper h1 {
+  font-size: 20px; font-weight: bold; text-align: center; margin-bottom: 6px;
+  border-bottom: 2px solid currentColor; padding-bottom: 10px;
+}
+.doc-paper h2 { font-size: 15px; font-weight: bold; margin: 24px 0 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+.doc-paper h3 { font-size: 13px; font-weight: bold; margin: 16px 0 4px; }
+.doc-paper p  { margin: 0 0 12px; }
+.doc-paper ul, .doc-paper ol { margin: 0 0 12px 22px; }
+.doc-paper li { margin-bottom: 4px; }
+.doc-paper .doc-meta {
+  font-size: 11px; color: #64748b; text-align: center; margin-bottom: 28px;
+  font-family: system-ui;
+}
+.doc-paper .placeholder-notice {
+  border: 2px dashed #94a3b8; border-radius: 8px; padding: 14px 18px;
+  background: #f8fafc; margin: 20px 0; font-family: system-ui; font-size: 12px; color: #64748b;
+}
+@media (prefers-color-scheme: dark) {
+  .doc-paper .placeholder-notice { background: #0f172a; border-color: #334155; color: #94a3b8; }
+  .doc-paper .doc-logo, .doc-paper .doc-meta { color: #94a3b8; }
+}
+
+/* PDF iframe */
+.pdf-frame {
+  width: 100%; height: 80vh; border: 1px solid var(--border); border-radius: 12px;
+  max-width: 820px; margin: 0 auto 28px; display: block;
+}
+
+/* E-sign panel */
+.esign-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 4px solid #1d4ed8;
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+.esign-panel h3 { font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.esign-panel p  { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+.esign-row { display: flex; gap: 12px; align-items: flex-end; }
+.esign-name-input {
+  flex: 1; padding: 10px 14px; border: 2px solid var(--border);
+  border-radius: 8px; font-size: 15px; font-family: 'Brush Script MT', cursive;
+  background: var(--surface); color: var(--text);
+  transition: border-color 0.15s;
+}
+.esign-name-input:focus { outline: none; border-color: #1d4ed8; }
+.esign-btn {
+  padding: 10px 22px; background: #1d4ed8; color: #fff;
+  border: none; border-radius: 8px; font-size: 14px; font-weight: 700;
+  cursor: pointer; white-space: nowrap;
+}
+.esign-btn:hover { background: #1e40af; }
+.esign-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.signed-notice {
+  background: #dcfce7; border: 1px solid #22c55e; border-radius: 10px;
+  padding: 18px 22px; max-width: 820px; margin: 0 auto;
+  color: #15803d; font-size: 14px;
+  display: flex; align-items: center; gap: 12px;
+}
+.signed-notice .icon { font-size: 28px; }
+.signed-notice strong { display: block; font-size: 15px; margin-bottom: 2px; }
+@media (prefers-color-scheme: dark) {
+  .signed-notice { background: #052e16; border-color: #166534; color: #4ade80; }
+}
+
+/* Health declaration form */
+.health-form label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 4px; }
+.health-form .radio-group { display: flex; gap: 16px; margin-bottom: 8px; }
+.health-form .radio-group label { font-weight: normal; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.health-form textarea, .health-form input[type=text] {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+  border-radius: 6px; font-size: 13px; background: var(--surface); color: var(--text);
+  margin-bottom: 14px;
+}
+.health-section-title { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; margin: 20px 0 10px; }
+
+@media (max-width: 640px) {
+  .doc-paper { padding: 28px 20px; }
+  .esign-row { flex-direction: column; }
+  .esign-btn { width: 100%; }
+}
+</style>
+
+<div class="doc-viewer-header">
+  <a href="/compliance">← Back to Documents</a>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.kind }} mb-3">{{ flash.msg }}</div>
+{% endif %}
+
+{% if already_signed %}
+<div class="signed-notice">
+  <span class="icon">✅</span>
+  <div>
+    <strong>Already Signed</strong>
+    You acknowledged this document{% if ack.acknowledged_at %} on {{ ack.acknowledged_at[:16] }}{% endif %}{% if ack.esign_name %} as "{{ ack.esign_name }}"{% endif %}.
+  </div>
+</div>
+<br>
+{% endif %}
+
+{# ── PDF mode: show uploaded PDF in iframe ── #}
+{% if doc.file_path %}
+<iframe src="/static/{{ doc.file_path.replace('static/', '') }}" class="pdf-frame" title="{{ doc.title }}"></iframe>
+
+{# ── Health Declaration: special form ── #}
+{% elif doc.doc_key == 'health_decl' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Employer</div>
+  <h1>Health &amp; Medical Declaration</h1>
+  <p class="doc-meta">Document No: HF-HR-006 · Version {{ doc.version }} · DOLE OSHS Rule 1060 Compliance<br>
+  This declaration must be completed honestly. Information is kept confidential and used only for occupational health purposes.</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official Health Declaration PDF via HR &gt; Compliance Documents to replace this template.</div>
+  <p>Under DOLE Occupational Safety and Health Standards (OSHS) Rule 1060, all employees are required to declare their current health status prior to employment and annually thereafter. This information is processed in accordance with RA 10173 (Data Privacy Act).</p>
+</div>
+
+{# Health form is part of the e-sign section below — see form_data #}
+
+{# ── Filler templates for all other doc types ── #}
+{% elif doc.doc_key == 'handbook' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Employee Handbook</div>
+  <h1>Employee Handbook &amp; Code of Conduct</h1>
+  <p class="doc-meta">Document No: HF-HR-001 · Version {{ doc.version }} · Effective Date: January 2025<br>Approved by: Management</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official Employee Handbook PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <h2>1. Company Vision &amp; Mission</h2>
+  <p>Hundredfold Digital Marketing Services is committed to delivering excellent digital marketing solutions while upholding Christian values, integrity, and excellence in all our endeavors.</p>
+
+  <h2>2. Core Values</h2>
+  <ul>
+    <li><strong>Integrity</strong> — We act with honesty and transparency in all our dealings.</li>
+    <li><strong>Excellence</strong> — We pursue the highest quality in everything we do.</li>
+    <li><strong>Stewardship</strong> — We are responsible caretakers of our resources and relationships.</li>
+    <li><strong>Teamwork</strong> — We collaborate and support one another toward shared goals.</li>
+    <li><strong>Faith</strong> — We acknowledge God in all our work and decisions.</li>
+  </ul>
+
+  <h2>3. Code of Conduct</h2>
+  <p>All employees are expected to conduct themselves professionally, honestly, and respectfully at all times — whether inside the workplace, while representing the company, or in digital communications.</p>
+  <ul>
+    <li>Treat all colleagues, clients, and stakeholders with dignity and respect.</li>
+    <li>Protect confidential company and client information at all times.</li>
+    <li>Report any conflicts of interest promptly to your supervisor or HR.</li>
+    <li>Do not engage in harassment, discrimination, or any form of workplace violence.</li>
+    <li>Use company resources (internet, equipment, software) only for authorized work purposes.</li>
+    <li>Represent the company positively on social media and public platforms.</li>
+  </ul>
+
+  <h2>4. Working Hours &amp; Attendance</h2>
+  <p>Employees are expected to be punctual and to complete their assigned work hours. Chronic tardiness or unexplained absences are subject to disciplinary action in accordance with the Philippine Labor Code.</p>
+
+  <h2>5. Leave Entitlements</h2>
+  <p>Employees are entitled to leave benefits in accordance with Philippine law: Service Incentive Leave (RA 8187), Maternity Leave (RA 11210), Paternity Leave (RA 8187), Solo Parent Leave (RA 8972), and VAWC Leave (RA 9262), among others.</p>
+
+  <h2>6. Data Privacy</h2>
+  <p>The company collects and processes employee personal data in accordance with the Data Privacy Act of 2012 (RA 10173). Employees have the right to access, correct, and object to processing of their personal data.</p>
+
+  <h2>7. Disciplinary Procedures</h2>
+  <p>The company follows due process in all disciplinary matters as required by the Labor Code. No employee shall be dismissed without proper cause and without being given the opportunity to be heard through a written Notice to Explain (NTE) and subsequent Notice of Decision (NOD).</p>
+
+  <h2>8. Grievance Mechanism</h2>
+  <p>Employees may raise concerns or grievances through their immediate supervisor, the HR Manager, or directly to management. All complaints will be handled promptly, confidentially, and impartially.</p>
+
+  <h2>9. Acknowledgment</h2>
+  <p>By signing below, the employee confirms that they have received, read, and understood the contents of this Employee Handbook and agree to abide by its policies and guidelines.</p>
+</div>
+
+{% elif doc.doc_key == 'contract' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Employment Contract</div>
+  <h1>Employment Contract Acknowledgment</h1>
+  <p class="doc-meta">Document No: HF-HR-002 · Version {{ doc.version }}<br>Under the Philippine Labor Code (PD 442) and RA 8792 (E-Commerce Act)</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official Employment Contract PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <p>This acknowledgment confirms that the undersigned employee has received, reviewed, and understood their Employment Contract, which covers the following terms:</p>
+  <ul>
+    <li>Position, duties, and responsibilities</li>
+    <li>Compensation: basic hourly/monthly rate, allowances, and benefits</li>
+    <li>Work schedule, shift assignment, and overtime provisions</li>
+    <li>Probationary period conditions (if applicable)</li>
+    <li>Grounds for termination and due process requirements</li>
+    <li>Intellectual property rights over work product created during employment</li>
+    <li>Non-compete and non-solicitation provisions (as applicable)</li>
+    <li>Compliance with company policies, including the Employee Handbook</li>
+  </ul>
+
+  <h2>Legal Basis</h2>
+  <p>This employment relationship is governed by the Philippine Labor Code (Presidential Decree No. 442), relevant DOLE issuances, and mutually agreed contract terms. The electronic acknowledgment below constitutes a valid and binding signature under RA 8792 (Electronic Commerce Act of 2000).</p>
+
+  <h2>Acknowledgment</h2>
+  <p>By signing below, the employee confirms that:</p>
+  <ol>
+    <li>They have received a copy of their Employment Contract.</li>
+    <li>They have read, understood, and agree to all its terms and conditions.</li>
+    <li>They have been given the opportunity to ask questions before signing.</li>
+  </ol>
+</div>
+
+{% elif doc.doc_key == 'nda' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Confidentiality Agreement</div>
+  <h1>Non-Disclosure Agreement (NDA)</h1>
+  <p class="doc-meta">Document No: HF-HR-003 · Version {{ doc.version }}<br>Governed by Philippine Law, RA 8293 (IP Code), and RA 10173 (Data Privacy Act)</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official NDA PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <h2>1. Definition of Confidential Information</h2>
+  <p>"Confidential Information" includes, but is not limited to: client lists and contact information, business strategies and plans, pricing and financial data, proprietary software or systems, internal processes and workflows, personnel records, and any information marked or reasonably understood as confidential.</p>
+
+  <h2>2. Obligations of the Employee</h2>
+  <ul>
+    <li>Maintain the secrecy of all Confidential Information during and after employment.</li>
+    <li>Use Confidential Information only in the performance of assigned duties.</li>
+    <li>Not copy, transmit, or disclose Confidential Information to any unauthorized person.</li>
+    <li>Report immediately any known or suspected unauthorized disclosure.</li>
+    <li>Return or destroy all Confidential Information upon termination of employment.</li>
+  </ul>
+
+  <h2>3. Duration</h2>
+  <p>These obligations continue for a period of <strong>three (3) years</strong> after termination of employment, regardless of the cause of termination.</p>
+
+  <h2>4. Intellectual Property</h2>
+  <p>All work product, creative output, code, designs, documents, or other materials created by the employee in the course of employment are the exclusive property of Hundredfold Digital Marketing Services.</p>
+
+  <h2>5. Remedies</h2>
+  <p>Breach of this Agreement may result in disciplinary action up to and including termination, and may expose the employee to civil liability and criminal prosecution under RA 8293 and RA 10173.</p>
+
+  <h2>6. Governing Law</h2>
+  <p>This Agreement is governed by the laws of the Republic of the Philippines. Any disputes shall be resolved through the appropriate Philippine courts or through the DOLE.</p>
+</div>
+
+{% elif doc.doc_key == 'data_privacy' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Data Privacy Office</div>
+  <h1>Sensitive Personal Data — Processing Consent</h1>
+  <p class="doc-meta">Document No: HF-HR-004 · Version {{ doc.version }}<br>Under RA 10173 (Data Privacy Act of 2012), Section 13 — Sensitive Personal Information</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official Sensitive Data Consent PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <p>The company collects and processes the following categories of <strong>sensitive personal information</strong> as defined under Section 3(l) of RA 10173. Your specific, informed, and freely given consent is required for each category below:</p>
+
+  <h2>Categories of Sensitive Data Collected</h2>
+  <ul>
+    <li><strong>Personality &amp; Behavioral Profile</strong> — DISC Assessment results (temperament type: Dominant, Influential, Steady, Conscientious)</li>
+    <li><strong>Cognitive Assessment</strong> — IQ / Logical Reasoning Test scores</li>
+    <li><strong>Emotional Intelligence</strong> — EQ Assessment scores across Self-Awareness, Self-Regulation, Motivation, Empathy, Social Skills</li>
+    <li><strong>Language Proficiency</strong> — English Proficiency Test scores and CEFR level rating</li>
+    <li><strong>Health Information</strong> — Health Declaration responses (conditions, limitations, medications)</li>
+    <li><strong>Government-Issued Identification Numbers</strong> — SSS, PhilHealth, TIN (BIR), Pag-IBIG/HDMF</li>
+    <li><strong>Financial Information</strong> — Bank account details for payroll purposes</li>
+  </ul>
+
+  <h2>Purpose of Processing</h2>
+  <p>These data are processed for: employee development and training planning, payroll and government compliance (SSS, PhilHealth, Pag-IBIG, BIR), occupational health management, and internal HR records.</p>
+
+  <h2>Data Sharing</h2>
+  <p>Government ID numbers may be shared with SSS, PhilHealth, HDMF, and BIR solely for compliance remittance. No sensitive data is sold or shared with third parties for marketing purposes.</p>
+
+  <h2>Retention &amp; Your Rights</h2>
+  <p>Data is retained for the duration of employment plus seven (7) years as required by law. You have the right to: access your personal data, correct inaccuracies, object to processing, and file a complaint with the National Privacy Commission.</p>
+
+  <h2>DPO Contact</h2>
+  <p>Data Privacy Officer: HR Manager · Email: hr@hundredfold.digital</p>
+</div>
+
+{% elif doc.doc_key == 'oshs' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Safety &amp; Health Office</div>
+  <h1>OSHS Safety Orientation Acknowledgment</h1>
+  <p class="doc-meta">Document No: HF-HR-006 · Version {{ doc.version }}<br>DOLE OSHS Rule 1040 — Training and Personnel Development</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official OSHS Orientation PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <h2>1. Workplace Safety Policy</h2>
+  <p>Hundredfold Digital Marketing Services is committed to maintaining a safe, healthy, and hazard-free work environment for all employees, in compliance with DOLE OSHS (as amended by RA 11058) and DOLE Department Order 198-18.</p>
+
+  <h2>2. Emergency Procedures</h2>
+  <ul>
+    <li><strong>Fire:</strong> Activate the nearest fire alarm, evacuate via designated exit routes, do not use elevators, assemble at the designated muster point.</li>
+    <li><strong>Earthquake:</strong> Duck, cover, and hold. Move away from windows. Do not run outside until shaking stops.</li>
+    <li><strong>Medical Emergency:</strong> Call emergency services (911) and notify HR immediately. First aid kit location: Admin area.</li>
+  </ul>
+
+  <h2>3. Ergonomics &amp; Remote Work Safety</h2>
+  <p>For remote and home-based workers: ensure your workstation has adequate lighting, proper chair height, and monitor position to reduce ergonomic strain. Report any work-related injuries immediately to HR regardless of work location.</p>
+
+  <h2>4. Reporting Hazards</h2>
+  <p>Any employee who identifies a workplace hazard or safety concern is encouraged to report it immediately to HR or their direct supervisor. Reports may be made anonymously. Retaliation against employees for good-faith safety reports is prohibited.</p>
+
+  <h2>5. Work-Related Injury Reporting</h2>
+  <p>All work-related accidents, near-misses, or occupational illnesses must be reported to HR within 24 hours. HR will file the required DOLE WAIR (Work Accident/Illness Report) forms within the prescribed period.</p>
+
+  <h2>6. Employee Safety Rights</h2>
+  <p>Under RA 11058, all employees have the right to: refuse unsafe work without disciplinary consequences, request safety inspections, participate in OSHS programs, and receive safety training relevant to their role.</p>
+</div>
+
+{% elif doc.doc_key == 'cctv' %}
+<div class="doc-paper">
+  <div class="doc-logo"><strong>Hundredfold Digital Marketing Services</strong>Data Privacy Office</div>
+  <h1>Workplace Monitoring Consent</h1>
+  <p class="doc-meta">Document No: HF-HR-007 · Version {{ doc.version }}<br>Under RA 10173 (Data Privacy Act) and NPC Circular 2023-01</p>
+  <div class="placeholder-notice">📋 <strong>Filler Document:</strong> Upload your official Monitoring Consent PDF via HR &gt; Compliance Documents to replace this template.</div>
+
+  <h2>1. Forms of Monitoring</h2>
+  <p>The company may employ the following monitoring measures for legitimate business and security purposes:</p>
+  <ul>
+    <li><strong>CCTV Surveillance</strong> — Cameras may be installed in common areas, entrances/exits, and work areas. CCTV footage is retained for 30 days.</li>
+    <li><strong>Digital Activity Logging</strong> — The employee portal logs: login timestamps, IP addresses, browser/device information, and all system actions for security and audit purposes.</li>
+    <li><strong>Attendance Tracking</strong> — Clock-in/clock-out times and IP addresses are recorded to verify attendance and work hours.</li>
+    <li><strong>Remote Work Monitoring</strong> — For WFH employees, the system may log connection times and work output data.</li>
+  </ul>
+
+  <h2>2. Purpose of Monitoring</h2>
+  <p>Monitoring is conducted solely for: employee safety and security, prevention of theft or data breaches, verification of work hours, compliance with client and regulatory requirements, and investigation of incidents when required.</p>
+
+  <h2>3. Limitations</h2>
+  <p>Monitoring is conducted proportionally and only to the extent necessary for the stated purposes. Private areas (restrooms, prayer rooms) are never monitored. CCTV footage is accessible only by authorized HR and Management personnel.</p>
+
+  <h2>4. Data Subject Rights</h2>
+  <p>You may request access to records about yourself, request correction of inaccurate records, or file a complaint with the National Privacy Commission at www.privacy.gov.ph.</p>
+
+  <h2>5. Your Consent</h2>
+  <p>By signing below, you acknowledge that you have been informed of, and consent to, the monitoring measures described above as a condition of employment, pursuant to RA 10173 and NPC Circular 2023-01.</p>
+</div>
+
+{% else %}
+<div class="doc-paper">
+  <h1>{{ doc.title }}</h1>
+  <p class="doc-meta">Version {{ doc.version }}</p>
+  <p>{{ doc.description }}</p>
+</div>
+{% endif %}
+
+{# ── E-sign panel ── #}
+<div class="esign-panel">
+  {% if already_signed %}
+  <h3>✅ Document Signed</h3>
+  <p>
+    Signed as: <strong>{{ ack.esign_name }}</strong> ·
+    {{ ack.acknowledged_at[:16] if ack.acknowledged_at else '' }} ·
+    IP: {{ ack.ip_address }}
+  </p>
+  <a href="/compliance" class="btn btn-secondary" style="text-decoration:none;">← Back to All Documents</a>
+
+  {% else %}
+  <h3>Electronic Signature</h3>
+  <p>Type your <strong>full legal name</strong> exactly as it appears in your employment records to acknowledge that you have read and understood this document. This constitutes a valid electronic signature under RA 8792.</p>
+
+  <form method="post" action="/compliance/documents/{{ doc.id }}/acknowledge">
+    <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+    {# Health declaration adds JSON form_data #}
+    {% if doc.doc_key == 'health_decl' %}
+    <div class="health-form">
+      <div class="health-section-title">Health Declaration Questions</div>
+
+      <label>1. Do you have any known chronic illness or medical condition?</label>
+      <div class="radio-group">
+        <label><input type="radio" name="hq1" value="No" required checked> No</label>
+        <label><input type="radio" name="hq1" value="Yes"> Yes</label>
+      </div>
+      <textarea name="hq1_details" placeholder="If Yes, please describe (optional)" rows="2"></textarea>
+
+      <label>2. Do you have any physical limitations that may affect your work?</label>
+      <div class="radio-group">
+        <label><input type="radio" name="hq2" value="No" required checked> No</label>
+        <label><input type="radio" name="hq2" value="Yes"> Yes</label>
+      </div>
+      <textarea name="hq2_details" placeholder="If Yes, please describe (optional)" rows="2"></textarea>
+
+      <label>3. Are you currently taking any regular medication?</label>
+      <div class="radio-group">
+        <label><input type="radio" name="hq3" value="No" required checked> No</label>
+        <label><input type="radio" name="hq3" value="Yes"> Yes</label>
+      </div>
+      <textarea name="hq3_details" placeholder="If Yes, please describe (optional)" rows="2"></textarea>
+
+      <label>4. Do you have any known allergies (food, medication, environmental)?</label>
+      <div class="radio-group">
+        <label><input type="radio" name="hq4" value="No" required checked> No</label>
+        <label><input type="radio" name="hq4" value="Yes"> Yes</label>
+      </div>
+      <textarea name="hq4_details" placeholder="If Yes, please describe (optional)" rows="2"></textarea>
+
+      <label>5. Have you been diagnosed with or treated for any communicable disease in the past 12 months?</label>
+      <div class="radio-group">
+        <label><input type="radio" name="hq5" value="No" required checked> No</label>
+        <label><input type="radio" name="hq5" value="Yes"> Yes</label>
+      </div>
+      <textarea name="hq5_details" placeholder="If Yes, please describe (optional)" rows="2"></textarea>
+
+      <p style="font-size:12px; color:var(--muted); margin-top:8px;">
+        I declare that the above information is true, correct, and complete to the best of my knowledge. I understand that falsification of health information may be grounds for disciplinary action. This data is processed under RA 10173 for occupational health purposes only.
+      </p>
+    </div>
+    <input type="hidden" name="form_data" id="health-form-data">
+    {% endif %}
+
+    <div class="esign-row">
+      <input
+        type="text"
+        name="esign_name"
+        id="esign-name"
+        class="esign-name-input"
+        placeholder="Type your full legal name here…"
+        required
+        autocomplete="name"
+      >
+      <button type="submit" class="esign-btn" id="esign-submit-btn">
+        Sign &amp; Acknowledge
+      </button>
+    </div>
+    <p style="font-size:11px; color:var(--muted); margin-top:10px;">
+      Your signature, IP address, timestamp, and browser information will be recorded as required by RA 8792.
+    </p>
+  </form>
+  {% endif %}
+</div>
+
+{% if doc.doc_key == 'health_decl' and not already_signed %}
+<script>
+document.querySelector('form').addEventListener('submit', function(e) {
+  const data = {};
+  ['hq1','hq2','hq3','hq4','hq5'].forEach(k => {
+    const r = document.querySelector(`input[name="${k}"]:checked`);
+    data[k] = r ? r.value : '';
+    const d = document.querySelector(`textarea[name="${k}_details"]`);
+    data[k + '_details'] = d ? d.value : '';
+  });
+  document.getElementById('health-form-data').value = JSON.stringify(data);
+});
+</script>
+{% endif %}
+{% endblock %}

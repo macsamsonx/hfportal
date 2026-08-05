@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+{% block title %}Compliance Documents — HR{% endblock %}
+{% block content %}
+<style>
+.comp-admin-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; flex-wrap:wrap; gap:12px; }
+.comp-admin-header h1 { font-size:22px; font-weight:700; }
+.comp-admin-header p  { font-size:13px; color:var(--muted); margin-top:2px; }
+
+.doc-admin-grid { display:grid; gap:14px; margin-bottom:32px; }
+.doc-admin-card {
+  background:var(--surface); border:1px solid var(--border); border-radius:10px;
+  padding:18px 20px; display:grid;
+  grid-template-columns:1fr auto;
+  gap:12px; align-items:start;
+}
+.doc-admin-info h3 { font-size:14px; font-weight:700; margin-bottom:3px; }
+.doc-admin-info p  { font-size:12.5px; color:var(--muted); margin-bottom:8px; }
+.doc-meta-row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:12px; color:var(--muted); }
+.progress-bar { width:140px; height:6px; background:var(--border); border-radius:3px; overflow:hidden; display:inline-block; vertical-align:middle; margin-left:6px; }
+.progress-bar-fill { height:100%; background:#22c55e; border-radius:3px; }
+
+.badge-req   { background:#fef9c3; color:#b45309; }
+.badge-opt   { background:#f1f5f9; color:#64748b; }
+.badge-sm    { font-size:10px; font-weight:700; padding:2px 7px; border-radius:3px; }
+.badge-pdf   { background:#dcfce7; color:#15803d; font-size:10px; font-weight:700; padding:2px 7px; border-radius:3px; }
+.badge-filler{ background:#e0e7ff; color:#3730a3; font-size:10px; font-weight:700; padding:2px 7px; border-radius:3px; }
+
+.doc-actions { display:flex; flex-direction:column; gap:6px; align-items:flex-end; min-width:180px; }
+.upload-form { display:flex; flex-direction:column; gap:4px; }
+.file-input-wrap { display:flex; gap:6px; }
+.file-input-wrap input[type=file] { font-size:12px; flex:1; min-width:0; }
+.btn-sm-upload { padding:5px 12px; font-size:12px; background:#1d4ed8; color:#fff; border:none; border-radius:6px; cursor:pointer; white-space:nowrap; }
+.btn-sm-upload:hover { background:#1e40af; }
+.btn-sm-clear  { padding:5px 12px; font-size:12px; background:var(--danger,#ef4444); color:#fff; border:none; border-radius:6px; cursor:pointer; }
+.btn-sm-req { padding:5px 12px; font-size:12px; border:1px solid var(--border); border-radius:6px; cursor:pointer; background:var(--surface); color:var(--text); }
+
+/* Ack table */
+.ack-section h2 { font-size:16px; font-weight:700; margin-bottom:12px; }
+.ack-table { width:100%; border-collapse:collapse; font-size:13px; }
+.ack-table th { text-align:left; padding:8px 12px; background:var(--surface2,#f8fafc); color:var(--muted); font-size:11px; letter-spacing:0.07em; text-transform:uppercase; border-bottom:1px solid var(--border); }
+.ack-table td { padding:9px 12px; border-bottom:1px solid var(--border); }
+.ack-table tr:last-child td { border-bottom:none; }
+.ack-table tbody tr:hover td { background:var(--surface2,#f8fafc); }
+
+@media (max-width:640px) {
+  .doc-admin-card { grid-template-columns:1fr; }
+  .doc-actions { align-items:flex-start; }
+}
+</style>
+
+<div class="comp-admin-header">
+  <div>
+    <h1>📄 Compliance Documents</h1>
+    <p>Manage required HR documents. Upload a PDF to replace the built-in filler template, or toggle the Required status.</p>
+  </div>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.kind }} mb-3">{{ flash.msg }}</div>
+{% endif %}
+
+<div class="doc-admin-grid">
+  {% for d in docs %}
+  <div class="doc-admin-card">
+    <div class="doc-admin-info">
+      <h3>
+        {{ d.title }}
+        <span class="badge-sm {% if d.is_required %}badge-req{% else %}badge-opt{% endif %}">
+          {{ 'Required' if d.is_required else 'Optional' }}
+        </span>
+        <span class="{% if d.file_path %}badge-pdf{% else %}badge-filler{% endif %} badge-sm">
+          {{ 'PDF Uploaded' if d.file_path else 'Filler Template' }}
+        </span>
+      </h3>
+      <p>{{ d.description }}</p>
+      <div class="doc-meta-row">
+        <span>Version {{ d.version }}</span>
+        <span>Key: <code>{{ d.doc_key }}</code></span>
+        <span>
+          Signed: {{ d.signed_count }} / {{ d.emp_count }} employees
+          <span class="progress-bar">
+            <span class="progress-bar-fill" style="width:{{ ((d.signed_count / d.emp_count * 100) if d.emp_count else 0)|int }}%"></span>
+          </span>
+        </span>
+        {% if d.file_path %}
+        <a href="/{{ d.file_path }}" target="_blank" style="color:var(--accent);font-size:12px;">View PDF ↗</a>
+        {% else %}
+        <a href="/compliance/documents/{{ d.id }}" target="_blank" style="color:var(--muted);font-size:12px;">Preview filler ↗</a>
+        {% endif %}
+      </div>
+    </div>
+    <div class="doc-actions">
+      {# Toggle Required #}
+      <form method="post" action="/hr/compliance/documents/{{ d.id }}/toggle-required">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn-sm-req">
+          {{ '✓ Required' if d.is_required else '+ Mark Required' }}
+        </button>
+      </form>
+
+      {# Upload PDF #}
+      <form method="post" action="/hr/compliance/documents/{{ d.id }}/upload" enctype="multipart/form-data" class="upload-form">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <div class="file-input-wrap">
+          <input type="file" name="pdf_file" accept=".pdf" required>
+          <button type="submit" class="btn-sm-upload">Upload PDF</button>
+        </div>
+      </form>
+
+      {# Clear PDF #}
+      {% if d.file_path %}
+      <form method="post" action="/hr/compliance/documents/{{ d.id }}/clear-pdf"
+            onsubmit="return confirm('Remove uploaded PDF? The filler template will be shown again.')">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn-sm-clear">Remove PDF</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="ack-section">
+  <h2>Recent Acknowledgments</h2>
+  {% if ack_records %}
+  <div style="overflow-x:auto;">
+    <table class="ack-table">
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Document</th>
+          <th>Signed As</th>
+          <th>Signed At</th>
+          <th>IP Address</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in ack_records %}
+        <tr>
+          <td>{{ r.emp_name }}</td>
+          <td>{{ r.doc_title }}</td>
+          <td style="font-family:cursive;">{{ r.esign_name }}</td>
+          <td>{{ r.acknowledged_at[:16] if r.acknowledged_at else '—' }}</td>
+          <td style="font-size:11px; color:var(--muted);">{{ r.ip_address }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p style="color:var(--muted); font-size:14px;">No acknowledgments yet.</p>
+  {% endif %}
+</div>
+{% endblock %}
