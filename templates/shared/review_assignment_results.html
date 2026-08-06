@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title %}Results — {{ assignment.title }}{% endblock %}
+{% block page_title %}Review Results{% endblock %}
+
+{% block content %}
+<style>
+.results-wrap { max-width: 760px; }
+.result-header {
+  background: linear-gradient(135deg, #065f46, #059669);
+  color: #fff; border-radius: 14px; padding: 22px 26px; margin-bottom: 22px;
+}
+.result-header h2 { font-size: 19px; font-weight: 800; }
+.result-header p  { font-size: 12.5px; opacity: .85; margin-top: 3px; }
+.result-meta { display: flex; gap: 14px; margin-top: 10px; font-size: 12px; opacity: .8; flex-wrap: wrap; }
+
+.ans-block {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 11px; padding: 18px 20px; margin-bottom: 12px;
+}
+.ans-num { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 5px; }
+.ans-q   { font-size: 14px; font-weight: 700; margin-bottom: 10px; line-height: 1.4; }
+.ans-val { font-size: 13.5px; }
+.ans-empty { font-size: 13px; color: var(--muted); font-style: italic; }
+
+/* Star display */
+.star-display { display: flex; gap: 4px; align-items: center; }
+.star-filled  { font-size: 22px; color: #f59e0b; }
+.star-empty   { font-size: 22px; color: #d1d5db; }
+.star-score   { font-size: 13px; font-weight: 700; color: var(--muted); margin-left: 6px; }
+
+/* Bool display */
+.bool-display {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 14px;
+}
+.bool-true  { background: #dcfce7; color: #15803d; }
+.bool-false { background: #fee2e2; color: #dc2626; }
+
+/* MC display */
+.mc-answer {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 8px;
+  background: #eff6ff; color: #1d4ed8; font-weight: 600; font-size: 13.5px;
+}
+</style>
+
+<div class="results-wrap">
+  <a href="/review-templates/{{ assignment.template_id }}" style="font-size:12.5px; color:var(--muted); text-decoration:none; display:block; margin-bottom:12px;">← Back to Template</a>
+
+  {% if flash %}
+  <div class="alert alert-{{ flash.kind }} mb-16">{{ flash.msg }}</div>
+  {% endif %}
+
+  <!-- Result header -->
+  <div class="result-header">
+    <h2>{{ assignment.title }}</h2>
+    <p>Submitted answers from {{ assignment.emp_name }}</p>
+    <div class="result-meta">
+      <span>📅 Period: {{ assignment.period }}</span>
+      <span>👤 {{ assignment.emp_name }}</span>
+      <span>✅ Submitted: {{ (assignment.submitted_at or '—')[:16] }}</span>
+    </div>
+  </div>
+
+  <!-- Summary stat -->
+  {% set answered = questions | selectattr('answer') | list | length %}
+  <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:12px; margin-bottom:20px;">
+    <div class="stat-card green" style="padding:12px 16px;">
+      <div class="stat-icon green" style="font-size:18px;">✅</div>
+      <div>
+        <div class="stat-label">Answered</div>
+        <div class="stat-value" style="font-size:1.2rem;">{{ answered }}</div>
+      </div>
+    </div>
+    <div class="stat-card yellow" style="padding:12px 16px;">
+      <div class="stat-icon yellow" style="font-size:18px;">❓</div>
+      <div>
+        <div class="stat-label">Unanswered</div>
+        <div class="stat-value" style="font-size:1.2rem;">{{ questions|length - answered }}</div>
+      </div>
+    </div>
+    <div class="stat-card" style="padding:12px 16px;">
+      <div class="stat-icon" style="font-size:18px;">📋</div>
+      <div>
+        <div class="stat-label">Total Questions</div>
+        <div class="stat-value" style="font-size:1.2rem;">{{ questions|length }}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Answers -->
+  {% for q in questions %}
+  {% set type_labels = {'rating':'1–5 Rating','boolean':'True / False','short_text':'Sentence','paragraph':'Paragraph','multiple_choice':'Multiple Choice'} %}
+  <div class="ans-block">
+    <div class="ans-num">Q{{ loop.index }} · {{ type_labels.get(q.question_type, q.question_type) }}</div>
+    <div class="ans-q">
+      {{ q.question_text }}
+      {% if q.is_required %}<span style="color:var(--danger);"> *</span>{% endif %}
+    </div>
+
+    {% if q.answer %}
+      {% if q.question_type == 'rating' %}
+      <div class="star-display">
+        {% set rating = q.answer | int %}
+        {% for i in range(1, 6) %}
+          {% if i <= rating %}
+            <span class="star-filled">★</span>
+          {% else %}
+            <span class="star-empty">★</span>
+          {% endif %}
+        {% endfor %}
+        <span class="star-score">{{ q.answer }} / 5</span>
+      </div>
+
+      {% elif q.question_type == 'boolean' %}
+      <div class="bool-display {% if q.answer == 'True' %}bool-true{% else %}bool-false{% endif %}">
+        {% if q.answer == 'True' %}✅ True{% else %}❌ False{% endif %}
+      </div>
+
+      {% elif q.question_type == 'multiple_choice' %}
+      <div class="mc-answer">◉ {{ q.answer }}</div>
+
+      {% elif q.question_type == 'paragraph' %}
+      <div class="ans-val" style="white-space:pre-wrap; line-height:1.6; background:var(--surface2,#f8fafc); border-radius:8px; padding:12px 14px;">{{ q.answer }}</div>
+
+      {% else %}
+      <div class="ans-val">{{ q.answer }}</div>
+      {% endif %}
+
+    {% else %}
+      <div class="ans-empty">— No answer provided</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+
+  <div style="margin-top:16px; display:flex; gap:10px;">
+    <a href="/review-templates/{{ assignment.template_id }}" class="btn btn-outline">← Back to Template</a>
+    <a href="/review-assignments/{{ assignment.id }}" class="btn btn-outline">View as Employee</a>
+  </div>
+</div>
+{% endblock %}

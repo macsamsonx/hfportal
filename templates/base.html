@@ -51,6 +51,8 @@
     </div>
 
     <nav class="sidebar-nav">
+
+      {# ── EMPLOYEE ───────────────────────────────────────────── #}
       {% if user.role == 'Employee' %}
         <div class="nav-section">Workspace</div>
         <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
@@ -62,13 +64,39 @@
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
-        <div class="nav-section" style="margin-top:4px;">My Requests</div>
-        <a href="/my-timesheet" class="nav-link {% if request.url.path in ('/my-ot','/my-leave','/my-schedule','/my-timesheet','/my-review') %}active{% endif %}">
-          <span class="icon">🗓️</span> Timesheet
+
+        <div class="nav-section">Requests</div>
+        <a href="/my-ot" class="nav-link {% if request.url.path == '/my-ot' %}active{% endif %}">
+          <span class="icon">⏰</span> OT Request
           {% if pending_ot_count and pending_ot_count > 0 %}
             <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}
         </a>
+        <a href="/my-leave" class="nav-link {% if request.url.path == '/my-leave' %}active{% endif %}">
+          <span class="icon">🌴</span> Leave Request
+        </a>
+        <a href="/my-incidents" class="nav-link {% if request.url.path.startswith('/my-incidents') %}active{% endif %}">
+          <span class="icon">⚖️</span> Incidents &amp; NTEs
+        </a>
+        <a href="/my-surveys" class="nav-link {% if request.url.path == '/my-surveys' or request.url.path.startswith('/my-surveys/') %}active{% endif %}">
+          <span class="icon">📝</span> Surveys
+        </a>
+
+        <div class="nav-section">Time &amp; Records</div>
+        <a href="/my-timesheet" class="nav-link {% if request.url.path in ('/my-timesheet','/my-review','/my-schedule') %}active{% endif %}">
+          <span class="icon">🗓️</span> Timesheet
+        </a>
+        <a href="/compliance" class="nav-link {% if request.url.path.startswith('/compliance') %}active{% endif %}">
+          <span class="icon">📄</span> Compliance Docs
+          {% if pending_compliance_count and pending_compliance_count > 0 %}
+            <span class="nav-badge" style="background:#ef4444;">{{ pending_compliance_count }}</span>
+          {% endif %}
+        </a>
+        <a href="/onboarding" class="nav-link {% if request.url.path.startswith('/onboarding') %}active{% endif %}">
+          <span class="icon">🎓</span> Onboarding
+        </a>
+
+        <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
           <span class="icon">💬</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
@@ -78,21 +106,6 @@
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
           <span class="icon">📅</span> Team Calendar
         </a>
-        <a href="/my-surveys" class="nav-link {% if request.url.path == '/my-surveys' or request.url.path.startswith('/my-surveys/') %}active{% endif %}">
-          <span class="icon">📝</span> Surveys
-        </a>
-        <a href="/onboarding" class="nav-link {% if request.url.path.startswith('/onboarding') %}active{% endif %}">
-          <span class="icon">🎓</span> Onboarding
-        </a>
-        <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
-          <span class="icon">💳</span> My Bills
-        </a>
-        <a href="/compliance" class="nav-link {% if request.url.path.startswith('/compliance') or request.url.path.startswith('/my-incidents') %}active{% endif %}">
-          <span class="icon">📄</span> Compliance Docs
-          {% if pending_compliance_count and pending_compliance_count > 0 %}
-            <span class="nav-badge" style="background:#ef4444;">{{ pending_compliance_count }}</span>
-          {% endif %}
-        </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
@@ -100,8 +113,9 @@
           <span class="icon">👤</span> My Profile
         </a>
 
+      {# ── HR MANAGER ─────────────────────────────────────────── #}
       {% elif user.role == 'HR Manager' %}
-        <div class="nav-section">Management</div>
+        <div class="nav-section">Boards</div>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
           <span class="icon">📋</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
@@ -111,12 +125,22 @@
         <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
           <span class="icon">🔒</span> HR Board
         </a>
+
+        <div class="nav-section">People &amp; Records</div>
         <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
-          <span class="icon">👥</span> Employee Roster
+          <span class="icon">👥</span> Roster
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">🕒</span> Attendance
         </a>
+        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
+          <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
+          <span class="icon">🗂️</span> Directory
+        </a>
+
+        <div class="nav-section">Requests</div>
         <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
           <span class="icon">⏰</span> OT Requests
           {% if pending_ot_count and pending_ot_count > 0 %}
@@ -129,39 +153,36 @@
             <span class="nav-badge">{{ pending_leave_count }}</span>
           {% endif %}
         </a>
-        <a href="/hr-timesheets" class="nav-link {% if request.url.path == '/hr-timesheets' %}active{% endif %}">
-          <span class="icon">🗓️</span> Timesheets
-        </a>
-        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
-          <span class="icon">⭐</span> Reviews
-          {% if status_counts is defined and status_counts.get('Pending HR Review', 0) > 0 %}
-            <span class="nav-badge">{{ status_counts['Pending HR Review'] }}</span>
-          {% endif %}
-        </a>
-        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> Schedule
+        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
+          <span class="icon">⚖️</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
           <span class="icon">📝</span> Surveys
         </a>
+
+        <div class="nav-section">HR &amp; Compliance</div>
         <a href="/hr/onboarding" class="nav-link {% if '/hr/onboarding' in request.url.path %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
-        </a>
-        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
           <span class="icon">📄</span> Compliance Docs
         </a>
+        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
+          <span class="icon">⭐</span> Reviews
+        </a>
+        <a href="/review-templates" class="nav-link {% if request.url.path.startswith('/review-templates') or request.url.path.startswith('/review-assignments') %}active{% endif %}">
+          <span class="icon">📋</span> Review Templates
+        </a>
+
+        <div class="nav-section">Finance</div>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
-          <span class="icon">💰</span> Payroll
+          <span class="icon">💰</span> Payroll &amp; Timesheets
         </a>
         <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
           <span class="icon">📊</span> Reports
         </a>
-        <a href="/admin/company-settings" class="nav-link {% if '/company-settings' in request.url.path %}active{% endif %}">
-          <span class="icon">🏢</span> Company Settings
-        </a>
+
+        <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
           <span class="icon">💬</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
@@ -174,12 +195,8 @@
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
-        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
-          <span class="icon">👥</span> Directory
-        </a>
-        <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
-          <span class="icon">🏢</span> Clients
-        </a>
+
+        <div class="nav-section">Admin</div>
         <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
           <span class="icon">⚙️</span> Employee Mgmt
         </a>
@@ -189,7 +206,14 @@
             <span class="nav-badge">{{ pending_reg_count }}</span>
           {% endif %}
         </a>
+        <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
+          <span class="icon">🏢</span> Clients
+        </a>
+        <a href="/admin/company-settings" class="nav-link {% if '/company-settings' in request.url.path %}active{% endif %}">
+          <span class="icon">⚙️</span> Company Settings
+        </a>
 
+      {# ── ADMIN ──────────────────────────────────────────────── #}
       {% elif user.role == 'Admin' %}
         <div class="nav-section">Operations</div>
         <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
@@ -207,12 +231,22 @@
         <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
           <span class="icon">🔒</span> HR Board
         </a>
+
+        <div class="nav-section">People &amp; Records</div>
         <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
           <span class="icon">👥</span> Roster
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">🕒</span> Attendance
         </a>
+        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
+          <span class="icon">📅</span> Schedule
+        </a>
+        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
+          <span class="icon">🗂️</span> Directory
+        </a>
+
+        <div class="nav-section">Requests</div>
         <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
           <span class="icon">⏰</span> OT Requests
           {% if pending_ot_count and pending_ot_count > 0 %}
@@ -225,33 +259,39 @@
             <span class="nav-badge">{{ pending_leave_count }}</span>
           {% endif %}
         </a>
-        <a href="/hr-timesheets" class="nav-link {% if request.url.path == '/hr-timesheets' %}active{% endif %}">
-          <span class="icon">🗓️</span> Timesheets
-        </a>
-        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
-          <span class="icon">⭐</span> Reviews
-        </a>
-        <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> Schedule
+        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
+          <span class="icon">⚖️</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
           <span class="icon">📝</span> Surveys
         </a>
+
+        <div class="nav-section">HR &amp; Compliance</div>
         <a href="/hr/onboarding" class="nav-link {% if '/hr/onboarding' in request.url.path %}active{% endif %}">
           <span class="icon">🎓</span> Onboarding
-        </a>
-        <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
           <span class="icon">📄</span> Compliance Docs
         </a>
+        <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
+          <span class="icon">⭐</span> Reviews
+        </a>
+        <a href="/review-templates" class="nav-link {% if request.url.path.startswith('/review-templates') or request.url.path.startswith('/review-assignments') %}active{% endif %}">
+          <span class="icon">📋</span> Review Templates
+        </a>
+
+        <div class="nav-section">Finance</div>
+        <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
+          <span class="icon">💰</span> Payroll &amp; Timesheets
+        </a>
         <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
           <span class="icon">💳</span> My Bills
         </a>
-        <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
-          <span class="icon">💰</span> Payroll
+        <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
+          <span class="icon">📊</span> Reports
         </a>
+
+        <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
           <span class="icon">💬</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
@@ -264,12 +304,7 @@
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
           <span class="icon">📢</span> Announcements
         </a>
-        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
-          <span class="icon">👥</span> Directory
-        </a>
-        <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
-          <span class="icon">📊</span> Reports
-        </a>
+
         <div class="nav-section">Admin</div>
         <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
           <span class="icon">⚙️</span> Employee Mgmt
@@ -287,7 +322,7 @@
           <span class="icon">📺</span> TV Posters
         </a>
         <a href="/admin/company-settings" class="nav-link {% if '/company-settings' in request.url.path %}active{% endif %}">
-          <span class="icon">🏢</span> Company Settings
+          <span class="icon">⚙️</span> Company Settings
         </a>
         <a href="/admin/audit-log" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
           <span class="icon">📜</span> Audit Log
@@ -711,7 +746,7 @@
   </div>
 
 </div>
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v=2"></script>
 {% block extra_js %}{% endblock %}
 <script>
 // Global search

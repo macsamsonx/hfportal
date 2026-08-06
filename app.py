@@ -101,6 +101,8 @@ from database import (
     KANBAN_STATUSES, BIBLE_VERSES,
     UPLOAD_DIR,
     get_company_settings, save_company_setting,
+    compute_sss_employer, compute_philhealth_employer, compute_pagibig_employer,
+    get_bimonthly_periods, get_current_bimonthly_period,
 )
 
 # ── CSRF helpers ──────────────────────────────────────────────────────────────
@@ -610,7 +612,8 @@ async def company_settings_save(request: Request):
     user = require_role(request, "HR Manager", "Admin")
     form = await request.form()
     fields = ["name", "tagline", "address", "phone", "email", "website",
-              "tin", "sss_employer", "philhealth_employer", "pagibig_employer", "dti"]
+              "tin", "sss_employer", "philhealth_employer", "pagibig_employer", "dti",
+              "payroll_cutoff_1", "payroll_cutoff_2"]
     for field in fields:
         val = str(form.get(field, "")).strip()
         save_company_setting(field, val)
@@ -2034,29 +2037,29 @@ async def directory_page(request: Request):
 
 # ── Payroll ────────────────────────────────────────────────────────────────────
 @app.get("/payroll", response_class=HTMLResponse)
-async def payroll_page(request: Request, week: str = None, start: str = None, end: str = None):
+async def payroll_page(request: Request, start: str = None, end: str = None):
     user = require_role(request, "HR Manager", "Admin")
 
-    # Support custom date range OR standard week
+    # Read configured cutoff days (default 15 / end-of-month)
+    settings = get_company_settings()
+    cutoff1 = int(settings.get("payroll_cutoff_1") or 15)
+    cutoff2 = int(settings.get("payroll_cutoff_2") or 31)
+
+    # Determine active period
     if start and end:
         try:
             datetime.strptime(start, "%Y-%m-%d")
             datetime.strptime(end, "%Y-%m-%d")
             week_start, week_end = start, end
-            is_custom = True
         except ValueError:
-            week_start, week_end = get_week_range()
-            is_custom = False
-    elif week:
-        try:
-            ref = datetime.strptime(week, "%Y-%m-%d").date()
-        except ValueError:
-            ref = date.today()
-        week_start, week_end = get_week_range(ref)
-        is_custom = False
+            week_start, week_end = get_current_bimonthly_period(cutoff1, cutoff2)
     else:
-        week_start, week_end = get_week_range()
-        is_custom = False
+        week_start, week_end = get_current_bimonthly_period(cutoff1, cutoff2)
+
+    # Build period dropdown (last 12 bi-monthly periods)
+    period_options = []
+    for ps, pe in get_bimonthly_periods(cutoff1, cutoff2, 12):
+        period_options.append({"start": ps, "end": pe, "label": f"{ps} – {pe}"})
 
     with get_db() as conn:
         employees = conn.execute(
@@ -2067,7 +2070,6 @@ async def payroll_page(request: Request, week: str = None, start: str = None, en
         ).fetchone()
 
         if existing_run:
-            # Load from saved snapshot — protects historical data from rate changes
             saved_rows = conn.execute(
                 """SELECT pr.*, e.shift_type FROM payroll_runs pr
                    JOIN employees e ON pr.emp_id = e.id
@@ -2080,22 +2082,46 @@ async def payroll_page(request: Request, week: str = None, start: str = None, en
                 d["run_id"] = d["id"]
                 payroll_data.append(d)
         else:
-            # Preview: calculate from attendance
             payroll_data = [
                 compute_payroll_for_employee(emp["id"], week_start, week_end)
                 for emp in employees
             ]
             payroll_data = [p for p in payroll_data if p]
 
-    total_gross = round(sum(p.get("total_pay", p.get("gross_pay", 0)) for p in payroll_data), 2)
-    total_net   = round(sum(p.get("net_pay", p.get("total_pay", 0)) for p in payroll_data), 2)
+        # Build employer contribution data for Gov Contributions tab
+        gov_rows = []
+        for p in payroll_data:
+            gross = p.get("gross_pay", 0) or 0
+            monthly_equiv = gross * 2
+            emp_sss  = p.get("sss_deduction", 0) or 0
+            emp_phic = p.get("philhealth_deduction", 0) or 0
+            emp_hdmf = p.get("pagibig_deduction", 0) or 0
+            er_sss   = compute_sss_employer(monthly_equiv)   if p.get("sss_enrolled")       else 0.0
+            er_phic  = compute_philhealth_employer(monthly_equiv) if p.get("philhealth_enrolled") else 0.0
+            er_hdmf  = compute_pagibig_employer(monthly_equiv)   if p.get("pagibig_enrolled")    else 0.0
+            gov_rows.append({
+                "emp_name":   p.get("emp_name", ""),
+                "emp_sss":    emp_sss,  "er_sss":  er_sss,
+                "emp_phic":   emp_phic, "er_phic": er_phic,
+                "emp_hdmf":   emp_hdmf, "er_hdmf": er_hdmf,
+                "total_ee":   round(emp_sss + emp_phic + emp_hdmf, 2),
+                "total_er":   round(er_sss + er_phic + er_hdmf, 2),
+                "total_combined": round(emp_sss + emp_phic + emp_hdmf + er_sss + er_phic + er_hdmf, 2),
+            })
 
-    # Build week options for last 12 weeks
-    week_options = []
-    for i in range(12):
-        d = date.today() - timedelta(weeks=i)
-        ws, we = get_week_range(d)
-        week_options.append({"value": ws, "label": f"{ws} – {we}"})
+        # Timesheets for this period
+        ts_submissions = conn.execute(
+            """SELECT ts.*, e.name as emp_name, e.department
+               FROM timesheet_submissions ts
+               JOIN employees e ON e.id = ts.emp_id
+               WHERE ts.week_start >= ? AND ts.week_start <= ?
+               ORDER BY ts.status, e.name""",
+            (week_start, week_end)
+        ).fetchall()
+
+    total_gross = round(sum(p.get("total_pay", p.get("gross_pay", 0)) for p in payroll_data), 2)
+    total_net   = round(sum(p.get("net_pay", 0) for p in payroll_data), 2)
+    total_er    = round(sum(r["total_er"] for r in gov_rows), 2)
 
     return templates.TemplateResponse(request, "shared/payroll.html", {
         "user": user,
@@ -2103,11 +2129,13 @@ async def payroll_page(request: Request, week: str = None, start: str = None, en
         "payroll_data": payroll_data,
         "total_gross": total_gross,
         "total_net": total_net,
+        "total_er": total_er,
         "existing_run": dict(existing_run) if existing_run else None,
-        "week_options": week_options,
-        "selected_week": week_start,
-        "is_custom": is_custom,
-        "custom_start": start or "", "custom_end": end or "",
+        "period_options": period_options,
+        "selected_start": week_start,
+        "gov_rows": gov_rows,
+        "ts_submissions": [dict(t) for t in ts_submissions],
+        "cutoff1": cutoff1, "cutoff2": cutoff2,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
@@ -5264,8 +5292,17 @@ async def my_review(request: Request):
             "SELECT * FROM performance_reviews WHERE emp_id=? ORDER BY created_at DESC",
             (user["id"],)
         ).fetchall()
+        qa_assignments = conn.execute(
+            """SELECT ra.*, rt.title, rt.description,
+                      (SELECT COUNT(*) FROM review_questions WHERE template_id=rt.id) as q_count
+               FROM review_assignments ra
+               JOIN review_templates rt ON rt.id=ra.template_id
+               WHERE ra.emp_id=? ORDER BY ra.assigned_at DESC""",
+            (user["id"],)
+        ).fetchall()
     return templates.TemplateResponse(request, "employee/my_review.html", {
         "user": user, "reviews": [dict(r) for r in reviews],
+        "qa_assignments": [dict(a) for a in qa_assignments],
         "flash": get_flash(request), **shared_ctx(user, request),
     })
 
@@ -5388,6 +5425,325 @@ async def hr_rate_review(
                           f"Your {rev['period']} performance review has been rated.", "/my-review")
     flash(request, "Review completed.")
     return RedirectResponse("/hr-reviews", status_code=302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── REVIEW QUESTIONNAIRE TEMPLATES ───────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+import json as _json
+
+_QUESTION_TYPES = [
+    ("rating",          "1–5 Rating",    "⭐"),
+    ("boolean",         "True / False",  "✔"),
+    ("short_text",      "Sentence",      "✏️"),
+    ("paragraph",       "Paragraph",     "📝"),
+    ("multiple_choice", "Multiple Choice","◉"),
+]
+
+
+@app.get("/review-templates", response_class=HTMLResponse)
+async def review_templates_list(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        tmpl_rows = conn.execute(
+            """SELECT rt.*, e.name as creator_name,
+                      (SELECT COUNT(*) FROM review_questions WHERE template_id=rt.id) as q_count,
+                      (SELECT COUNT(*) FROM review_assignments WHERE template_id=rt.id) as assign_count
+               FROM review_templates rt
+               LEFT JOIN employees e ON e.id=rt.created_by
+               ORDER BY rt.created_at DESC"""
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/review_templates.html", {
+        "user": user,
+        "templates": [dict(t) for t in tmpl_rows],
+        "question_types": _QUESTION_TYPES,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/review-templates")
+async def review_template_create(
+    request: Request,
+    title: str = Form(...),
+    description: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO review_templates (title, description, created_by) VALUES (?,?,?)",
+            (title.strip(), description.strip(), user["id"])
+        )
+        tid = cur.lastrowid
+    flash(request, f"Template '{title}' created.")
+    return RedirectResponse(f"/review-templates/{tid}", status_code=302)
+
+
+@app.get("/review-templates/{tid}", response_class=HTMLResponse)
+async def review_template_detail(request: Request, tid: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        tmpl = conn.execute(
+            "SELECT * FROM review_templates WHERE id=?", (tid,)
+        ).fetchone()
+        if not tmpl:
+            flash(request, "Template not found.", "error")
+            return RedirectResponse("/review-templates", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM review_questions WHERE template_id=? ORDER BY sort_order, id",
+            (tid,)
+        ).fetchall()
+        assignments = conn.execute(
+            """SELECT ra.*, e.name as emp_name
+               FROM review_assignments ra JOIN employees e ON e.id=ra.emp_id
+               WHERE ra.template_id=? ORDER BY ra.assigned_at DESC""",
+            (tid,)
+        ).fetchall()
+        employees = conn.execute(
+            "SELECT id, name FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+        ).fetchall()
+    qs = []
+    for q in questions:
+        d = dict(q)
+        try:
+            d["options_list"] = _json.loads(d.get("options") or "[]")
+        except Exception:
+            d["options_list"] = []
+        qs.append(d)
+    return templates.TemplateResponse(request, "shared/review_template_detail.html", {
+        "user": user,
+        "tmpl": dict(tmpl),
+        "questions": qs,
+        "assignments": [dict(a) for a in assignments],
+        "employees": [dict(e) for e in employees],
+        "question_types": _QUESTION_TYPES,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/review-templates/{tid}/questions/add")
+async def review_question_add(
+    request: Request,
+    tid: int,
+    question_text: str = Form(...),
+    question_type: str = Form("short_text"),
+    options: str = Form(""),
+    is_required: str = Form("1"),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    valid_types = [t[0] for t in _QUESTION_TYPES]
+    if question_type not in valid_types:
+        question_type = "short_text"
+    opts_list: list = []
+    if question_type == "multiple_choice":
+        opts_list = [o.strip() for o in options.splitlines() if o.strip()]
+    with get_db() as conn:
+        tmpl = conn.execute("SELECT id FROM review_templates WHERE id=?", (tid,)).fetchone()
+        if not tmpl:
+            return RedirectResponse("/review-templates", status_code=302)
+        max_order = conn.execute(
+            "SELECT COALESCE(MAX(sort_order),0) FROM review_questions WHERE template_id=?", (tid,)
+        ).fetchone()[0]
+        conn.execute(
+            """INSERT INTO review_questions
+               (template_id, question_text, question_type, options, sort_order, is_required)
+               VALUES (?,?,?,?,?,?)""",
+            (tid, question_text.strip(), question_type,
+             _json.dumps(opts_list), max_order + 1, 1 if is_required == "1" else 0)
+        )
+    flash(request, "Question added.")
+    return RedirectResponse(f"/review-templates/{tid}", status_code=302)
+
+
+@app.post("/review-templates/{tid}/questions/{qid}/delete")
+async def review_question_delete(request: Request, tid: int, qid: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM review_questions WHERE id=? AND template_id=?", (qid, tid)
+        )
+    flash(request, "Question removed.")
+    return RedirectResponse(f"/review-templates/{tid}", status_code=302)
+
+
+@app.post("/review-templates/{tid}/delete")
+async def review_template_delete(request: Request, tid: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute("DELETE FROM review_templates WHERE id=?", (tid,))
+    flash(request, "Template deleted.")
+    return RedirectResponse("/review-templates", status_code=302)
+
+
+@app.post("/review-templates/{tid}/assign")
+async def review_template_assign(
+    request: Request,
+    tid: int,
+    period: str = Form(...),
+    due_date: str = Form(""),
+    emp_ids: list[int] = Form(default=[]),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        tmpl = conn.execute("SELECT * FROM review_templates WHERE id=?", (tid,)).fetchone()
+        if not tmpl:
+            return RedirectResponse("/review-templates", status_code=302)
+        if not emp_ids:
+            emps = conn.execute(
+                "SELECT id FROM employees WHERE role='Employee' AND is_active=1"
+            ).fetchall()
+            emp_ids = [e["id"] for e in emps]
+        created = 0
+        for eid in emp_ids:
+            try:
+                conn.execute(
+                    """INSERT INTO review_assignments
+                       (template_id, emp_id, period, due_date, status, assigned_by)
+                       VALUES (?,?,?,?,?,?)""",
+                    (tid, eid, period.strip(), due_date or None, "Pending", user["id"])
+                )
+                push_notification(conn, eid, f"📋 Review: {tmpl['title']}",
+                                  f"A new review has been assigned for {period}.",
+                                  "/my-review")
+                created += 1
+            except Exception:
+                pass  # UNIQUE constraint: already assigned
+    flash(request, f"Assigned to {created} employee(s) for '{period}'.")
+    return RedirectResponse(f"/review-templates/{tid}", status_code=302)
+
+
+@app.get("/review-assignments/{aid}", response_class=HTMLResponse)
+async def review_assignment_form(request: Request, aid: int):
+    user = require_role(request, "Employee", "HR Manager", "Admin")
+    with get_db() as conn:
+        assignment = conn.execute(
+            """SELECT ra.*, rt.title, rt.description, e.name as emp_name
+               FROM review_assignments ra
+               JOIN review_templates rt ON rt.id=ra.template_id
+               JOIN employees e ON e.id=ra.emp_id
+               WHERE ra.id=?""",
+            (aid,)
+        ).fetchone()
+        if not assignment:
+            flash(request, "Assignment not found.", "error")
+            return RedirectResponse("/my-review", status_code=302)
+        # Employees can only view their own
+        if user["role"] == "Employee" and assignment["emp_id"] != user["id"]:
+            flash(request, "Access denied.", "error")
+            return RedirectResponse("/my-review", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM review_questions WHERE template_id=? ORDER BY sort_order, id",
+            (assignment["template_id"],)
+        ).fetchall()
+        responses = conn.execute(
+            "SELECT * FROM review_responses WHERE assignment_id=?", (aid,)
+        ).fetchall()
+    resp_map = {r["question_id"]: r["answer_text"] for r in responses}
+    qs = []
+    for q in questions:
+        d = dict(q)
+        try:
+            d["options_list"] = _json.loads(d.get("options") or "[]")
+        except Exception:
+            d["options_list"] = []
+        d["answer"] = resp_map.get(q["id"], "")
+        qs.append(d)
+    return templates.TemplateResponse(request, "employee/my_review_assignment.html", {
+        "user": user,
+        "assignment": dict(assignment),
+        "questions": qs,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/review-assignments/{aid}/submit")
+async def review_assignment_submit(request: Request, aid: int):
+    user = require_role(request, "Employee", "HR Manager", "Admin")
+    form = await request.form()
+    now_str = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        assignment = conn.execute(
+            "SELECT * FROM review_assignments WHERE id=?", (aid,)
+        ).fetchone()
+        if not assignment:
+            flash(request, "Assignment not found.", "error")
+            return RedirectResponse("/my-review", status_code=302)
+        if user["role"] == "Employee" and assignment["emp_id"] != user["id"]:
+            flash(request, "Access denied.", "error")
+            return RedirectResponse("/my-review", status_code=302)
+        questions = conn.execute(
+            "SELECT id FROM review_questions WHERE template_id=?",
+            (assignment["template_id"],)
+        ).fetchall()
+        for q in questions:
+            answer = str(form.get(f"q_{q['id']}", "")).strip()
+            existing = conn.execute(
+                "SELECT id FROM review_responses WHERE assignment_id=? AND question_id=?",
+                (aid, q["id"])
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE review_responses SET answer_text=?, answered_at=? WHERE id=?",
+                    (answer, now_str, existing["id"])
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO review_responses (assignment_id, question_id, answer_text) VALUES (?,?,?)",
+                    (aid, q["id"], answer)
+                )
+        conn.execute(
+            "UPDATE review_assignments SET status='Submitted', submitted_at=? WHERE id=?",
+            (now_str, aid)
+        )
+        push_notification(
+            conn, assignment["assigned_by"] or 0,
+            "📋 Review Submitted",
+            f"{user['name']} submitted: {assignment['period']}",
+            f"/review-templates/{assignment['template_id']}"
+        )
+    flash(request, "Review submitted successfully.")
+    redir = "/my-review" if user["role"] == "Employee" else f"/review-templates/{assignment['template_id']}"
+    return RedirectResponse(redir, status_code=302)
+
+
+@app.get("/review-assignments/{aid}/results", response_class=HTMLResponse)
+async def review_assignment_results(request: Request, aid: int):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        assignment = conn.execute(
+            """SELECT ra.*, rt.title, e.name as emp_name
+               FROM review_assignments ra
+               JOIN review_templates rt ON rt.id=ra.template_id
+               JOIN employees e ON e.id=ra.emp_id
+               WHERE ra.id=?""",
+            (aid,)
+        ).fetchone()
+        if not assignment:
+            flash(request, "Not found.", "error")
+            return RedirectResponse("/review-templates", status_code=302)
+        questions = conn.execute(
+            "SELECT * FROM review_questions WHERE template_id=? ORDER BY sort_order, id",
+            (assignment["template_id"],)
+        ).fetchall()
+        responses = conn.execute(
+            "SELECT * FROM review_responses WHERE assignment_id=?", (aid,)
+        ).fetchall()
+    resp_map = {r["question_id"]: r["answer_text"] for r in responses}
+    qs = []
+    for q in questions:
+        d = dict(q)
+        try:
+            d["options_list"] = _json.loads(d.get("options") or "[]")
+        except Exception:
+            d["options_list"] = []
+        d["answer"] = resp_map.get(q["id"], "")
+        qs.append(d)
+    return templates.TemplateResponse(request, "shared/review_assignment_results.html", {
+        "user": user,
+        "assignment": dict(assignment),
+        "questions": qs,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
 
 
 # ══════════════════════════════════════════════════════════════════════════════

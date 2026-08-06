@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}Review Templates{% endblock %}
+{% block page_title %}Review Templates{% endblock %}
+
+{% block content %}
+<style>
+.tmpl-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px;
+  display: flex; align-items: flex-start; gap: 16px;
+  transition: box-shadow .15s;
+}
+.tmpl-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,.08); }
+.tmpl-icon { font-size: 26px; flex-shrink: 0; }
+.tmpl-title { font-size: 15px; font-weight: 700; }
+.tmpl-desc  { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.tmpl-meta  { font-size: 11.5px; color: var(--muted); margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; }
+.tmpl-meta span { display: inline-flex; align-items: center; gap: 4px; }
+.type-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: .72rem;
+  font-weight: 600; border: 1px solid var(--border);
+  background: var(--surface2, #f8fafc); cursor: pointer;
+  transition: background .12s, border-color .12s;
+}
+.type-pill.selected {
+  background: var(--primary); color: #fff; border-color: var(--primary);
+}
+</style>
+
+<div class="page-header">
+  <div>
+    <h2>📋 Review Templates</h2>
+    <p>Build reusable question sets for performance reviews, assessments, and surveys.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('new-tmpl-modal')">+ New Template</button>
+</div>
+
+{% if flash %}
+<div class="alert alert-{{ flash.kind }} mb-16">{{ flash.msg }}</div>
+{% endif %}
+
+{% if templates %}
+<div style="display: flex; flex-direction: column; gap: 12px;">
+  {% for t in templates %}
+  <div class="tmpl-card">
+    <span class="tmpl-icon">📋</span>
+    <div style="flex: 1; min-width: 0;">
+      <div class="tmpl-title">{{ t.title }}</div>
+      {% if t.description %}<div class="tmpl-desc">{{ t.description }}</div>{% endif %}
+      <div class="tmpl-meta">
+        <span>🗂 {{ t.q_count }} question{{ 's' if t.q_count != 1 }}</span>
+        <span>👥 {{ t.assign_count }} assignment{{ 's' if t.assign_count != 1 }}</span>
+        <span>by {{ t.creator_name or 'System' }}</span>
+        <span>{{ t.created_at[:10] }}</span>
+        {% if not t.is_active %}<span class="badge badge-gray">Inactive</span>{% endif %}
+      </div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-shrink: 0;">
+      <a href="/review-templates/{{ t.id }}" class="btn btn-primary btn-sm">Edit / Assign →</a>
+      <form method="post" action="/review-templates/{{ t.id }}/delete"
+            onsubmit="return confirm('Delete this template? All assignments will also be removed.')">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <button class="btn btn-outline btn-sm" style="color:var(--danger);">🗑</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center; padding:60px 0; color:var(--muted);">
+  <div style="font-size:48px; margin-bottom:12px;">📋</div>
+  <p style="font-size:15px; font-weight:600;">No templates yet.</p>
+  <p style="font-size:13px; margin-top:4px;">Create one to start building structured review questionnaires.</p>
+  <button class="btn btn-primary" style="margin-top:16px;" onclick="openModal('new-tmpl-modal')">+ New Template</button>
+</div>
+{% endif %}
+
+<!-- New Template Modal -->
+<div class="modal-overlay" id="new-tmpl-modal">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-header">
+      <span class="modal-title">New Review Template</span>
+      <button class="modal-close" onclick="closeModal('new-tmpl-modal')">×</button>
+    </div>
+    <form method="post" action="/review-templates">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:14px;">
+        <div class="form-group">
+          <label class="form-label">Template Title *</label>
+          <input name="title" type="text" class="form-input" required
+                 placeholder="e.g. Q2 Performance Review, Onboarding Assessment">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Description</label>
+          <textarea name="description" class="form-textarea" rows="2"
+                    placeholder="What this template is used for…"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('new-tmpl-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create Template →</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

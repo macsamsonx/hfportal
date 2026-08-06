@@ -93,6 +93,28 @@
         </div>
       </div>
 
+      <!-- Payroll settings -->
+      <div class="card">
+        <div class="card-header"><h3>📅 Payroll Cut-off Days</h3></div>
+        <div class="card-body" style="display:flex; flex-direction:column; gap:12px;">
+          <p class="text-sm text-muted">Set the two day-of-month cut-offs for bi-monthly payroll. For example: 15 &amp; 31 (1st–15th, 16th–31st) or 5 &amp; 25 (6th–25th, 26th–5th).</p>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">First Cut-off Day</label>
+              <input name="payroll_cutoff_1" type="number" class="form-input" min="1" max="28"
+                     value="{{ company.payroll_cutoff_1 or '15' }}" placeholder="15">
+              <div class="form-hint">Day 1 to this day = Period 1</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Second Cut-off Day</label>
+              <input name="payroll_cutoff_2" type="number" class="form-input" min="1" max="31"
+                     value="{{ company.payroll_cutoff_2 or '31' }}" placeholder="31">
+              <div class="form-hint">31 means end of month</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- Preview card -->
       <div class="card" style="background:var(--info-bg); border:1px solid #bfdbfe;">
         <div class="card-header" style="background:transparent; border-bottom:1px solid #bfdbfe;"><h3 style="color:var(--primary);">💡 Where it's used</h3></div>

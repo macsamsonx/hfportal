@@ -42,6 +42,7 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    closeCardPanel();
     document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
   }
 });
@@ -224,13 +225,33 @@ function _buildTimeline(activities, comments) {
   }).join('');
 }
 
+function openCardPanel() {
+  const panel    = document.getElementById('card-panel');
+  const backdrop = document.getElementById('card-panel-backdrop');
+  if (panel)    panel.classList.add('open');
+  if (backdrop) backdrop.classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeCardPanel() {
+  const panel    = document.getElementById('card-panel');
+  const backdrop = document.getElementById('card-panel-backdrop');
+  if (panel)    panel.classList.remove('open');
+  if (backdrop) backdrop.classList.remove('open');
+  document.body.style.overflow = '';
+}
+function _closeActiveCardView() {
+  if (document.getElementById('card-panel')) closeCardPanel();
+  else closeModal('card-modal');
+}
+
 async function openCardModal(taskId) {
-  const modal = document.getElementById('card-modal');
-  const body  = document.getElementById('card-modal-body');
-  if (!modal || !body) return;
+  const usePanel = !!document.getElementById('card-panel');
+  const body = document.getElementById(usePanel ? 'card-panel-body' : 'card-modal-body');
+  if (!body) return;
 
   body.innerHTML = '<div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>';
-  openModal('card-modal');
+  if (usePanel) openCardPanel();
+  else { const modal = document.getElementById('card-modal'); if (modal) openModal('card-modal'); }
 
   try {
     const res = await fetch(`/api/tasks/${taskId}/detail`);
@@ -255,68 +276,67 @@ async function openCardModal(taskId) {
 
     const timelineHtml = _buildTimeline(activities || [], comments || []);
 
+    // Update panel title + crumb
+    const titleEl  = document.getElementById('card-panel-title') || document.getElementById('card-modal-title');
+    const crumbEl  = document.getElementById('card-panel-crumb');
+    if (titleEl) titleEl.textContent = card.task_title;
+    if (crumbEl) crumbEl.textContent = `Production Board  ›  ${card.status}`;
+
+    const uc = {'Low':'#64748b','Normal':'#94a3b8','High':'#f59e0b','Critical':'#ef4444'};
+    const urgColor = uc[card.urgency || 'Normal'] || '#94a3b8';
+
     body.innerHTML = `
       <style>
+        .cp-prop { display:flex; flex-direction:column; gap:3px; }
+        .cp-prop-label { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+        .cp-prop-val   { font-size:13px; font-weight:500; color:var(--text); }
+        .cp-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px 20px; margin-bottom:16px; }
+        .cp-divider { border:none; border-top:1px solid var(--border); margin:14px 0; }
         .activity-event {
           display:flex; align-items:flex-start; gap:8px;
-          padding:5px 0; font-size:.8rem; color:var(--muted);
+          padding:6px 0; font-size:.8rem; color:var(--muted);
           border-left:2px solid var(--border); margin-left:8px; padding-left:12px;
         }
-        .activity-icon { flex-shrink:0; font-size:.85rem; }
+        .activity-icon { flex-shrink:0; }
         .activity-body { flex:1; color:var(--text-2); }
         .activity-body strong { color:var(--text); font-weight:600; }
-        .activity-time { white-space:nowrap; margin-left:auto; flex-shrink:0; }
-        .comment { margin:4px 0; }
-        .timeline-wrap { max-height:340px; overflow-y:auto; padding-right:4px; }
+        .activity-time { white-space:nowrap; margin-left:auto; flex-shrink:0; font-size:.72rem; }
+        .comment { background:var(--surface2,#f8fafc); border-radius:8px; padding:9px 12px; margin:4px 0; }
+        .comment-author { font-weight:700; font-size:.8rem; }
+        .comment-text { font-size:.82rem; margin-top:3px; line-height:1.5; white-space:pre-wrap; }
+        .timeline-wrap { max-height:320px; overflow-y:auto; padding-right:4px; }
       </style>
 
-      <div class="form-row mb-12">
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">TASK</div>
-          <div class="fw-700" style="font-size:.95rem;">${esc(card.task_title)}</div>
-        </div>
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">STATUS</div>
-          <span class="badge badge-${_statusColor[card.status] || 'gray'}">${esc(card.status)}</span>
-          ${card.is_archived ? '<span class="badge badge-gray" style="margin-left:4px;">🗄️ Archived</span>' : ''}
-        </div>
+      <!-- Status strip -->
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
+        <span class="badge badge-${_statusColor[card.status] || 'gray'}">${esc(card.status)}</span>
+        ${card.urgency && card.urgency !== 'Normal' ? `<span style="font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:99px;background:${urgColor}22;color:${urgColor};">${esc(card.urgency)}</span>` : ''}
+        ${card.client ? `<span style="font-size:.72rem;font-weight:700;color:#64748b;">· ${esc(card.client)}</span>` : ''}
+        ${card.is_archived ? '<span class="badge badge-gray">🗄️ Archived</span>' : ''}
       </div>
 
-      <div class="form-row mb-12">
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">ASSIGNED TO</div>
-          <div class="text-sm fw-600">${esc(card.emp_name)}</div>
-          ${card.created_by_name ? `<div class="text-xs text-muted" style="margin-top:2px;">Created by: ${esc(card.created_by_name)}</div>` : ''}
+      <!-- Properties grid -->
+      <div class="cp-grid">
+        <div class="cp-prop">
+          <span class="cp-prop-label">Assignee</span>
+          <span class="cp-prop-val fw-600">${esc(card.emp_name)}</span>
+          ${card.created_by_name ? `<span style="font-size:.72rem;color:var(--muted);">by ${esc(card.created_by_name)}</span>` : ''}
         </div>
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">CLIENT</div>
-          <div class="text-sm">${esc(card.client || '—')}</div>
+        <div class="cp-prop">
+          <span class="cp-prop-label">Hours Logged</span>
+          <span class="cp-prop-val fw-600">${card.hours_worked}h</span>
         </div>
-      </div>
-
-      <div class="form-row mb-12">
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">HOURS LOGGED</div>
-          <div class="text-sm fw-600">${card.hours_worked}h</div>
-        </div>
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">URGENCY</div>
-          ${(() => { const uc={'Low':'#64748b','Normal':'#94a3b8','High':'#f59e0b','Critical':'#ef4444'}; const u=card.urgency||'Normal'; return `<span style="font-size:.75rem;font-weight:700;color:${uc[u]||'#94a3b8'}">${u}</span>`; })()}
-        </div>
-      </div>
-
-      <div class="form-row mb-12">
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">DUE DATE</div>
+        <div class="cp-prop">
+          <span class="cp-prop-label">Due Date</span>
           <div style="display:flex;align-items:center;gap:6px;">
             <input type="date" id="due-date-input" value="${card.due_date || ''}"
-                   class="form-input" style="width:150px;height:28px;font-size:.8rem;padding:2px 8px;">
-            <button class="btn btn-outline btn-sm" style="height:28px;font-size:.75rem;" onclick="saveDueDate(${card.id})">Save</button>
+                   class="form-input" style="width:140px;height:26px;font-size:.78rem;padding:2px 6px;">
+            <button class="btn btn-outline btn-sm" style="height:26px;font-size:.72rem;padding:0 8px;" onclick="saveDueDate(${card.id})">Save</button>
           </div>
         </div>
-        <div>
-          <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">DATE LOGGED</div>
-          <div class="text-sm">${esc(card.date_logged || '—')}</div>
+        <div class="cp-prop">
+          <span class="cp-prop-label">Date Logged</span>
+          <span class="cp-prop-val">${esc(card.date_logged || '—')}</span>
         </div>
       </div>
 
@@ -424,8 +444,6 @@ async function openCardModal(taskId) {
       </form>
     `;
 
-    document.getElementById('card-modal-title').textContent = card.task_title;
-
     const commentForm = document.getElementById('comment-form');
     if (commentForm) {
       commentForm.addEventListener('submit', async e => {
@@ -473,7 +491,7 @@ async function toggleArchive(taskId, currentlyArchived) {
   if (res.ok) {
     const { archived } = await res.json();
     showToast(archived ? 'Card archived.' : 'Card unarchived.', 'success');
-    closeModal('card-modal');
+    _closeActiveCardView();
     location.reload();
   } else {
     showToast('Could not archive card.', 'error');

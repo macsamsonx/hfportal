@@ -16,7 +16,10 @@ CLIENT_LIST = ["Byron", "Pej", "CHD", "Waren Digital", "Syllabi", "MBQ", "Intern
 # Philippine government contribution tables (2024 rates)
 # SSS: employee share based on MSC brackets — simplified flat % for now
 SSS_EMPLOYEE_RATE   = 0.045   # 4.5% of monthly salary credit
-PHILHEALTH_RATE     = 0.025   # 2.5% of basic salary (employee share)
+SSS_EMPLOYER_RATE   = 0.095   # 9.5% employer share (2024 schedule)
+SSS_EC_LOW          = 10.0    # Employees' Compensation employer share (MSC ≤14,750)
+SSS_EC_HIGH         = 30.0    # EC for MSC > 14,750
+PHILHEALTH_RATE     = 0.025   # 2.5% of basic salary (employee share = employer share)
 PAGIBIG_RATE        = 0.02    # 2% of monthly compensation (employee share, max ₱100)
 PAGIBIG_MAX         = 100.0
 
@@ -1388,6 +1391,54 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id)
             )""")
 
+        # ── Review questionnaire system ───────────────────────────────────────────
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_templates (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                title       TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                created_by  INTEGER,
+                created_at  TEXT DEFAULT (datetime('now', '+8 hours')),
+                is_active   INTEGER DEFAULT 1,
+                FOREIGN KEY(created_by) REFERENCES employees(id)
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_questions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id   INTEGER NOT NULL,
+                question_text TEXT NOT NULL,
+                question_type TEXT NOT NULL DEFAULT 'short_text',
+                options       TEXT DEFAULT '[]',
+                sort_order    INTEGER DEFAULT 0,
+                is_required   INTEGER DEFAULT 1,
+                FOREIGN KEY(template_id) REFERENCES review_templates(id) ON DELETE CASCADE
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_assignments (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                template_id INTEGER NOT NULL,
+                emp_id      INTEGER NOT NULL,
+                period      TEXT NOT NULL,
+                due_date    TEXT,
+                status      TEXT DEFAULT 'Pending',
+                assigned_by INTEGER,
+                assigned_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                submitted_at TEXT,
+                FOREIGN KEY(template_id) REFERENCES review_templates(id),
+                FOREIGN KEY(emp_id)      REFERENCES employees(id),
+                UNIQUE(template_id, emp_id, period)
+            )""")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS review_responses (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                assignment_id INTEGER NOT NULL,
+                question_id   INTEGER NOT NULL,
+                answer_text   TEXT DEFAULT '',
+                answered_at   TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(assignment_id) REFERENCES review_assignments(id) ON DELETE CASCADE,
+                FOREIGN KEY(question_id)   REFERENCES review_questions(id)
+            )""")
+
         # ── payslip receipt acknowledgment (migration) ────────────────────────────
         try:
             conn.execute("ALTER TABLE payslip_logs ADD COLUMN acknowledged_at TEXT")
@@ -1532,6 +1583,26 @@ def compute_pagibig(monthly_equiv: float) -> float:
     return min(contrib, PAGIBIG_MAX) / 2
 
 
+def compute_sss_employer(monthly_equiv: float) -> float:
+    """Employer SSS share — 9.5% of MSC, min ₱285, max ₱1,900, plus EC contribution."""
+    contrib = round(monthly_equiv * SSS_EMPLOYER_RATE, 2)
+    contrib = max(285.0, min(contrib, 1900.0))
+    ec = SSS_EC_HIGH if monthly_equiv > 14750 else SSS_EC_LOW
+    return round(contrib + ec, 2)
+
+
+def compute_philhealth_employer(monthly_equiv: float) -> float:
+    """Employer PhilHealth share equals employee share (2.5%)."""
+    contrib = round(monthly_equiv * PHILHEALTH_RATE, 2)
+    return max(250.0, min(contrib, 2500.0)) / 2
+
+
+def compute_pagibig_employer(monthly_equiv: float) -> float:
+    """Employer Pag-IBIG share equals employee share (2%, max ₱100/month)."""
+    contrib = round(monthly_equiv * PAGIBIG_RATE, 2)
+    return min(contrib, PAGIBIG_MAX) / 2
+
+
 def compute_withholding_tax(taxable_income: float) -> float:
     """
     Simplified semi-monthly withholding tax (BIR 2023 tax table).
@@ -1551,6 +1622,55 @@ def compute_withholding_tax(taxable_income: float) -> float:
     else:
         t = 2_202_500 + (ann - 8_000_000) * 0.35
     return round(t / 24, 2)  # de-annualize back to semi-monthly
+
+
+def get_bimonthly_periods(cutoff1: int = 15, cutoff2: int = 31, num_periods: int = 6) -> list:
+    """
+    Returns a list of (period_start, period_end) tuples for the last N bi-monthly periods.
+    cutoff1: day that ends the first half (e.g. 15 → 1st–15th)
+    cutoff2: day that ends the second half (e.g. 31 → 16th–EOM). Use 31 for end-of-month.
+    """
+    from calendar import monthrange
+    today = date.today()
+    periods = []
+    # Start from current month and go backwards
+    yr, mo = today.year, today.month
+    # Add a few extra months to ensure we get num_periods
+    for _ in range(num_periods + 4):
+        days_in_month = monthrange(yr, mo)[1]
+        c1 = min(cutoff1, days_in_month)
+        c2 = min(cutoff2, days_in_month)
+        # Period 2: cutoff1+1 → cutoff2
+        p2_start = date(yr, mo, min(cutoff1 + 1, days_in_month))
+        p2_end   = date(yr, mo, c2)
+        if p2_start <= today:
+            periods.append((p2_start.strftime("%Y-%m-%d"), p2_end.strftime("%Y-%m-%d")))
+        # Period 1: 1st → cutoff1
+        p1_start = date(yr, mo, 1)
+        p1_end   = date(yr, mo, c1)
+        periods.append((p1_start.strftime("%Y-%m-%d"), p1_end.strftime("%Y-%m-%d")))
+        # Go to previous month
+        mo -= 1
+        if mo == 0:
+            mo = 12
+            yr -= 1
+        if len(periods) >= num_periods:
+            break
+    return periods[:num_periods]
+
+
+def get_current_bimonthly_period(cutoff1: int = 15, cutoff2: int = 31):
+    """Returns (period_start, period_end) for the current bi-monthly period."""
+    from calendar import monthrange
+    today = date.today()
+    yr, mo = today.year, today.month
+    days_in_month = monthrange(yr, mo)[1]
+    c1 = min(cutoff1, days_in_month)
+    c2 = min(cutoff2, days_in_month)
+    if today.day <= c1:
+        return date(yr, mo, 1).strftime("%Y-%m-%d"), date(yr, mo, c1).strftime("%Y-%m-%d")
+    else:
+        return date(yr, mo, c1 + 1).strftime("%Y-%m-%d"), date(yr, mo, c2).strftime("%Y-%m-%d")
 
 
 def get_approved_ot_hours(emp_id: int, week_start: str, week_end: str) -> float:
@@ -1741,6 +1861,8 @@ _COMPANY_DEFAULTS = {
     "pagibig_employer": "",
     "dti":         "",
     "logo_path":   "",
+    "payroll_cutoff_1": "15",
+    "payroll_cutoff_2": "31",
 }
 
 def get_company_settings() -> dict:
@@ -1748,8 +1870,7 @@ def get_company_settings() -> dict:
     with get_db() as conn:
         rows = conn.execute("SELECT key, value FROM company_settings").fetchall()
         for r in rows:
-            if r["key"] in settings:
-                settings[r["key"]] = r["value"] or ""
+            settings[r["key"]] = r["value"] or ""
     return settings
 
 

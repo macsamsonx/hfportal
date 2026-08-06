@@ -18,16 +18,59 @@
 <div class="page-header">
   <div>
     <h2>Performance Reviews</h2>
-    <p>Your self-ratings and HR feedback by period</p>
+    <p>Your self-ratings, HR feedback, and assigned review questionnaires</p>
   </div>
 </div>
 
-{% if not reviews %}
+<!-- ── Questionnaire assignments ─────────────────────────────────────────── -->
+{% if qa_assignments %}
+<div class="card mb-20">
+  <div class="card-header">
+    <h3>📋 Review Questionnaires</h3>
+    <span class="badge badge-blue">{{ qa_assignments | length }} assigned</span>
+  </div>
+  <div style="display:flex; flex-direction:column; gap:10px; padding:14px 16px;">
+    {% for a in qa_assignments %}
+    <div style="display:flex; align-items:center; gap:14px; padding:12px 14px;
+                background:var(--surface2,#f8fafc); border:1px solid var(--border);
+                border-radius:10px;">
+      <div style="flex:1; min-width:0;">
+        <div style="font-size:14px; font-weight:700;">{{ a.title }}</div>
+        {% if a.description %}
+        <div style="font-size:12px; color:var(--muted); margin-top:2px;">{{ a.description }}</div>
+        {% endif %}
+        <div style="font-size:11.5px; color:var(--muted); margin-top:4px; display:flex; gap:10px; flex-wrap:wrap;">
+          <span>📅 {{ a.period }}</span>
+          <span>🗂 {{ a.q_count }} question{{ 's' if a.q_count != 1 }}</span>
+          {% if a.due_date %}<span>⏰ Due {{ a.due_date }}</span>{% endif %}
+        </div>
+      </div>
+      {% if a.status == 'Submitted' %}
+        <span class="status-pill status-approved" style="flex-shrink:0;">✓ Submitted</span>
+        <a href="/review-assignments/{{ a.id }}" class="btn btn-outline btn-sm" style="flex-shrink:0;">View</a>
+      {% else %}
+        <span class="status-pill status-pending" style="flex-shrink:0;">⏳ Pending</span>
+        <a href="/review-assignments/{{ a.id }}" class="btn btn-primary btn-sm" style="flex-shrink:0;">Start →</a>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Legacy performance reviews ────────────────────────────────────────── -->
+{% if not reviews and not qa_assignments %}
 <div class="card">
   <div class="empty-state">
     <div class="emoji">⭐</div>
     <p>No performance reviews yet. HR will notify you when one is ready.</p>
   </div>
+</div>
+{% endif %}
+
+{% if reviews %}
+<div class="card-header" style="padding:0 0 10px 0;">
+  <h3>⭐ Performance Ratings</h3>
 </div>
 {% endif %}
 

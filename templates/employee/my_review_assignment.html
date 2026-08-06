@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}{{ assignment.title }} — Review{% endblock %}
+{% block page_title %}Review{% endblock %}
+
+{% block content %}
+<style>
+.review-wrap { max-width: 700px; margin: 0 auto; }
+
+.review-header {
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff; border-radius: 14px;
+  padding: 24px 28px; margin-bottom: 24px;
+}
+.review-header h2 { font-size: 20px; font-weight: 800; margin-bottom: 4px; }
+.review-header p  { font-size: 13px; opacity: .85; }
+.review-meta { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; font-size: 12px; opacity: .8; }
+
+.q-block {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px 22px; margin-bottom: 14px;
+}
+.q-block.required-unanswered { border-color: var(--danger); }
+.q-num-label {
+  font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--muted); margin-bottom: 6px;
+}
+.q-text {
+  font-size: 14.5px; font-weight: 700; margin-bottom: 14px; line-height: 1.4;
+}
+.req-mark { color: var(--danger); }
+
+/* Rating stars */
+.star-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.star-label {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  cursor: pointer;
+}
+.star-label input { display: none; }
+.star-label .star {
+  font-size: 30px; color: #d1d5db; transition: color .1s, transform .1s;
+  line-height: 1;
+}
+.star-label input:checked ~ .star,
+.star-group:has(.star-label:hover) .star-label:hover .star,
+.star-group:has(.star-label:hover) .star-label:hover ~ .star-label .star { color: #f59e0b; }
+.star-label:hover .star,
+.star-group .star-label:hover ~ .star-label .star { color: #fbbf24; }
+.star-label .star-val { font-size: 10px; color: var(--muted); font-weight: 600; }
+/* Reverse trick for left-fill */
+.star-group { flex-direction: row-reverse; justify-content: flex-end; }
+.star-group .star-label:hover .star,
+.star-group .star-label:hover ~ .star-label .star { color: #fbbf24; transform: scale(1.1); }
+
+/* True/False */
+.bool-group { display: flex; gap: 12px; }
+.bool-btn {
+  flex: 1; padding: 12px; border: 2px solid var(--border);
+  border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 700;
+  text-align: center; transition: border-color .12s, background .12s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.bool-btn input { display: none; }
+.bool-btn:has(input:checked) { border-color: var(--primary); background: var(--primary-soft, #eff6ff); color: var(--primary); }
+.bool-btn:hover:not(:has(input:checked)) { border-color: var(--muted); }
+
+/* Multiple choice */
+.mc-option {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; border: 2px solid var(--border);
+  border-radius: 9px; cursor: pointer; margin-bottom: 8px;
+  font-size: 13.5px; font-weight: 500;
+  transition: border-color .12s, background .12s;
+}
+.mc-option input { accent-color: var(--primary); }
+.mc-option:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-soft, #eff6ff);
+  color: var(--primary); font-weight: 600;
+}
+</style>
+
+<div class="review-wrap">
+
+  {% if flash %}
+  <div class="alert alert-{{ flash.kind }} mb-16">{{ flash.msg }}</div>
+  {% endif %}
+
+  <a href="/my-review" style="font-size:12.5px; color:var(--muted); text-decoration:none; display:block; margin-bottom:12px;">← Back to My Reviews</a>
+
+  <!-- Header card -->
+  <div class="review-header">
+    <h2>{{ assignment.title }}</h2>
+    {% if assignment.description %}<p>{{ assignment.description }}</p>{% endif %}
+    <div class="review-meta">
+      <span>📅 Period: {{ assignment.period }}</span>
+      {% if assignment.due_date %}<span>⏰ Due: {{ assignment.due_date }}</span>{% endif %}
+      <span>👤 {{ assignment.emp_name }}</span>
+      {% if assignment.status == 'Submitted' %}
+        <span style="background:rgba(255,255,255,.2); padding:2px 8px; border-radius:4px;">✓ Submitted {{ (assignment.submitted_at or '')[:10] }}</span>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Already submitted notice -->
+  {% if assignment.status == 'Submitted' and user.role == 'Employee' %}
+  <div class="card mb-16" style="padding:16px 20px; border-color:#86efac; background:#f0fdf4;">
+    <p style="font-size:13.5px; font-weight:600; color:#15803d; margin:0;">
+      ✅ You have already submitted this review. Your answers are shown below (read-only).
+    </p>
+  </div>
+  {% endif %}
+
+  <form method="post" action="/review-assignments/{{ assignment.id }}/submit" id="review-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+    {% for q in questions %}
+    <div class="q-block" id="qblock-{{ q.id }}">
+      <div class="q-num-label">Question {{ loop.index }} of {{ questions | length }}</div>
+      <div class="q-text">
+        {{ q.question_text }}
+        {% if q.is_required %}<span class="req-mark"> *</span>{% endif %}
+      </div>
+
+      {% set readonly = (assignment.status == 'Submitted' and user.role == 'Employee') %}
+
+      {# ── Rating 1–5 ── #}
+      {% if q.question_type == 'rating' %}
+      <div class="star-group">
+        {% for val in [5, 4, 3, 2, 1] %}
+        <label class="star-label">
+          <input type="radio" name="q_{{ q.id }}" value="{{ val }}"
+                 {% if q.answer == val|string %}checked{% endif %}
+                 {% if readonly %}disabled{% endif %}
+                 {% if q.is_required %}required{% endif %}>
+          <span class="star">★</span>
+          <span class="star-val">{{ val }}</span>
+        </label>
+        {% endfor %}
+      </div>
+      {% if q.answer %}
+      <div style="margin-top:8px; font-size:12px; color:var(--muted);">Selected: {{ q.answer }} / 5</div>
+      {% endif %}
+
+      {# ── Boolean ── #}
+      {% elif q.question_type == 'boolean' %}
+      <div class="bool-group">
+        <label class="bool-btn">
+          <input type="radio" name="q_{{ q.id }}" value="True"
+                 {% if q.answer == 'True' %}checked{% endif %}
+                 {% if readonly %}disabled{% endif %}
+                 {% if q.is_required %}required{% endif %}>
+          ✅ True
+        </label>
+        <label class="bool-btn">
+          <input type="radio" name="q_{{ q.id }}" value="False"
+                 {% if q.answer == 'False' %}checked{% endif %}
+                 {% if readonly %}disabled{% endif %}
+                 {% if q.is_required %}required{% endif %}>
+          ❌ False
+        </label>
+      </div>
+
+      {# ── Multiple Choice ── #}
+      {% elif q.question_type == 'multiple_choice' %}
+      {% for opt in q.options_list %}
+      <label class="mc-option">
+        <input type="radio" name="q_{{ q.id }}" value="{{ opt }}"
+               {% if q.answer == opt %}checked{% endif %}
+               {% if readonly %}disabled{% endif %}
+               {% if q.is_required %}required{% endif %}>
+        {{ opt }}
+      </label>
+      {% else %}
+      <p class="text-sm text-muted">No options defined for this question.</p>
+      {% endfor %}
+
+      {# ── Paragraph ── #}
+      {% elif q.question_type == 'paragraph' %}
+      <textarea name="q_{{ q.id }}" class="form-textarea" rows="4"
+                placeholder="Write your answer here…"
+                {% if readonly %}readonly{% endif %}
+                {% if q.is_required %}required{% endif %}>{{ q.answer or '' }}</textarea>
+
+      {# ── Short text (sentence) ── #}
+      {% else %}
+      <input type="text" name="q_{{ q.id }}" class="form-input"
+             placeholder="Your answer…"
+             value="{{ q.answer or '' }}"
+             {% if readonly %}readonly{% endif %}
+             {% if q.is_required %}required{% endif %}>
+      {% endif %}
+    </div>
+    {% endfor %}
+
+    {% if not (assignment.status == 'Submitted' and user.role == 'Employee') %}
+    <div style="display:flex; gap:12px; margin-top:8px; align-items:center;">
+      <button type="submit" class="btn btn-primary" style="padding:12px 32px; font-size:1rem;">
+        📤 Submit Review
+      </button>
+      <span class="text-sm text-muted">
+        * Required fields must be answered before submitting.
+      </span>
+    </div>
+    {% endif %}
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Highlight unanswered required questions on submit attempt
+document.getElementById('review-form')?.addEventListener('submit', function(e) {
+  let ok = true;
+  document.querySelectorAll('.q-block').forEach(block => {
+    block.classList.remove('required-unanswered');
+  });
+  {% for q in questions %}
+  {% if q.is_required %}
+  (function() {
+    const inputs = document.querySelectorAll('[name="q_{{ q.id }}"]');
+    if (!inputs.length) return;
+    const answered = [...inputs].some(i =>
+      i.type === 'radio' ? i.checked : i.value.trim() !== ''
+    );
+    if (!answered) {
+      const block = document.getElementById('qblock-{{ q.id }}');
+      if (block) block.classList.add('required-unanswered');
+      ok = false;
+    }
+  })();
+  {% endif %}
+  {% endfor %}
+  if (!ok) {
+    e.preventDefault();
+    document.querySelector('.required-unanswered')?.scrollIntoView({behavior:'smooth', block:'center'});
+  }
+});
+</script>
+{% endblock %}

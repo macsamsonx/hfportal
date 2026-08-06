@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Payroll{% endblock %}
-{% block page_title %}Payroll{% endblock %}
+{% block title %}Payroll & Timesheets{% endblock %}
+{% block page_title %}Payroll & Timesheets{% endblock %}
 
 {% block content %}
 <div class="page-header">
   <div>
-    <h2>💰 Payroll</h2>
+    <h2>💰 Payroll & Timesheets</h2>
     <p>Period: <strong>{{ week_start }}</strong> — <strong>{{ week_end }}</strong>
       {% if existing_run %}<span class="badge badge-blue" style="margin-left:8px;">Saved Run</span>
       {% else %}<span class="badge badge-gray" style="margin-left:8px;">Preview</span>{% endif %}
@@ -17,7 +17,7 @@
         <span class="badge badge-green" style="padding:6px 12px;">✓ HR: {{ existing_run.hr_approved_by }}</span>
       {% else %}
         <form method="post" action="/api/payroll/{{ existing_run.id }}/hr-approve">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
           <button class="btn btn-warning btn-sm">✓ Mark HR Checked</button>
         </form>
       {% endif %}
@@ -27,7 +27,7 @@
         <span class="badge badge-green" style="padding:6px 12px;">✓ Approved — {{ existing_run.approved_by }}</span>
       {% else %}
         <form method="post" action="/api/payroll/{{ existing_run.id }}/approve">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
           <button class="btn btn-success btn-sm">✓ Admin Approve</button>
         </form>
       {% endif %}
@@ -46,33 +46,36 @@
   <div class="card-body-sm">
     <div style="display:flex; gap:16px; align-items:flex-end; flex-wrap:wrap;">
 
-      <!-- Standard week picker -->
+      <!-- Bi-monthly period dropdown -->
       <div>
-        <label class="form-label" style="font-size:.72rem;">Standard Week</label>
+        <label class="form-label" style="font-size:.72rem;">Bi-Monthly Period (Cutoff: {{ cutoff1 }} & {{ cutoff2 }})</label>
         <form method="get" action="/payroll" style="display:flex; gap:8px; align-items:center;">
-          <select name="week" class="form-select" style="width:auto; font-size:.82rem;"
-                  onchange="this.form.submit()">
-            {% for opt in week_options %}
-              <option value="{{ opt.value }}" {% if not is_custom and opt.value == selected_week %}selected{% endif %}>
+          <select name="start" class="form-select" style="width:auto; font-size:.82rem;"
+                  onchange="syncEnd(this); this.form.submit();" id="period-select">
+            {% for opt in period_options %}
+              <option value="{{ opt.start }}" data-end="{{ opt.end }}"
+                      {% if opt.start == selected_start %}selected{% endif %}>
                 {{ opt.label }}
               </option>
             {% endfor %}
           </select>
+          <input type="hidden" name="end" id="period-end-hidden"
+                 value="{{ week_end }}">
         </form>
       </div>
 
       <!-- Divider -->
-      <div style="color:var(--muted); font-size:.8rem; padding-bottom:8px;">— or —</div>
+      <div style="color:var(--muted); font-size:.8rem; padding-bottom:8px;">— or custom —</div>
 
       <!-- Custom date range -->
       <div>
         <label class="form-label" style="font-size:.72rem;">Custom Cut-off Period</label>
         <form method="get" action="/payroll" style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <input type="date" name="start" class="form-input" style="width:140px; font-size:.82rem;"
-                 value="{{ custom_start or week_start }}">
+                 value="{{ week_start }}">
           <span style="color:var(--muted); font-size:.8rem;">to</span>
           <input type="date" name="end" class="form-input" style="width:140px; font-size:.82rem;"
-                 value="{{ custom_end or week_end }}">
+                 value="{{ week_end }}">
           <button type="submit" class="btn btn-primary btn-sm">Apply</button>
         </form>
       </div>
@@ -82,7 +85,7 @@
       <div style="margin-left:auto;">
         <label class="form-label" style="font-size:.72rem;">Actions</label>
         <form method="post" action="/api/payroll/generate" style="display:flex; gap:8px;">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
           <input type="hidden" name="week_start" value="{{ week_start }}">
           <input type="hidden" name="week_end" value="{{ week_end }}">
           <button class="btn btn-primary btn-sm"
@@ -119,7 +122,7 @@
 {% endif %}
 
 <!-- Summary stats -->
-<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:20px; flex-wrap:wrap;" class="mb-20">
+<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-bottom:20px;" class="mb-20">
   {% set total_reg_hrs = payroll_data | sum(attribute='regular_hours') %}
   {% set total_ot_hrs  = payroll_data | sum(attribute='overtime_hours') %}
   <div class="stat-card">
@@ -134,7 +137,7 @@
     <div class="stat-icon yellow">⚡</div>
     <div><div class="stat-label">Overtime Hours</div><div class="stat-value">{{ total_ot_hrs | round(1) }}</div></div>
   </div>
-  <div class="stat-card">
+  <div class="stat-card green">
     <div class="stat-icon green">💰</div>
     <div>
       <div class="stat-label">Total Gross Pay</div>
@@ -150,104 +153,332 @@
   </div>
 </div>
 
-<!-- Payroll table -->
-<div class="card">
-  <div class="card-header">
-    <h3>Payroll Breakdown — {{ week_start }} to {{ week_end }}</h3>
-    {% if not existing_run %}
-      <span class="badge badge-yellow">Preview only — generate to save</span>
-    {% endif %}
-  </div>
-  <div class="table-wrapper">
-    <table>
-      <thead>
-        <tr>
-          <th>Employee</th>
-          <th>Rate/hr</th>
-          <th>Reg Hrs</th>
-          <th>OT Hrs</th>
-          <th>Gross Pay</th>
-          <th style="color:var(--muted);">SSS</th>
-          <th style="color:var(--muted);">PhilHealth</th>
-          <th style="color:var(--muted);">Pag-IBIG</th>
-          <th style="color:var(--muted);">Tax</th>
-          <th style="color:var(--muted);">Deductions</th>
-          <th class="text-right" style="color:var(--success);">Net Pay</th>
-          {% if existing_run and user.role in ('HR Manager', 'Admin') %}<th>Actions</th>{% endif %}
-        </tr>
-      </thead>
-      <tbody>
-        {% if payroll_data %}
-          {% for p in payroll_data %}
-          {% set gross = p.get('gross_pay') or p.get('total_pay', 0) %}
-          {% set sss   = p.get('sss_deduction', 0) %}
-          {% set phic  = p.get('philhealth_deduction', 0) %}
-          {% set hdmf  = p.get('pagibig_deduction', 0) %}
-          {% set tax   = p.get('tax_deduction', 0) %}
-          {% set tded  = p.get('total_deductions', 0) %}
-          {% set net   = p.get('net_pay') or gross %}
-          <tr>
-            <td class="fw-600">{{ p.emp_name }}</td>
-            <td>₱{{ "%.2f"|format(p.hourly_rate) }}</td>
-            <td>{{ p.regular_hours }}h</td>
-            <td>
-              {% if p.overtime_hours > 0 %}
-                <span class="badge badge-yellow">+{{ p.overtime_hours }}h</span>
-              {% else %}<span class="text-muted">—</span>{% endif %}
-            </td>
-            <td class="fw-700">₱{{ "%.2f"|format(gross) }}</td>
-            <td class="text-sm text-muted">{% if sss > 0 %}₱{{ "%.0f"|format(sss) }}{% else %}—{% endif %}</td>
-            <td class="text-sm text-muted">{% if phic > 0 %}₱{{ "%.0f"|format(phic) }}{% else %}—{% endif %}</td>
-            <td class="text-sm text-muted">{% if hdmf > 0 %}₱{{ "%.0f"|format(hdmf) }}{% else %}—{% endif %}</td>
-            <td class="text-sm text-muted">{% if tax > 0 %}₱{{ "%.0f"|format(tax) }}{% else %}—{% endif %}</td>
-            <td class="text-sm" style="color:var(--danger);">
-              {% if tded > 0 %}— ₱{{ "%.2f"|format(tded) }}{% else %}—{% endif %}
-            </td>
-            <td class="text-right fw-700" style="color:var(--success);">₱{{ "%.2f"|format(net) }}</td>
-            {% if existing_run and user.role in ('HR Manager', 'Admin') %}
-            <td>
-              <div style="display:flex; gap:4px; flex-wrap:wrap;">
-                <button class="btn btn-outline btn-sm"
-                        onclick="openHrsEdit({{ p.run_id or p.id or 0 }}, {{ p.regular_hours }}, {{ p.overtime_hours }})">
-                  Edit Hrs
-                </button>
-                <button class="btn btn-outline btn-sm"
-                        onclick="openRateEdit({{ p.run_id or p.id or 0 }}, {{ p.hourly_rate }}, '{{ p.emp_name | e }}')">
-                  Edit Rate
-                </button>
-              </div>
-            </td>
-            {% endif %}
-          </tr>
-          {% endfor %}
-        {% else %}
-          <tr><td colspan="12" class="text-center text-muted" style="padding:32px">
-            No attendance records found for this period.
-          </td></tr>
-        {% endif %}
-      </tbody>
-      {% if payroll_data %}
-      <tfoot>
-        <tr>
-          <td colspan="2" class="fw-700">TOTALS</td>
-          <td class="fw-700">{{ total_reg_hrs | round(1) }}h</td>
-          <td class="fw-700">{{ total_ot_hrs | round(1) }}h</td>
-          <td class="fw-700">₱{{ "%.2f"|format(total_gross) }}</td>
-          <td colspan="4"></td>
-          <td class="fw-700" style="color:var(--danger);">
-            — ₱{{ "%.2f"|format(total_gross - total_net) }}
-          </td>
-          <td class="text-right fw-700 payroll-total" style="font-size:1rem; color:var(--success);">
-            ₱{{ "%.2f"|format(total_net) }}
-          </td>
-          {% if existing_run and user.role in ('HR Manager', 'Admin') %}<td></td>{% endif %}
-        </tr>
-      </tfoot>
+<!-- Tabs -->
+<div style="display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:20px; overflow-x:auto; -webkit-overflow-scrolling:touch;">
+  {% for tab_id, tab_icon, tab_label in [('payroll','📋','Payroll'),('timesheets','🗓️','Timesheets'),('govcontrib','🏛️','Government Contributions')] %}
+  <button onclick="switchTab('{{ tab_id }}')" id="tab-btn-{{ tab_id }}"
+     style="display:inline-flex;align-items:center;gap:5px;padding:9px 18px;background:none;border:none;cursor:pointer;
+            white-space:nowrap;font-size:.83rem;font-weight:600;border-bottom:3px solid transparent;margin-bottom:-2px;
+            color:var(--muted); transition:color .15s,border-color .15s;">
+    {{ tab_icon }} {{ tab_label }}
+  </button>
+  {% endfor %}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB: Payroll                                             -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div id="tab-payroll">
+  <div class="card">
+    <div class="card-header">
+      <h3>Payroll Breakdown — {{ week_start }} to {{ week_end }}</h3>
+      {% if not existing_run %}
+        <span class="badge badge-yellow">Preview only — generate to save</span>
       {% endif %}
-    </table>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Rate/hr</th>
+            <th>Reg Hrs</th>
+            <th>OT Hrs</th>
+            <th>Gross Pay</th>
+            <th style="color:var(--muted);">SSS</th>
+            <th style="color:var(--muted);">PhilHealth</th>
+            <th style="color:var(--muted);">Pag-IBIG</th>
+            <th style="color:var(--muted);">Tax</th>
+            <th style="color:var(--muted);">Deductions</th>
+            <th class="text-right" style="color:var(--success);">Net Pay</th>
+            {% if existing_run and user.role in ('HR Manager', 'Admin') %}<th>Actions</th>{% endif %}
+          </tr>
+        </thead>
+        <tbody>
+          {% if payroll_data %}
+            {% for p in payroll_data %}
+            {% set gross = p.get('gross_pay') or p.get('total_pay', 0) %}
+            {% set sss   = p.get('sss_deduction', 0) %}
+            {% set phic  = p.get('philhealth_deduction', 0) %}
+            {% set hdmf  = p.get('pagibig_deduction', 0) %}
+            {% set tax   = p.get('tax_deduction', 0) %}
+            {% set tded  = p.get('total_deductions', 0) %}
+            {% set net   = p.get('net_pay') or gross %}
+            <tr>
+              <td class="fw-600">{{ p.emp_name }}</td>
+              <td>₱{{ "%.2f"|format(p.hourly_rate) }}</td>
+              <td>{{ p.regular_hours }}h</td>
+              <td>
+                {% if p.overtime_hours > 0 %}
+                  <span class="badge badge-yellow">+{{ p.overtime_hours }}h</span>
+                {% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td class="fw-700">₱{{ "%.2f"|format(gross) }}</td>
+              <td class="text-sm text-muted">{% if sss > 0 %}₱{{ "%.0f"|format(sss) }}{% else %}—{% endif %}</td>
+              <td class="text-sm text-muted">{% if phic > 0 %}₱{{ "%.0f"|format(phic) }}{% else %}—{% endif %}</td>
+              <td class="text-sm text-muted">{% if hdmf > 0 %}₱{{ "%.0f"|format(hdmf) }}{% else %}—{% endif %}</td>
+              <td class="text-sm text-muted">{% if tax > 0 %}₱{{ "%.0f"|format(tax) }}{% else %}—{% endif %}</td>
+              <td class="text-sm" style="color:var(--danger);">
+                {% if tded > 0 %}— ₱{{ "%.2f"|format(tded) }}{% else %}—{% endif %}
+              </td>
+              <td class="text-right fw-700" style="color:var(--success);">₱{{ "%.2f"|format(net) }}</td>
+              {% if existing_run and user.role in ('HR Manager', 'Admin') %}
+              <td>
+                <div style="display:flex; gap:4px; flex-wrap:wrap;">
+                  <button class="btn btn-outline btn-sm"
+                          onclick="openHrsEdit({{ p.run_id or p.id or 0 }}, {{ p.regular_hours }}, {{ p.overtime_hours }})">
+                    Edit Hrs
+                  </button>
+                  <button class="btn btn-outline btn-sm"
+                          onclick="openRateEdit({{ p.run_id or p.id or 0 }}, {{ p.hourly_rate }}, '{{ p.emp_name | e }}')">
+                    Edit Rate
+                  </button>
+                </div>
+              </td>
+              {% endif %}
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="12" class="text-center text-muted" style="padding:32px">
+              No attendance records found for this period.
+            </td></tr>
+          {% endif %}
+        </tbody>
+        {% if payroll_data %}
+        <tfoot>
+          <tr>
+            <td colspan="2" class="fw-700">TOTALS</td>
+            <td class="fw-700">{{ total_reg_hrs | round(1) }}h</td>
+            <td class="fw-700">{{ total_ot_hrs | round(1) }}h</td>
+            <td class="fw-700">₱{{ "%.2f"|format(total_gross) }}</td>
+            <td colspan="4"></td>
+            <td class="fw-700" style="color:var(--danger);">
+              — ₱{{ "%.2f"|format(total_gross - total_net) }}
+            </td>
+            <td class="text-right fw-700 payroll-total" style="font-size:1rem; color:var(--success);">
+              ₱{{ "%.2f"|format(total_net) }}
+            </td>
+            {% if existing_run and user.role in ('HR Manager', 'Admin') %}<td></td>{% endif %}
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+  <p class="text-xs text-muted mt-8">* Regular ≤ 8h/day · OT = approved filed hours only · Deductions apply to enrolled employees only (SSS 4.5% · PhilHealth 2.5% · Pag-IBIG 2% max ₱100 · BIR 2023 brackets) · Regenerate to recalculate deductions</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB: Timesheets                                          -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div id="tab-timesheets" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <h3>Timesheet Submissions — {{ week_start }} to {{ week_end }}</h3>
+      <span class="text-sm text-muted">{{ ts_submissions | length }} submission{{ 's' if ts_submissions | length != 1 }}</span>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>Employee</th>
+            <th>Department</th>
+            <th>Week Period</th>
+            <th>Status</th>
+            <th>Submitted</th>
+            <th>Reviewed By</th>
+            <th>Notes</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if ts_submissions %}
+            {% for ts in ts_submissions %}
+            <tr>
+              <td class="fw-600">{{ ts.emp_name }}</td>
+              <td class="text-sm text-muted">{{ ts.department or '—' }}</td>
+              <td class="text-sm">{{ ts.week_start }} – {{ ts.week_end }}</td>
+              <td>
+                {% if ts.status == 'Approved' %}
+                  <span class="status-pill status-approved">✓ Approved</span>
+                {% elif ts.status == 'Rejected' %}
+                  <span class="status-pill status-denied">✗ Rejected</span>
+                {% elif ts.status == 'Submitted' %}
+                  <span class="status-pill status-pending">⏳ Submitted</span>
+                {% else %}
+                  <span class="badge badge-gray">{{ ts.status or 'Draft' }}</span>
+                {% endif %}
+              </td>
+              <td class="text-sm text-muted">{{ (ts.submitted_at or '—')[:16] }}</td>
+              <td class="text-sm text-muted">{{ ts.reviewed_by or '—' }}</td>
+              <td class="text-sm text-muted" style="max-width:180px;">{{ ts.hr_notes or '—' }}</td>
+              <td>
+                <a href="/timesheets/{{ ts.id }}" class="btn btn-outline btn-sm">View</a>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="8" class="text-center text-muted" style="padding:40px;">
+              No timesheet submissions found for this period.
+            </td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if ts_submissions %}
+  <!-- Timesheet status summary -->
+  <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-top:16px;">
+    {% set ts_approved = ts_submissions | selectattr('status','eq','Approved') | list | length %}
+    {% set ts_submitted = ts_submissions | selectattr('status','eq','Submitted') | list | length %}
+    {% set ts_rejected  = ts_submissions | selectattr('status','eq','Rejected') | list | length %}
+    {% set ts_draft     = ts_submissions | length - ts_approved - ts_submitted - ts_rejected %}
+    <div class="stat-card green" style="padding:12px 16px;">
+      <div class="stat-icon green" style="font-size:18px;">✅</div>
+      <div><div class="stat-label">Approved</div><div class="stat-value" style="font-size:1.2rem;">{{ ts_approved }}</div></div>
+    </div>
+    <div class="stat-card yellow" style="padding:12px 16px;">
+      <div class="stat-icon yellow" style="font-size:18px;">⏳</div>
+      <div><div class="stat-label">Submitted / Pending</div><div class="stat-value" style="font-size:1.2rem;">{{ ts_submitted }}</div></div>
+    </div>
+    <div class="stat-card" style="padding:12px 16px; border-color:var(--danger);">
+      <div class="stat-icon" style="font-size:18px; color:var(--danger);">✗</div>
+      <div><div class="stat-label">Rejected</div><div class="stat-value" style="font-size:1.2rem; color:var(--danger);">{{ ts_rejected }}</div></div>
+    </div>
+    <div class="stat-card" style="padding:12px 16px;">
+      <div class="stat-icon" style="font-size:18px;">📝</div>
+      <div><div class="stat-label">Draft</div><div class="stat-value" style="font-size:1.2rem;">{{ ts_draft }}</div></div>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<!-- TAB: Government Contributions                           -->
+<!-- ══════════════════════════════════════════════════════════ -->
+<div id="tab-govcontrib" style="display:none;">
+
+  <!-- Total employer liability callout -->
+  <div class="card mb-16" style="background:linear-gradient(135deg,#1d4ed8 0%,#2563eb 100%); color:#fff; border:none;">
+    <div style="padding:16px 22px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+      <div>
+        <div style="font-size:.75rem; opacity:.8; font-weight:600; letter-spacing:.04em; text-transform:uppercase;">Total Employer Share This Period</div>
+        <div style="font-size:1.8rem; font-weight:800; margin-top:2px;">₱{{ "%.2f"|format(total_er) }}</div>
+        <div style="font-size:.78rem; opacity:.75; margin-top:2px;">SSS + PhilHealth + Pag-IBIG employer contributions</div>
+      </div>
+      <div style="margin-left:auto; font-size:.78rem; opacity:.8; text-align:right;">
+        Period: {{ week_start }} – {{ week_end }}<br>
+        {{ gov_rows | length }} employee{{ 's' if gov_rows | length != 1 }}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <h3>Government Contributions Breakdown</h3>
+      <span class="text-xs text-muted">EE = Employee Share · ER = Employer Share · Rates: SSS ER 9.5% · PhilHealth ER 2.5%/2 · Pag-IBIG ER 2%/2 max ₱100</span>
+    </div>
+    <div class="table-wrapper">
+      <table style="font-variant-numeric:tabular-nums;">
+        <thead>
+          <tr style="background:var(--surface2,var(--surface));">
+            <th rowspan="2" style="vertical-align:middle;">Employee</th>
+            <th colspan="2" style="text-align:center; border-left:2px solid var(--border); padding:6px 0 2px;">SSS</th>
+            <th colspan="2" style="text-align:center; border-left:2px solid var(--border); padding:6px 0 2px;">PhilHealth</th>
+            <th colspan="2" style="text-align:center; border-left:2px solid var(--border); padding:6px 0 2px;">Pag-IBIG</th>
+            <th colspan="2" style="text-align:center; border-left:2px solid var(--border); background:var(--info-bg,#eff6ff); padding:6px 0 2px;">Total</th>
+          </tr>
+          <tr style="font-size:.72rem; color:var(--muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em;">
+            <th style="border-left:2px solid var(--border); text-align:right; padding:2px 10px 6px; color:#1d4ed8;">EE</th>
+            <th style="text-align:right; padding:2px 10px 6px; color:#16a34a;">ER</th>
+            <th style="border-left:2px solid var(--border); text-align:right; padding:2px 10px 6px; color:#1d4ed8;">EE</th>
+            <th style="text-align:right; padding:2px 10px 6px; color:#16a34a;">ER</th>
+            <th style="border-left:2px solid var(--border); text-align:right; padding:2px 10px 6px; color:#1d4ed8;">EE</th>
+            <th style="text-align:right; padding:2px 10px 6px; color:#16a34a;">ER</th>
+            <th style="border-left:2px solid var(--border); text-align:right; padding:2px 10px 6px; color:#1d4ed8; background:var(--info-bg,#eff6ff);">EE</th>
+            <th style="text-align:right; padding:2px 10px 6px; color:#16a34a; background:var(--info-bg,#eff6ff);">ER</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% if gov_rows %}
+            {% for r in gov_rows %}
+            <tr>
+              <td class="fw-600">{{ r.emp_name }}</td>
+              <td style="text-align:right; border-left:2px solid var(--border); font-size:.82rem;">
+                {% if r.emp_sss > 0 %}<span style="color:#1d4ed8;">₱{{ "%.2f"|format(r.emp_sss) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; font-size:.82rem;">
+                {% if r.er_sss > 0 %}<span style="color:#16a34a;">₱{{ "%.2f"|format(r.er_sss) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; border-left:2px solid var(--border); font-size:.82rem;">
+                {% if r.emp_phic > 0 %}<span style="color:#1d4ed8;">₱{{ "%.2f"|format(r.emp_phic) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; font-size:.82rem;">
+                {% if r.er_phic > 0 %}<span style="color:#16a34a;">₱{{ "%.2f"|format(r.er_phic) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; border-left:2px solid var(--border); font-size:.82rem;">
+                {% if r.emp_hdmf > 0 %}<span style="color:#1d4ed8;">₱{{ "%.2f"|format(r.emp_hdmf) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; font-size:.82rem;">
+                {% if r.er_hdmf > 0 %}<span style="color:#16a34a;">₱{{ "%.2f"|format(r.er_hdmf) }}</span>{% else %}<span class="text-muted">—</span>{% endif %}
+              </td>
+              <td style="text-align:right; border-left:2px solid var(--border); font-size:.82rem; background:var(--info-bg,#eff6ff);">
+                <span style="color:#1d4ed8; font-weight:600;">₱{{ "%.2f"|format(r.total_ee) }}</span>
+              </td>
+              <td style="text-align:right; font-size:.82rem; background:var(--info-bg,#eff6ff);">
+                <span style="color:#16a34a; font-weight:700;">₱{{ "%.2f"|format(r.total_er) }}</span>
+              </td>
+            </tr>
+            {% endfor %}
+          {% else %}
+            <tr><td colspan="9" class="text-center text-muted" style="padding:40px;">
+              No payroll data for this period. Generate payroll first.
+            </td></tr>
+          {% endif %}
+        </tbody>
+        {% if gov_rows %}
+        <tfoot>
+          <tr style="font-weight:700; background:var(--surface2,var(--surface));">
+            <td class="fw-700">TOTALS</td>
+            <td style="text-align:right; border-left:2px solid var(--border); color:#1d4ed8;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='emp_sss')) }}
+            </td>
+            <td style="text-align:right; color:#16a34a;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='er_sss')) }}
+            </td>
+            <td style="text-align:right; border-left:2px solid var(--border); color:#1d4ed8;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='emp_phic')) }}
+            </td>
+            <td style="text-align:right; color:#16a34a;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='er_phic')) }}
+            </td>
+            <td style="text-align:right; border-left:2px solid var(--border); color:#1d4ed8;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='emp_hdmf')) }}
+            </td>
+            <td style="text-align:right; color:#16a34a;">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='er_hdmf')) }}
+            </td>
+            <td style="text-align:right; border-left:2px solid var(--border); color:#1d4ed8; background:var(--info-bg,#eff6ff);">
+              ₱{{ "%.2f"|format(gov_rows | sum(attribute='total_ee')) }}
+            </td>
+            <td style="text-align:right; color:#16a34a; background:var(--info-bg,#eff6ff); font-size:.95rem;">
+              ₱{{ "%.2f"|format(total_er) }}
+            </td>
+          </tr>
+        </tfoot>
+        {% endif %}
+      </table>
+    </div>
+  </div>
+
+  <div class="text-xs text-muted mt-8" style="display:flex; flex-direction:column; gap:3px;">
+    <span><span style="color:#1d4ed8; font-weight:600;">EE</span> = Employee deduction from gross pay</span>
+    <span><span style="color:#16a34a; font-weight:600;">ER</span> = Employer contribution (company expense, not deducted from employee)</span>
+    <span>SSS ER: 9.5% of MSC + EC (₱10–₱30) · PhilHealth ER: 2.5% of MBC / 2 · Pag-IBIG ER: 2% of MPC / 2 (max ₱100)</span>
+    <span>Only enrolled employees appear here. Bi-monthly gross × 2 = monthly equivalent for contribution computation.</span>
   </div>
 </div>
-<p class="text-xs text-muted mt-8">* Regular ≤ 8h/day · OT = approved filed hours only · Deductions apply to enrolled employees only (SSS 4.5% · PhilHealth 2.5% · Pag-IBIG 2% max ₱100 · BIR 2023 brackets) · Regenerate to recalculate deductions</p>
 
 <!-- Edit Hours Modal -->
 <div class="modal-overlay" id="hrs-edit-modal">
@@ -311,6 +542,34 @@
 
 {% block extra_js %}
 <script>
+  // Tab switcher
+  const TABS = ['payroll','timesheets','govcontrib'];
+  function switchTab(id) {
+    TABS.forEach(t => {
+      const el = document.getElementById('tab-' + t);
+      const btn = document.getElementById('tab-btn-' + t);
+      if (el) el.style.display = (t === id) ? '' : 'none';
+      if (btn) {
+        btn.style.color = (t === id) ? 'var(--primary)' : 'var(--muted)';
+        btn.style.borderBottomColor = (t === id) ? 'var(--primary)' : 'transparent';
+      }
+    });
+    try { localStorage.setItem('payroll_tab', id); } catch(e) {}
+  }
+
+  // Restore last active tab
+  (function() {
+    const saved = localStorage.getItem('payroll_tab') || 'payroll';
+    switchTab(TABS.includes(saved) ? saved : 'payroll');
+  })();
+
+  // Sync hidden end input when period dropdown changes
+  function syncEnd(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    const endVal = opt.dataset.end || '';
+    document.getElementById('period-end-hidden').value = endVal;
+  }
+
   function openHrsEdit(runId, regHrs, otHrs) {
     if (!runId) { alert('Generate payroll first to edit hours.'); return; }
     document.getElementById('hrs-edit-form').action = '/api/payroll/' + runId + '/edit-hours';

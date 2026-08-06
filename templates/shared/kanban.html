@@ -19,6 +19,74 @@
   .kanban-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.12); transform: translateY(-1px); }
   .kn-notes-body { color: var(--text) !important; background: var(--surface-2) !important; }
   .kn-notes-body * { color: inherit !important; background: transparent !important; }
+
+  /* ── Card side panel ── */
+  #card-panel-backdrop {
+    position: fixed; inset: 0; z-index: 299;
+    background: rgba(0,0,0,.18);
+    opacity: 0; pointer-events: none;
+    transition: opacity .2s;
+  }
+  #card-panel-backdrop.open { opacity: 1; pointer-events: all; }
+
+  #card-panel {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 460px; max-width: 100vw;
+    background: var(--surface);
+    border-left: 1px solid var(--border);
+    box-shadow: -6px 0 40px rgba(0,0,0,.14);
+    z-index: 300;
+    display: flex; flex-direction: column;
+    transform: translateX(110%);
+    transition: transform .26s cubic-bezier(.4,0,.2,1);
+    overflow: hidden;
+  }
+  #card-panel.open { transform: translateX(0); }
+
+  #card-panel-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #card-panel-crumb {
+    flex: 1; font-size: 12px; font-weight: 600;
+    color: var(--muted); overflow: hidden;
+    white-space: nowrap; text-overflow: ellipsis;
+  }
+  #card-panel-close {
+    width: 28px; height: 28px; border-radius: 6px;
+    border: none; background: none; cursor: pointer;
+    font-size: 15px; color: var(--muted); line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .12s, color .12s;
+  }
+  #card-panel-close:hover { background: var(--surface2, #f1f5f9); color: var(--text); }
+
+  #card-panel-title-bar {
+    padding: 14px 20px 10px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  #card-panel-title {
+    font-size: 16px; font-weight: 800; line-height: 1.3;
+    display: block; color: var(--text);
+  }
+
+  #card-panel-body {
+    flex: 1; overflow-y: auto;
+    padding: 18px 20px;
+    scroll-behavior: smooth;
+  }
+  /* Escape key hint */
+  @media (min-width: 600px) {
+    #card-panel-header::after {
+      content: 'ESC'; font-size: 10px; font-weight: 700;
+      color: var(--muted); opacity: .5;
+      border: 1px solid var(--border); border-radius: 3px;
+      padding: 1px 5px; letter-spacing: .04em;
+    }
+  }
 </style>
 {% endblock %}
 
@@ -290,16 +358,20 @@
   </div>
 </div>
 
-<!-- Card detail modal -->
-<div class="modal-overlay" id="card-modal">
-  <div class="modal" style="max-width:640px;">
-    <div class="modal-header">
-      <span class="modal-title" id="card-modal-title">Card Detail</span>
-      <button class="modal-close" onclick="closeModal('card-modal')">×</button>
-    </div>
-    <div class="modal-body" id="card-modal-body">
-      <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
-    </div>
+<!-- Side panel backdrop -->
+<div id="card-panel-backdrop" onclick="closeCardPanel()"></div>
+
+<!-- Card detail side panel -->
+<div id="card-panel">
+  <div id="card-panel-header">
+    <div id="card-panel-crumb">Production Board</div>
+    <button id="card-panel-close" onclick="closeCardPanel()" title="Close">✕</button>
+  </div>
+  <div id="card-panel-title-bar">
+    <span id="card-panel-title">Card Detail</span>
+  </div>
+  <div id="card-panel-body">
+    <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
   </div>
 </div>
 
