@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ 'Apply for Access' if initial_mode == 'signup' else 'Sign In' }} — Employee Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css">
+  {% if recaptcha_site_key %}
+  <script src="https://www.google.com/recaptcha/api.js?render={{ recaptcha_site_key }}"></script>
+  {% endif %}
+  <style>
+    html, body { height: 100%; }
+    body { background: var(--body-bg); overflow-x: hidden; }
+
+    /* ── Sliding shell: two full-viewport slides side by side, toggled via transform ── */
+    .auth-shell { width: 100vw; height: 100vh; overflow: hidden; position: relative; }
+    .auth-track {
+      display: flex; width: 200%; height: 100%;
+      transform: translateX(0);
+      transition: transform .7s cubic-bezier(.65,0,.35,1);
+    }
+    .auth-track.signup-active { transform: translateX(-50%); }
+    .auth-slide { width: 50%; height: 100%; flex-shrink: 0; display: flex; }
+
+    @keyframes orb-float { 0%,100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-16px) scale(1.05); } }
+    @keyframes steam-rise { 0% { transform: translateY(0) scaleX(1); opacity:.55; } 100% { transform: translateY(-20px) scaleX(1.4); opacity:0; } }
+    @keyframes pulse-node { 0%,100% { opacity:.9; } 50% { opacity:.4; } }
+
+    /* ── Visual panel (image + gradient overlay + quote) ── */
+    .auth-visual {
+      flex: 1 1 46%;
+      position: relative; overflow: hidden;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 48px; height: 100%;
+      color: #fff; text-align: center;
+    }
+    .auth-visual.scene-workspace {
+      background:
+        radial-gradient(ellipse at 20% 15%, rgba(59,130,246,.55) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 75%, rgba(6,182,212,.45) 0%, transparent 50%),
+        linear-gradient(155deg, #0a1628 0%, #0f1e38 55%, #1d2b4a 100%);
+    }
+    .auth-visual.scene-team {
+      background:
+        radial-gradient(ellipse at 80% 15%, rgba(6,182,212,.5) 0%, transparent 55%),
+        radial-gradient(ellipse at 15% 80%, rgba(124,58,237,.5) 0%, transparent 50%),
+        linear-gradient(155deg, #0a1628 0%, #0f1e38 55%, #1d2b4a 100%);
+    }
+    .auth-visual::before {
+      content:''; position: absolute; inset: 0;
+      background-image: repeating-linear-gradient(115deg, rgba(255,255,255,.04) 0 1px, transparent 1px 28px);
+      pointer-events: none;
+    }
+    /* Gradient overlay laid over the background scene for text legibility */
+    .auth-visual::after {
+      content:''; position: absolute; inset: 0;
+      background: linear-gradient(0deg, rgba(0,0,0,.55) 0%, rgba(0,0,0,.05) 45%, transparent 70%);
+      pointer-events: none;
+    }
+    .auth-orb { position: absolute; border-radius: 50%; filter: blur(3px); opacity: .5; animation: orb-float 7s ease-in-out infinite; }
+    .auth-visual-brand {
+      position: absolute; z-index: 2; top: 40px; left: 48px;
+      display:flex; align-items:center; gap:10px;
+    }
+    .auth-visual-brand img { height: 32px; }
+    .auth-visual-brand span { font-weight: 800; font-size: 1rem; letter-spacing: -.01em; }
+    .auth-quote-block { position: relative; z-index: 2; max-width: 560px; margin: 0 auto; }
+    .auth-quote { font-size: 2.5rem; font-weight: 900; line-height: 1.25; letter-spacing: -.02em; text-shadow: 0 2px 24px rgba(0,0,0,.4); }
+    .auth-quote-sub { margin-top: 16px; font-size: .95rem; color: rgba(255,255,255,.68); }
+    .auth-scene-wrap { position: absolute; inset: 0; z-index: 1; }
+
+    /* ── Full-bleed "workspace" background scene (laptop + coffee + desk) ── */
+    .scene-laptop-screen {
+      position: absolute; left: 12%; bottom: 8%; width: 34%; max-width: 260px; aspect-ratio: 1.6;
+      background: linear-gradient(160deg,#1e293b,#0f172a);
+      border: 3px solid #334155; border-radius: 10px 10px 3px 3px;
+      box-shadow: 0 0 60px rgba(59,130,246,.4);
+    }
+    .scene-laptop-screen::before {
+      content:''; position:absolute; inset:8%; border-radius:4px;
+      background: linear-gradient(135deg, rgba(59,130,246,.4), rgba(6,182,212,.28));
+    }
+    .scene-laptop-screen::after {
+      content:''; position:absolute; left:12%; top:16%; width:46%; height:7%; border-radius:3px;
+      background: rgba(255,255,255,.5);
+      box-shadow: 0 220% 0 -50% rgba(255,255,255,.32), 0 440% 0 -60% rgba(255,255,255,.22);
+    }
+    .scene-laptop-base { position: absolute; left: 10%; bottom: calc(8% - 14px); width: 38%; max-width: 290px; height: 14px; background: linear-gradient(180deg,#475569,#1e293b); border-radius: 3px; }
+    .scene-desk { position: absolute; left: 0; right: 0; bottom: 8%; height: 2px; background: rgba(255,255,255,.14); }
+    .scene-cup { position: absolute; left: 27%; bottom: calc(8% + 4px); width: 40px; height: 34px; background: linear-gradient(160deg,#f1f5f9,#cbd5e1); border-radius: 4px 4px 10px 10px; }
+    .scene-cup::before { content:''; position:absolute; right:-12px; top:5px; width:15px; height:17px; border: 4px solid #cbd5e1; border-left:none; border-radius: 0 10px 10px 0; }
+    .scene-steam { position:absolute; width:4px; height:13px; background:rgba(255,255,255,.55); border-radius:3px; }
+    .scene-steam.s1 { left: calc(27% + 10px); bottom: calc(8% + 34px); animation: steam-rise 2.2s ease-in infinite; }
+    .scene-steam.s2 { left: calc(27% + 18px); bottom: calc(8% + 34px); animation: steam-rise 2.2s ease-in infinite .7s; }
+    .scene-plant-pot { position: absolute; right: 14%; bottom: calc(8% - 2px); width: 34px; height: 26px; background: linear-gradient(160deg,#92400e,#78350f); border-radius: 0 0 8px 8px; }
+    .scene-plant-leaf { position: absolute; width: 26px; height: 46px; background: rgba(34,197,94,.55); border-radius: 50% 50% 50% 0; }
+    .scene-plant-leaf.l1 { right: calc(14% + 4px); bottom: calc(8% + 20px); transform: rotate(-18deg); }
+    .scene-plant-leaf.l2 { right: calc(14% - 6px); bottom: calc(8% + 24px); transform: rotate(14deg); }
+    .scene-plant-leaf.l3 { right: calc(14% + 14px); bottom: calc(8% + 26px); transform: rotate(48deg); }
+
+    /* ── Full-bleed "team" background scene (connected network of people) ── */
+    .team-node { position: absolute; border-radius: 50%; border: 2.5px solid rgba(255,255,255,.85); animation: pulse-node 3.4s ease-in-out infinite; }
+
+    @media (max-width: 980px) {
+      .scene-laptop-screen, .scene-laptop-base, .scene-desk, .scene-cup, .scene-steam,
+      .scene-plant-pot, .scene-plant-leaf, .auth-scene-wrap svg { opacity: 0; }
+      .auth-visual { padding: 32px; }
+    }
+
+    /* ── Form panels ── */
+    .auth-form-panel {
+      flex: 1 1 54%;
+      height: 100%; overflow-y: auto;
+      display: flex; align-items: center; justify-content: center;
+      padding: 40px 24px;
+    }
+    .auth-form-panel.top-aligned { align-items: flex-start; padding-top: 48px; padding-bottom: 80px; }
+
+    .login-card { width: 100%; max-width: 380px; }
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .login-logo img { height: 48px; margin-bottom: 10px; }
+    .login-logo h1 { font-size: 1.35rem; font-weight: 800; color: var(--text); }
+    .login-logo p  { font-size: .82rem; color: var(--muted); margin-top: 4px; }
+
+    .remember-row { display:flex; align-items:center; justify-content:space-between; margin-top: 14px; }
+    .remember-check { display:flex; align-items:center; gap:7px; font-size:.82rem; color: var(--text-2); cursor:pointer; user-select:none; }
+    .remember-check input { width:15px; height:15px; accent-color: var(--primary); cursor:pointer; }
+    .forgot-link { font-size:.8rem; color: var(--muted); }
+
+    .auth-mobile-quote { display: none; }
+    @media (max-width: 640px) {
+      .auth-visual { display: none; }
+      .auth-form-panel { flex: 1 1 100%; }
+      .auth-mobile-quote {
+        display: block; max-width: 480px; margin: 0 auto 18px; text-align: center;
+        font-size: .88rem; font-weight: 700; font-style: italic; color: var(--text-2);
+      }
+    }
+
+    /* ── Registration form (unchanged from the original standalone page) ── */
+    .reg-page { width: 100%; display: flex; flex-direction: column; align-items: center; }
+    .reg-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 40px; width: 100%; max-width: 720px; box-shadow: 0 4px 24px rgba(0,0,0,0.07);
+    }
+    .reg-logo { text-align: center; margin-bottom: 28px; }
+    .reg-logo img { height: 52px; margin-bottom: 8px; }
+    .reg-logo h1 { font-size: 1.4rem; font-weight: 700; color: var(--text); margin: 0; }
+    .reg-logo p  { font-size: 0.85rem; color: var(--muted); margin: 4px 0 0; }
+    .form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .form-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .form-grid-4 { display: grid; grid-template-columns: auto 1fr 1fr auto; gap: 12px; }
+    @media (max-width: 600px) {
+      .form-grid-2, .form-grid-3, .form-grid-4 { grid-template-columns: 1fr; }
+      .reg-card { padding: 24px 16px; }
+    }
+    .section-title {
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted);
+      margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border);
+    }
+    .privacy-box {
+      background: var(--surface-2, #f8fafc); border: 1px solid var(--border); border-radius: 8px;
+      padding: 18px 20px; font-size: 0.78rem; color: var(--muted);
+      line-height: 1.6; max-height: 280px; overflow-y: auto; margin-bottom: 16px;
+    }
+    [data-theme="dark"] .privacy-box { background: #1a1f2e; }
+    .privacy-box h3 { font-size: 0.82rem; font-weight: 700; color: var(--text); margin: 0 0 8px; }
+    .privacy-box h4 { font-size: 0.75rem; font-weight: 700; color: var(--text); margin: 12px 0 4px; }
+    .privacy-box p  { margin: 0 0 6px; }
+    .consent-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+    .consent-item:last-child { border-bottom: none; }
+    .consent-item input[type="checkbox"] { margin-top: 2px; flex-shrink: 0; width: 16px; height: 16px; accent-color: var(--primary); }
+    .consent-item label { font-size: 0.83rem; color: var(--text); cursor: pointer; line-height: 1.5; }
+    .consent-item label strong { color: var(--primary); }
+    .back-link { display: inline-block; margin-top: 16px; font-size: 0.82rem; color: var(--muted); text-decoration: none; cursor: pointer; }
+    .back-link:hover { color: var(--primary); }
+    .req-note { font-size: 0.75rem; color: var(--muted); margin-bottom: 16px; }
+    .skills-wrap { border: 1.5px solid var(--border); border-radius: var(--radius); padding: 6px 10px; background: var(--surface); min-height: 44px; display: flex; flex-wrap: wrap; gap: 6px; cursor: text; }
+    .skills-wrap:focus-within { border-color: var(--border-focus); }
+    .skill-tag { background: var(--primary-l); color: var(--primary-d); border-radius: 99px; padding: 3px 10px 3px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+    .skill-tag button { background: none; border: none; cursor: pointer; color: var(--primary-d); font-size: 1rem; line-height: 1; padding: 0; opacity: .6; }
+    .skill-tag button:hover { opacity: 1; }
+    .skills-input { border: none; outline: none; background: transparent; font-size: 0.84rem; min-width: 120px; flex: 1; color: var(--text); padding: 4px 0; }
+    .skills-dropdown { position: absolute; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-md); z-index: 50; width: 100%; max-height: 200px; overflow-y: auto; top: 100%; left: 0; }
+    .skill-option { padding: 8px 12px; cursor: pointer; font-size: 0.84rem; }
+    .skill-option:hover, .skill-option.highlighted { background: var(--primary-l); color: var(--primary-d); }
+    .skills-outer { position: relative; }
+    .footer-links { text-align: center; margin-top: 20px; font-size: 0.78rem; color: var(--muted); }
+    .footer-links a { color: var(--primary); text-decoration: none; }
+    .footer-links a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+<div class="auth-shell">
+  <div class="auth-track {% if initial_mode == 'signup' %}signup-active{% endif %}" id="auth-track">
+
+    <!-- ═══ SLIDE 1 — Sign In ═══ -->
+    <div class="auth-slide">
+      <div class="auth-visual scene-workspace">
+        <div class="auth-orb" style="width:100px;height:100px;background:#3b82f6;top:10%;left:8%;"></div>
+        <div class="auth-orb" style="width:64px;height:64px;background:#06b6d4;bottom:40%;right:10%;animation-delay:1.5s;"></div>
+        <div class="auth-scene-wrap">
+          <div class="scene-laptop-screen"></div>
+          <div class="scene-laptop-base"></div>
+          <div class="scene-desk"></div>
+          <div class="scene-cup"></div>
+          <div class="scene-steam s1"></div>
+          <div class="scene-steam s2"></div>
+          <div class="scene-plant-pot"></div>
+          <div class="scene-plant-leaf l1"></div>
+          <div class="scene-plant-leaf l2"></div>
+          <div class="scene-plant-leaf l3"></div>
+        </div>
+        <div class="auth-visual-brand">
+          <img src="/static/img/logo.png" alt="HF" onerror="this.style.display='none'">
+          <span>Hundredfold Digital Marketing</span>
+        </div>
+        <div class="auth-quote-block">
+          <div class="auth-quote">"{{ login_quote }}"</div>
+          <div class="auth-quote-sub">Welcome back to your workspace.</div>
+        </div>
+      </div>
+
+      <div class="auth-form-panel">
+        <div class="login-card">
+          <div class="login-logo">
+            <img src="/static/img/logo.png" alt="HF Logo"
+                 onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+            <div style="display:none; font-size:2.8rem; margin-bottom:4px;">🛡️</div>
+            <h1>Sign in to your workspace</h1>
+            <p>Employee Portal — Hundredfold Digital Marketing</p>
+          </div>
+
+          <div class="auth-mobile-quote">"{{ login_quote }}"</div>
+
+          {% if flash and initial_mode == 'signin' %}
+            <div class="flash {{ flash.kind }}">
+              {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+              {{ flash.msg }}
+            </div>
+          {% endif %}
+
+          <form method="post" action="/login" id="login-form">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <input type="hidden" name="g_recaptcha_response" id="g_recaptcha_response_login">
+            <div class="form-group">
+              <label class="form-label" for="username">Username</label>
+              <input id="username" name="username" type="text" class="form-input"
+                     placeholder="your username" required autocomplete="username">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="password">Password</label>
+              <input id="password" name="password" type="password" class="form-input"
+                     placeholder="••••••••" required autocomplete="current-password">
+            </div>
+            <div class="remember-row">
+              <label class="remember-check">
+                <input type="checkbox" name="remember_me" value="1" checked>
+                Remember me
+              </label>
+              <span class="forgot-link">Forgot password? Contact HR.</span>
+            </div>
+            <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:18px">
+              Sign In →
+            </button>
+          </form>
+
+          <div style="margin-top:20px; text-align:center;">
+            <a href="/register" id="to-signup" style="font-size:0.85rem; color:var(--primary); text-decoration:none; font-weight:600;">
+              New here? Apply for access →
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SLIDE 2 — Sign Up ═══ -->
+    <div class="auth-slide">
+      <div class="auth-form-panel top-aligned">
+        <div class="reg-page">
+          <div class="reg-card">
+            <div class="reg-logo">
+              <img src="/static/img/logo.png" alt="HF Logo"
+                   onerror="this.style.display='none';this.nextElementSibling.style.display='block'">
+              <div style="display:none; font-size:2.4rem; margin-bottom:4px;">🏢</div>
+              <h1>Employee Portal Access Request</h1>
+              <p>Hundredfold Digital Marketing — Submit your application for HR review</p>
+            </div>
+
+            <div class="auth-mobile-quote">"{{ register_quote }}"</div>
+
+            {% if flash and initial_mode == 'signup' %}
+              <div class="flash {{ flash.kind }}">
+                {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+                {{ flash.msg }}
+              </div>
+            {% endif %}
+
+            <form method="post" action="/api/register" id="reg-form">
+              <input type="hidden" name="g_recaptcha_response" id="g_recaptcha_response_register">
+              <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+
+              <div class="section-title">Personal Information</div>
+              <p class="req-note">Fields marked with * are required.</p>
+
+              <div class="form-grid-4" style="margin-bottom:12px;">
+                <div class="form-group">
+                  <label class="form-label">First Name *</label>
+                  <input name="first_name" type="text" class="form-input" placeholder="Juan" required id="reg-first-name">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Last Name *</label>
+                  <input name="last_name" type="text" class="form-input" placeholder="dela Cruz" required id="reg-last-name">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Suffix</label>
+                  <select name="prefix" class="form-input" style="min-width:80px;">
+                    <option value="">—</option>
+                    <option>Jr.</option>
+                    <option>Sr.</option>
+                    <option>II</option>
+                    <option>III</option>
+                    <option>IV</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Nickname</label>
+                  <input name="nickname" type="text" class="form-input" placeholder="JD">
+                </div>
+              </div>
+
+              <div class="form-grid-2" style="margin-bottom:16px;">
+                <div class="form-group">
+                  <label class="form-label">Middle Name</label>
+                  <input name="middle_name" id="middle_name_input" type="text" class="form-input" placeholder="Santos">
+                </div>
+                <div class="form-group" style="display:flex; align-items:flex-end; padding-bottom:14px;">
+                  <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:.84rem; font-weight:500;">
+                    <input type="checkbox" name="no_middle_name" id="no_middle_name" value="1"
+                           style="width:16px;height:16px;accent-color:var(--primary);"
+                           onchange="document.getElementById('middle_name_input').disabled=this.checked; if(this.checked)document.getElementById('middle_name_input').value='';">
+                    No Middle Name
+                  </label>
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label class="form-label">Email Address *</label>
+                  <input name="email" type="email" class="form-input" placeholder="juan@email.com" required>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Phone Number *</label>
+                  <input name="phone" type="tel" class="form-input" placeholder="+63 912 345 6789" required id="reg-phone">
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Gender *</label>
+                  <select name="gender" class="form-input" required id="reg-gender">
+                    <option value="">— Select —</option>
+                    <option>Male</option>
+                    <option>Female</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label class="form-label">Date of Birth *</label>
+                  <input name="birthday" type="date" class="form-input" required id="reg-birthday">
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label">Home Address *</label>
+                <input name="address" type="text" class="form-input" required id="reg-address"
+                       placeholder="Street, Barangay, City, Province">
+              </div>
+
+              <div class="form-group" style="margin-bottom:16px;">
+                <label class="form-label">Skills / Position Applied For</label>
+                <div class="skills-outer">
+                  <div class="skills-wrap" id="skills-wrap" onclick="document.getElementById('skills-text-input').focus()">
+                    <input type="text" id="skills-text-input" class="skills-input"
+                           placeholder="Type to search or add a skill…" autocomplete="off">
+                  </div>
+                  <div class="skills-dropdown" id="skills-dropdown" style="display:none;"></div>
+                </div>
+                <input type="hidden" name="skills_json" id="skills-json-input" value="[]">
+                <span style="font-size:.73rem; color:var(--muted);">Select from the list or type a custom skill and press Enter.</span>
+              </div>
+
+              <div class="section-title">Data Privacy Statement</div>
+
+              <div class="privacy-box" id="privacy-text">
+                <h3>Data Privacy Notice — Hundredfold Digital Marketing</h3>
+                <p>Pursuant to <strong>Republic Act No. 10173</strong> (Data Privacy Act of 2012) and its Implementing Rules and Regulations, Hundredfold Digital Marketing informs you of the following before collecting your personal data:</p>
+                <h4>1. Data Controller</h4>
+                <p>Hundredfold Digital Marketing is the Personal Information Controller (PIC) responsible for your personal data collected through this form.</p>
+                <h4>2. Personal Data Collected</h4>
+                <p>We collect your full name, email address, phone number, date of birth, gender, home address, and skills/position information you voluntarily provide in this registration form.</p>
+                <h4>3. Purpose of Processing</h4>
+                <p>Your personal data is collected and processed for the following purposes: (a) evaluating your employment application; (b) creating and managing your employee account upon approval; (c) administering employment-related activities including payroll, attendance tracking, and performance management; and (d) compliance with applicable labor laws and regulations of the Philippines.</p>
+                <h4>4. Legal Basis</h4>
+                <p>Processing is based on: (a) your consent given through this form; (b) the necessity of processing for the performance of, or in preparation for, an employment contract to which you are a party; and (c) compliance with legal obligations applicable to the employer under Philippine law including the Labor Code of the Philippines, DOLE regulations, SSS Act, PhilHealth Act, Home Development Mutual Fund Act, and the National Internal Revenue Code.</p>
+                <h4>5. Data Retention</h4>
+                <p>Your personal data will be retained for the duration of your employment and for a period required by applicable Philippine labor and tax laws after the termination of employment (typically not less than 10 years, per DOLE and BIR requirements). Applications that are not approved will be retained for 1 year and then securely deleted.</p>
+                <h4>6. Data Sharing</h4>
+                <p>Your personal data will not be sold or disclosed to unauthorized third parties. Data may be shared with: (a) government agencies including the Social Security System (SSS), Philippine Health Insurance Corporation (PhilHealth), Home Development Mutual Fund (Pag-IBIG), and Bureau of Internal Revenue (BIR) as required by Philippine law; (b) authorized HR personnel and management for employment administration purposes only.</p>
+                <h4>7. Your Rights as a Data Subject</h4>
+                <p>Under RA 10173 (Data Privacy Act of 2012), you have the following rights: (a) right to be informed; (b) right of access to your personal data; (c) right to rectification of inaccurate data; (d) right to erasure or blocking, subject to applicable legal retention requirements; (e) right to object to processing; (f) right to data portability; (g) right to lodge a complaint with the National Privacy Commission (NPC) at <em>complaints@privacy.gov.ph</em> or through www.privacy.gov.ph.</p>
+                <h4>8. Data Protection Officer</h4>
+                <p>For privacy-related concerns or to exercise your data subject rights, contact our HR Manager or Data Protection Officer at the office or through the official company email. Hundredfold Digital Marketing is committed to designating a Data Protection Officer as required under NPC Circular 2023-04.</p>
+                <h4>9. Security Measures</h4>
+                <p>We implement appropriate technical and organizational security measures consistent with the requirements of the National Privacy Commission to protect your personal data against unauthorized access, use, disclosure, alteration, or destruction.</p>
+                <h4>10. Consent Withdrawal</h4>
+                <p>You may withdraw your consent at any time by contacting our HR Manager in writing. Withdrawal of consent does not affect the lawfulness of processing based on consent before its withdrawal, and does not affect processing based on other legal bases.</p>
+              </div>
+
+              <div class="section-title">Required Agreements</div>
+              <div class="consent-item">
+                <input type="checkbox" id="privacy_agreed" name="privacy_agreed" value="1" required>
+                <label for="privacy_agreed">
+                  <strong>I have read, understood, and agree to the Data Privacy Statement above.</strong>
+                  I consent to the collection and processing of my personal data by Hundredfold Digital Marketing in accordance with Republic Act No. 10173 (Data Privacy Act of 2012) and its Implementing Rules and Regulations for the purposes stated above.
+                </label>
+              </div>
+              <div class="consent-item">
+                <input type="checkbox" id="terms_agreed" name="terms_agreed" value="1" required>
+                <label for="terms_agreed">
+                  <strong>I confirm that all information I have provided is true, complete, and accurate.</strong>
+                  I understand that any false or misleading information in this application may result in the rejection of my application or termination of employment if discovered after approval. I acknowledge that my application is subject to HR review and that approval is not guaranteed. I agree to the <a href="/terms" target="_blank" style="color:var(--primary);">Terms of Use</a> of the Employee Portal.
+                </label>
+              </div>
+
+              <button type="submit" class="btn btn-primary btn-full btn-lg" style="margin-top:24px"
+                      id="submit-btn" disabled>
+                Submit Application →
+              </button>
+            </form>
+
+            <div style="text-align:center; margin-top:16px;">
+              <a href="/login" id="to-signin" class="back-link">← Back to Sign In</a>
+            </div>
+          </div>
+
+          <div class="footer-links" style="margin-top:20px;">
+            <a href="/privacy" target="_blank">Data Privacy Policy</a>
+            &nbsp;·&nbsp;
+            <a href="/terms" target="_blank">Terms of Use</a>
+            &nbsp;·&nbsp;
+            <span>Hundredfold Digital Marketing © {{ now[:4] if now else '2026' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="auth-visual scene-team">
+        <div class="auth-orb" style="width:100px;height:100px;background:#06b6d4;top:10%;right:8%;"></div>
+        <div class="auth-orb" style="width:64px;height:64px;background:#7c3aed;bottom:38%;left:10%;animation-delay:1.5s;"></div>
+        <svg class="auth-scene-wrap" viewBox="0 0 400 500" preserveAspectRatio="xMidYMax meet">
+          <line x1="200" y1="140" x2="90" y2="260"  stroke="rgba(255,255,255,.3)" stroke-width="2"/>
+          <line x1="200" y1="140" x2="310" y2="260" stroke="rgba(255,255,255,.3)" stroke-width="2"/>
+          <line x1="90"  y1="260" x2="200" y2="360" stroke="rgba(255,255,255,.3)" stroke-width="2"/>
+          <line x1="310" y1="260" x2="200" y2="360" stroke="rgba(255,255,255,.3)" stroke-width="2"/>
+          <line x1="90"  y1="260" x2="40"  y2="380" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
+          <line x1="310" y1="260" x2="360" y2="380" stroke="rgba(255,255,255,.22)" stroke-width="2"/>
+        </svg>
+        <div class="auth-scene-wrap">
+          <div class="team-node" style="width:56px;height:56px;left:calc(50% - 28px);top:110px;background:rgba(59,130,246,.4);"></div>
+          <div class="team-node" style="width:42px;height:42px;left:calc(50% - 138px);top:236px;background:rgba(6,182,212,.4);animation-delay:.4s;"></div>
+          <div class="team-node" style="width:42px;height:42px;left:calc(50% + 96px);top:236px;background:rgba(124,58,237,.4);animation-delay:.8s;"></div>
+          <div class="team-node" style="width:34px;height:34px;left:calc(50% - 28px);top:336px;background:rgba(255,255,255,.28);animation-delay:1.2s;"></div>
+          <div class="team-node" style="width:26px;height:26px;left:calc(50% - 188px);top:360px;background:rgba(59,130,246,.3);animation-delay:1.6s;"></div>
+          <div class="team-node" style="width:26px;height:26px;left:calc(50% + 158px);top:360px;background:rgba(6,182,212,.3);animation-delay:2s;"></div>
+        </div>
+        <div class="auth-visual-brand">
+          <img src="/static/img/logo.png" alt="HF" onerror="this.style.display='none'">
+          <span>Hundredfold Digital Marketing</span>
+        </div>
+        <div class="auth-quote-block">
+          <div class="auth-quote">"{{ register_quote }}"</div>
+          <div class="auth-quote-sub">You're joining a team that builds together.</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.flash').forEach(el => {
+    setTimeout(() => el.style.opacity = '0', 4000);
+  });
+
+  // ── Slide toggle (no page reload) ───────────────────────────────────────────
+  const track = document.getElementById('auth-track');
+  function slideTo(mode, pushUrl) {
+    track.classList.toggle('signup-active', mode === 'signup');
+    if (pushUrl) history.pushState({mode}, '', mode === 'signup' ? '/register' : '/login');
+  }
+  document.getElementById('to-signup').addEventListener('click', function(e){ e.preventDefault(); slideTo('signup', true); });
+  document.getElementById('to-signin').addEventListener('click', function(e){ e.preventDefault(); slideTo('signin', true); });
+  window.addEventListener('popstate', function(){
+    slideTo(location.pathname === '/register' ? 'signup' : 'signin', false);
+  });
+
+  // ── Registration form validation ────────────────────────────────────────────
+  const cb1 = document.getElementById('privacy_agreed');
+  const cb2 = document.getElementById('terms_agreed');
+  const btn = document.getElementById('submit-btn');
+
+  const requiredFields = [
+    'reg-first-name', 'reg-last-name', 'reg-phone',
+    'reg-gender', 'reg-birthday', 'reg-address'
+  ];
+
+  function updateBtn() {
+    const allFilled = requiredFields.every(id => {
+      const el = document.getElementById(id);
+      return el && el.value.trim() !== '';
+    });
+    const noMiddle = document.getElementById('no_middle_name').checked;
+    const middleOk = noMiddle || document.getElementById('middle_name_input').value.trim() !== '';
+    btn.disabled = !(cb1.checked && cb2.checked && allFilled && middleOk);
+  }
+
+  cb1.addEventListener('change', updateBtn);
+  cb2.addEventListener('change', updateBtn);
+  requiredFields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', updateBtn);
+    if (el) el.addEventListener('change', updateBtn);
+  });
+  document.getElementById('middle_name_input').addEventListener('input', updateBtn);
+  document.getElementById('no_middle_name').addEventListener('change', updateBtn);
+
+  // ── Skills tag input ──────────────────────────────────────────────────────
+  const availableSkills = {{ skills_list | tojson }};
+  let selectedSkills = [];
+  const wrap = document.getElementById('skills-wrap');
+  const textInput = document.getElementById('skills-text-input');
+  const dropdown = document.getElementById('skills-dropdown');
+  const jsonInput = document.getElementById('skills-json-input');
+
+  function syncJson() { jsonInput.value = JSON.stringify(selectedSkills); }
+
+  function addSkill(name) {
+    name = name.trim();
+    if (!name || selectedSkills.includes(name)) return;
+    selectedSkills.push(name);
+    const tag = document.createElement('div');
+    tag.className = 'skill-tag';
+    tag.innerHTML = `<span>#${name}</span><button type="button" onclick="removeSkill(this,'${name.replace(/'/g,"\\'")}')">×</button>`;
+    wrap.insertBefore(tag, textInput);
+    textInput.value = '';
+    syncJson();
+    hideDropdown();
+  }
+
+  function removeSkill(btn, name) {
+    selectedSkills = selectedSkills.filter(s => s !== name);
+    btn.parentElement.remove();
+    syncJson();
+  }
+
+  function showDropdown(query) {
+    const filtered = availableSkills.filter(s =>
+      s.toLowerCase().includes(query.toLowerCase()) && !selectedSkills.includes(s)
+    );
+    if (!filtered.length && !query) { hideDropdown(); return; }
+    dropdown.innerHTML = filtered.map(s =>
+      `<div class="skill-option" onclick="addSkill('${s.replace(/'/g,"\\'")}');">#${s}</div>`
+    ).join('');
+    if (query && !availableSkills.some(s => s.toLowerCase() === query.toLowerCase()) && !selectedSkills.includes(query)) {
+      dropdown.innerHTML += `<div class="skill-option" onclick="addSkill('${query.replace(/'/g,"\\'")}');">＋ Add "<strong>${query}</strong>"</div>`;
+    }
+    dropdown.style.display = filtered.length || query ? 'block' : 'none';
+  }
+
+  function hideDropdown() { dropdown.style.display = 'none'; }
+
+  textInput.addEventListener('input', () => showDropdown(textInput.value));
+  textInput.addEventListener('focus', () => showDropdown(textInput.value));
+  textInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); if (textInput.value.trim()) addSkill(textInput.value); }
+    if (e.key === 'Backspace' && !textInput.value && selectedSkills.length) {
+      removeSkill(wrap.querySelector('.skill-tag:last-of-type button'), selectedSkills[selectedSkills.length-1]);
+    }
+  });
+  document.addEventListener('click', e => { if (!wrap.contains(e.target)) hideDropdown(); });
+
+  {% if recaptcha_site_key %}
+  document.getElementById('login-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    grecaptcha.ready(function() {
+      grecaptcha.execute('{{ recaptcha_site_key }}', {action: 'login'}).then(function(token) {
+        document.getElementById('g_recaptcha_response_login').value = token;
+        form.submit();
+      });
+    });
+  });
+  document.getElementById('reg-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const form = this;
+    grecaptcha.ready(function() {
+      grecaptcha.execute('{{ recaptcha_site_key }}', {action: 'register'}).then(function(token) {
+        document.getElementById('g_recaptcha_response_register').value = token;
+        form.submit();
+      });
+    });
+  });
+  {% endif %}
+</script>
+</body>
+</html>

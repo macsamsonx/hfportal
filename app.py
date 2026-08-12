@@ -98,11 +98,11 @@ from database import (
     compute_payroll_for_employee, get_compliance_status, get_break_minutes,
     get_clients, get_unread_count, push_notification, audit, log_card_activity,
     dm_room, get_chat_unread_count,
-    KANBAN_STATUSES, BIBLE_VERSES,
+    KANBAN_STATUSES, BIBLE_VERSES, LOGIN_QUOTES, REGISTER_QUOTES, get_daily_quote,
     UPLOAD_DIR,
     get_company_settings, save_company_setting,
     compute_sss_employer, compute_philhealth_employer, compute_pagibig_employer,
-    get_bimonthly_periods, get_current_bimonthly_period,
+    get_bimonthly_periods, get_current_bimonthly_period, is_last_cutoff_period,
 )
 
 # ── CSRF helpers ──────────────────────────────────────────────────────────────
@@ -192,15 +192,43 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         )
         return response
 
+class _RememberMeCookieMiddleware(BaseHTTPMiddleware):
+    """SessionMiddleware always issues a persistent cookie (max_age below).
+    If the user didn't check "Remember Me" at login, strip Max-Age/Expires
+    here so the browser treats it as a session-only cookie instead."""
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        if not request.session.get("remember_me", True):
+            headers = response.headers
+            cookies = headers.getlist("set-cookie")
+            if cookies:
+                del headers["set-cookie"]
+                for c in cookies:
+                    if c.startswith("session="):
+                        c = "; ".join(
+                            p for p in c.split("; ")
+                            if not p.lower().startswith(("max-age=", "expires="))
+                        )
+                    headers.append("set-cookie", c)
+        return response
+
 app.add_middleware(_SecurityHeadersMiddleware)
 app.add_middleware(_CSRFMiddleware)
 # SessionMiddleware must be added AFTER _CSRFMiddleware so it runs first (Starlette LIFO order)
-app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET, https_only=False, same_site="lax")
+app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET, https_only=False, same_site="lax",
+                    max_age=60 * 60 * 24 * 30)
+# Added after SessionMiddleware so it wraps it and can post-process the cookie it sets
+app.add_middleware(_RememberMeCookieMiddleware)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 # Avatars and TV posters are non-sensitive — stay public for TV display and sidebar
 app.mount("/uploads/avatars", StaticFiles(directory=os.path.join("secure_vault", "avatars")), name="avatars")
 app.mount("/uploads/posters", StaticFiles(directory=os.path.join("secure_vault", "posters")), name="posters")
 templates = Jinja2Templates(directory="templates")
+# Strip the whitespace/newlines Jinja normally leaves around {% %} tags — without
+# this, any element using white-space:pre-wrap (e.g. chat bubbles) renders that
+# leftover template-source whitespace as visible blank lines.
+templates.env.trim_blocks = True
+templates.env.lstrip_blocks = True
 init_db()
 
 # Ensure upload directories are writable by the app process at every startup.
@@ -222,6 +250,33 @@ for _sd in ["static/img", "static/uploads", "static/uploads/bank_qr"]:
         os.chmod(_sd, 0o777)
     except (PermissionError, OSError):
         pass
+
+# ── Kanban auto-archive: every Saturday 3:00 PM PHT, archive all Done cards ────
+_ARCHIVE_SETTING_KEY = "last_kanban_auto_archive"
+
+async def _kanban_archive_scheduler():
+    while True:
+        try:
+            now = get_pht_now()
+            if now.weekday() == 5 and now.hour >= 15:  # Saturday, 3:00 PM or later
+                today_str = now.strftime("%Y-%m-%d")
+                if get_company_settings().get(_ARCHIVE_SETTING_KEY) != today_str:
+                    with get_db() as conn:
+                        cur = conn.execute(
+                            "UPDATE work_logs SET is_archived=1 WHERE status='Done' AND COALESCE(is_archived,0)=0"
+                        )
+                        archived_count = cur.rowcount
+                        audit(conn, None, "System (Auto-Archive)", "kanban_auto_archive",
+                              "work_logs", None, None, f"{archived_count} card(s) archived")
+                    save_company_setting(_ARCHIVE_SETTING_KEY, today_str)
+        except Exception:
+            pass
+        await asyncio.sleep(300)  # check every 5 minutes
+
+@app.on_event("startup")
+async def _start_kanban_archive_scheduler():
+    asyncio.create_task(_kanban_archive_scheduler())
+
 
 # ── Sensitive document serving (auth-gated) ────────────────────────────────────
 from fastapi.responses import FileResponse as _FileResponse
@@ -344,6 +399,21 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
 
 
 # ── Login / Logout ─────────────────────────────────────────────────────────────
+def _auth_page_context(request: Request, mode: str) -> dict:
+    with get_db() as conn:
+        skills = conn.execute("SELECT name FROM skills ORDER BY name").fetchall()
+    return {
+        "flash": get_flash(request),
+        "csrf_token": _get_csrf_token(request),
+        "recaptcha_site_key": RECAPTCHA_SITE_KEY,
+        "login_quote": get_daily_quote(LOGIN_QUOTES),
+        "register_quote": get_daily_quote(REGISTER_QUOTES),
+        "skills_list": [s["name"] for s in skills],
+        "now": get_pht_now().isoformat(),
+        "initial_mode": mode,
+    }
+
+
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     if current_user(request):
@@ -351,11 +421,7 @@ async def login_page(request: Request):
     error = request.query_params.get("error")
     if error == "session_expired" and "flash" not in request.session:
         flash(request, "Your session expired. Please log in again.", "warning")
-    return templates.TemplateResponse(request, "login.html", {
-        "flash": get_flash(request),
-        "csrf_token": _get_csrf_token(request),
-        "recaptcha_site_key": RECAPTCHA_SITE_KEY,
-    })
+    return templates.TemplateResponse(request, "auth.html", _auth_page_context(request, "signin"))
 
 
 @app.post("/login")
@@ -364,6 +430,7 @@ async def login_post(
     username: str = Form(...),
     password: str = Form(...),
     g_recaptcha_response: str = Form(""),
+    remember_me: str = Form(""),
 ):
     u = username.strip()
     ip = request.client.host if request.client else "unknown"
@@ -389,6 +456,7 @@ async def login_post(
             )
             audit(conn, emp["id"], emp["name"], "login", ip=ip)
             request.session["user_id"] = emp["id"]
+            request.session["remember_me"] = bool(remember_me)
             # Redirect to compliance gate if required docs are pending
             pending_docs = conn.execute(
                 """SELECT COUNT(*) FROM compliance_documents cd
@@ -426,16 +494,7 @@ async def register_page(request: Request):
     u = current_user(request)
     if u and u.get("role") not in ("HR Manager", "Admin"):
         return RedirectResponse("/dashboard", status_code=302)
-    with get_db() as conn:
-        skills = conn.execute("SELECT name FROM skills ORDER BY name").fetchall()
-    skills_list = [s["name"] for s in skills]
-    return templates.TemplateResponse(request, "register.html", {
-        "flash": get_flash(request),
-        "csrf_token": _get_csrf_token(request),
-        "skills_list": skills_list,
-        "now": get_pht_now().isoformat(),
-        "recaptcha_site_key": RECAPTCHA_SITE_KEY,
-    })
+    return templates.TemplateResponse(request, "auth.html", _auth_page_context(request, "signup"))
 
 
 @app.post("/api/register")
@@ -613,7 +672,7 @@ async def company_settings_save(request: Request):
     form = await request.form()
     fields = ["name", "tagline", "address", "phone", "email", "website",
               "tin", "sss_employer", "philhealth_employer", "pagibig_employer", "dti",
-              "payroll_cutoff_1", "payroll_cutoff_2"]
+              "payroll_cutoff_1", "payroll_cutoff_2", "payroll_release_1", "payroll_release_2"]
     for field in fields:
         val = str(form.get(field, "")).strip()
         save_company_setting(field, val)
@@ -887,6 +946,15 @@ async def dashboard(request: Request):
         ).fetchall()
         reviewer_cards = [dict(c) for c in reviewer_cards]
 
+        # Task counts by status (for dashboard status strip)
+        task_status_counts = conn.execute(
+            """SELECT status, COUNT(*) as cnt FROM work_logs
+               WHERE emp_id=? AND COALESCE(is_archived,0)=0
+               GROUP BY status""",
+            (user["id"],)
+        ).fetchall()
+        task_status_counts = {r["status"]: r["cnt"] for r in task_status_counts}
+
         # My assigned cards (from kanban, not just task logs)
         my_cards = conn.execute(
             """SELECT w.*, e.name as emp_name FROM work_logs w
@@ -936,6 +1004,7 @@ async def dashboard(request: Request):
         "for_review_mine": for_review_mine,
         "birthday_people": birthday_people,
         "verse": verse,
+        "task_status_counts": task_status_counts,
         "reviewer_cards": reviewer_cards,
         "my_cards": my_cards,
         "active_employees": active_employees,
@@ -2040,10 +2109,12 @@ async def directory_page(request: Request):
 async def payroll_page(request: Request, start: str = None, end: str = None):
     user = require_role(request, "HR Manager", "Admin")
 
-    # Read configured cutoff days (default 15 / end-of-month)
+    # Read configured cutoff days (default 15 / 30)
     settings = get_company_settings()
     cutoff1 = int(settings.get("payroll_cutoff_1") or 15)
-    cutoff2 = int(settings.get("payroll_cutoff_2") or 31)
+    cutoff2 = int(settings.get("payroll_cutoff_2") or 30)
+    release1 = settings.get("payroll_release_1") or "20"
+    release2 = settings.get("payroll_release_2") or "5"
 
     # Determine active period
     if start and end:
@@ -2089,16 +2160,18 @@ async def payroll_page(request: Request, start: str = None, end: str = None):
             payroll_data = [p for p in payroll_data if p]
 
         # Build employer contribution data for Gov Contributions tab
+        # (only meaningful on the last cutoff of the month — see is_last_cutoff_period)
         gov_rows = []
         for p in payroll_data:
             gross = p.get("gross_pay", 0) or 0
             monthly_equiv = gross * 2
+            is_last = p.get("is_last_cutoff")
             emp_sss  = p.get("sss_deduction", 0) or 0
             emp_phic = p.get("philhealth_deduction", 0) or 0
             emp_hdmf = p.get("pagibig_deduction", 0) or 0
-            er_sss   = compute_sss_employer(monthly_equiv)   if p.get("sss_enrolled")       else 0.0
-            er_phic  = compute_philhealth_employer(monthly_equiv) if p.get("philhealth_enrolled") else 0.0
-            er_hdmf  = compute_pagibig_employer(monthly_equiv)   if p.get("pagibig_enrolled")    else 0.0
+            er_sss   = compute_sss_employer(monthly_equiv)   if is_last and p.get("sss_enrolled")       else 0.0
+            er_phic  = compute_philhealth_employer(monthly_equiv) if is_last and p.get("philhealth_enrolled") else 0.0
+            er_hdmf  = compute_pagibig_employer(monthly_equiv)   if is_last and p.get("pagibig_enrolled")    else 0.0
             gov_rows.append({
                 "emp_name":   p.get("emp_name", ""),
                 "emp_sss":    emp_sss,  "er_sss":  er_sss,
@@ -2122,6 +2195,8 @@ async def payroll_page(request: Request, start: str = None, end: str = None):
     total_gross = round(sum(p.get("total_pay", p.get("gross_pay", 0)) for p in payroll_data), 2)
     total_net   = round(sum(p.get("net_pay", 0) for p in payroll_data), 2)
     total_er    = round(sum(r["total_er"] for r in gov_rows), 2)
+    total_loan  = round(sum(p.get("loan_deduction", 0) or 0 for p in payroll_data), 2)
+    period_is_last_cutoff = is_last_cutoff_period(week_start, cutoff1, cutoff2)
 
     return templates.TemplateResponse(request, "shared/payroll.html", {
         "user": user,
@@ -2130,12 +2205,15 @@ async def payroll_page(request: Request, start: str = None, end: str = None):
         "total_gross": total_gross,
         "total_net": total_net,
         "total_er": total_er,
+        "total_loan": total_loan,
+        "period_is_last_cutoff": period_is_last_cutoff,
         "existing_run": dict(existing_run) if existing_run else None,
         "period_options": period_options,
         "selected_start": week_start,
         "gov_rows": gov_rows,
         "ts_submissions": [dict(t) for t in ts_submissions],
         "cutoff1": cutoff1, "cutoff2": cutoff2,
+        "release1": release1, "release2": release2,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
@@ -2160,14 +2238,17 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
                        (week_start, week_end, emp_id, emp_name, regular_hours, overtime_hours,
                         hourly_rate, regular_pay, overtime_pay, total_pay,
                         gross_pay, sss_deduction, philhealth_deduction, pagibig_deduction,
-                        tax_deduction, total_deductions, net_pay)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        tax_deduction, loan_deduction, total_deductions, net_pay, is_last_cutoff,
+                        sss_enrolled, philhealth_enrolled, pagibig_enrolled, tax_enrolled)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (week_start, week_end, p["emp_id"], p["emp_name"],
                      p["regular_hours"], p["overtime_hours"], p["hourly_rate"],
                      p["regular_pay"], p["overtime_pay"], p["total_pay"],
                      p["gross_pay"], p["sss_deduction"], p["philhealth_deduction"],
-                     p["pagibig_deduction"], p["tax_deduction"], p["total_deductions"],
-                     p["net_pay"]),
+                     p["pagibig_deduction"], p["tax_deduction"], p["loan_deduction"],
+                     p["total_deductions"], p["net_pay"], 1 if p["is_last_cutoff"] else 0,
+                     1 if p["sss_enrolled"] else 0, 1 if p["philhealth_enrolled"] else 0,
+                     1 if p["pagibig_enrolled"] else 0, 1 if p["tax_enrolled"] else 0),
                 )
                 conn.execute(
                     """INSERT INTO payslip_logs
@@ -2177,21 +2258,68 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
                     (p["emp_id"], cur.lastrowid, week_start, week_end,
                      p["gross_pay"], p["total_deductions"], p["net_pay"], user["name"]),
                 )
+        hr_staff = conn.execute(
+            "SELECT id FROM employees WHERE role IN ('HR Manager','Admin') AND is_active=1"
+        ).fetchall()
+        for hr in hr_staff:
+            if hr["id"] != user["id"]:
+                push_notification(conn, hr["id"], "💰 Payroll Generated",
+                                  f"{user['name']} generated payroll for {week_start} – {week_end}.",
+                                  f"/payroll?start={week_start}&end={week_end}")
     flash(request, f"Payroll generated for {week_start} – {week_end}.")
     return RedirectResponse(f"/payroll?start={week_start}&end={week_end}", status_code=302)
 
 
 @app.post("/api/payroll/{run_id}/approve")
 async def approve_payroll(request: Request, run_id: int):
+    # Admin remains the sole final approver; HR has equal visibility/notifications elsewhere.
     user = require_role(request, "Admin")
     with get_db() as conn:
         run = conn.execute("SELECT week_start FROM payroll_runs WHERE id=?", (run_id,)).fetchone()
         if run:
             week_start = run["week_start"]
+            # Apply loan/advance installments once, only for rows not already approved.
+            pending_rows = conn.execute(
+                "SELECT * FROM payroll_runs WHERE week_start=? AND status != 'Approved'",
+                (week_start,)
+            ).fetchall()
+            for r in pending_rows:
+                remaining = r["loan_deduction"] or 0
+                if not r["is_last_cutoff"] or remaining <= 0:
+                    continue
+                loans = conn.execute(
+                    "SELECT * FROM employee_loans WHERE emp_id=? AND status='Active' ORDER BY created_at",
+                    (r["emp_id"],)
+                ).fetchall()
+                for loan in loans:
+                    if remaining <= 0:
+                        break
+                    pay = min(loan["installment_amount"], loan["balance_remaining"], remaining)
+                    if pay <= 0:
+                        continue
+                    new_balance = round(loan["balance_remaining"] - pay, 2)
+                    conn.execute(
+                        "UPDATE employee_loans SET balance_remaining=?, status=? WHERE id=?",
+                        (new_balance, "Paid" if new_balance <= 0 else "Active", loan["id"]),
+                    )
+                    conn.execute(
+                        """INSERT INTO loan_payments (loan_id, payroll_run_id, week_start, week_end, amount, balance_after)
+                           VALUES (?,?,?,?,?,?)""",
+                        (loan["id"], r["id"], r["week_start"], r["week_end"], pay, new_balance),
+                    )
+                    remaining = round(remaining - pay, 2)
             conn.execute(
                 "UPDATE payroll_runs SET status='Approved', approved_by=? WHERE week_start=?",
                 (user["name"], week_start),
             )
+            hr_staff = conn.execute(
+                "SELECT id FROM employees WHERE role IN ('HR Manager','Admin') AND is_active=1"
+            ).fetchall()
+            for hr in hr_staff:
+                if hr["id"] != user["id"]:
+                    push_notification(conn, hr["id"], "✓ Payroll Approved",
+                                      f"{user['name']} gave final approval for payroll {week_start}.",
+                                      f"/payroll?week={week_start}")
     flash(request, "Payroll approved.")
     return RedirectResponse(f"/payroll?week={week_start}", status_code=302)
 
@@ -2208,6 +2336,14 @@ async def hr_approve_payroll(request: Request, run_id: int):
                 "UPDATE payroll_runs SET hr_approved_by=?, hr_approved_at=? WHERE week_start=?",
                 (user["name"], now_str, week_start),
             )
+            staff = conn.execute(
+                "SELECT id FROM employees WHERE role IN ('HR Manager','Admin') AND is_active=1"
+            ).fetchall()
+            for s in staff:
+                if s["id"] != user["id"]:
+                    push_notification(conn, s["id"], "✓ Payroll HR-Checked",
+                                      f"{user['name']} marked payroll {week_start} as HR reviewed.",
+                                      f"/payroll?week={week_start}")
     flash(request, "Payroll marked as HR reviewed.")
     return RedirectResponse(f"/payroll?week={week_start}", status_code=302)
 
@@ -2256,6 +2392,89 @@ async def edit_payroll_rate(
             week_start = run["week_start"]
     flash(request, "Rate updated for this payroll run.")
     return RedirectResponse(f"/payroll?week={week_start}", status_code=302)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ── LOANS & CASH ADVANCES ─────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+
+@app.get("/loans", response_class=HTMLResponse)
+async def loans_page(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        loans = conn.execute(
+            """SELECT l.*, e.name as emp_name, e.profile_pic_path
+               FROM employee_loans l JOIN employees e ON e.id = l.emp_id
+               ORDER BY l.status='Active' DESC, l.created_at DESC"""
+        ).fetchall()
+        loans = [dict(l) for l in loans]
+        for loan in loans:
+            payments = conn.execute(
+                "SELECT * FROM loan_payments WHERE loan_id=? ORDER BY created_at DESC",
+                (loan["id"],)
+            ).fetchall()
+            loan["payments"] = [dict(p) for p in payments]
+        employees = conn.execute(
+            "SELECT id, name FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+        ).fetchall()
+
+    active_total = round(sum(l["balance_remaining"] for l in loans if l["status"] == "Active"), 2)
+    return templates.TemplateResponse(request, "shared/loans.html", {
+        "user": user,
+        "loans": loans,
+        "employees": [dict(e) for e in employees],
+        "active_total": active_total,
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.post("/loans/create")
+async def create_loan(
+    request: Request,
+    emp_id: int = Form(...),
+    loan_type: str = Form("Loan"),
+    principal_amount: float = Form(...),
+    installment_amount: float = Form(...),
+    notes: str = Form(""),
+):
+    user = require_role(request, "HR Manager", "Admin")
+    if principal_amount <= 0 or installment_amount <= 0:
+        flash(request, "Amounts must be greater than zero.", "error")
+        return RedirectResponse("/loans", status_code=302)
+    with get_db() as conn:
+        emp = conn.execute("SELECT name FROM employees WHERE id=?", (emp_id,)).fetchone()
+        if not emp:
+            flash(request, "Employee not found.", "error")
+            return RedirectResponse("/loans", status_code=302)
+        conn.execute(
+            """INSERT INTO employee_loans
+               (emp_id, loan_type, principal_amount, installment_amount, balance_remaining, notes, created_by)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (emp_id, loan_type, principal_amount, installment_amount, principal_amount,
+             notes.strip() or None, user["name"]),
+        )
+        push_notification(conn, emp_id,
+            f"💳 {loan_type} Recorded",
+            f"₱{principal_amount:,.2f} recorded, ₱{installment_amount:,.2f} to be deducted each last-cutoff payroll until paid.",
+            "/dashboard")
+        audit(conn, user["id"], user["name"], "loan_create", "employee_loans")
+    flash(request, f"{loan_type} of ₱{principal_amount:,.2f} recorded for {emp['name']}.")
+    return RedirectResponse("/loans", status_code=302)
+
+
+@app.post("/loans/{loan_id}/close")
+async def close_loan(request: Request, loan_id: int):
+    """Manually close/write off a loan — stops further payroll deductions."""
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE employee_loans SET status='Closed' WHERE id=? AND status='Active'",
+            (loan_id,)
+        )
+        audit(conn, user["id"], user["name"], "loan_close", "employee_loans", loan_id)
+    flash(request, "Loan closed — no further deductions will be made.")
+    return RedirectResponse("/loans", status_code=302)
 
 
 @app.post("/api/attendance/{att_id}/edit")
@@ -2387,9 +2606,11 @@ async def hr_update_employee(
     shift_type: str = Form("Morning"),
     hourly_rate: float = Form(0.0),
     capabilities: str = Form(""),
+    weekly_hours_limit: str = Form(""),
 ):
     """HR Manager can edit employee name, shift, rate, capabilities — not role."""
     user = require_role(request, "HR Manager", "Admin")
+    whl = float(weekly_hours_limit) if weekly_hours_limit.strip() else None
     with get_db() as conn:
         emp = conn.execute("SELECT role FROM employees WHERE id=?", (emp_id,)).fetchone()
         if not emp:
@@ -2399,8 +2620,8 @@ async def hr_update_employee(
             flash(request, "HR can only edit Employee accounts.", "error")
             return RedirectResponse("/employees", status_code=302)
         conn.execute(
-            "UPDATE employees SET name=?, shift_type=?, hourly_rate=?, capabilities=? WHERE id=?",
-            (name.strip(), shift_type, hourly_rate, capabilities, emp_id),
+            "UPDATE employees SET name=?, shift_type=?, hourly_rate=?, capabilities=?, weekly_hours_limit=? WHERE id=?",
+            (name.strip(), shift_type, hourly_rate, capabilities, whl, emp_id),
         )
     flash(request, f"Employee '{name}' updated.")
     referer = request.headers.get("referer", "/employees")
@@ -2443,17 +2664,19 @@ async def create_employee(
     capabilities: str = Form(""),
     employment_type: str = Form("Full-time"),
     department: str = Form(""),
+    weekly_hours_limit: str = Form(""),
 ):
     require_role(request, "Admin")
+    whl = float(weekly_hours_limit) if weekly_hours_limit.strip() else None
     with get_db() as conn:
         try:
             conn.execute(
                 """INSERT INTO employees
-                   (name, username, email, password, role, hourly_rate, shift_type, capabilities, employment_type, department)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (name, username, email, password, role, hourly_rate, shift_type, capabilities, employment_type, department, weekly_hours_limit)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (name, username.strip().lower(), email or None, hash_password(password),
                  role, hourly_rate, shift_type, capabilities,
-                 employment_type, department or None),
+                 employment_type, department or None, whl),
             )
         except Exception:
             flash(request, "Username already exists.", "error")
@@ -2476,25 +2699,28 @@ async def update_employee(
     employment_type: str = Form("Full-time"),
     department: str = Form(""),
     new_password: str = Form(""),
+    weekly_hours_limit: str = Form(""),
 ):
     require_role(request, "Admin")
+    whl = float(weekly_hours_limit) if weekly_hours_limit.strip() else None
     with get_db() as conn:
         if new_password:
             conn.execute(
                 """UPDATE employees SET name=?, username=?, email=?, role=?, hourly_rate=?,
-                   shift_type=?, capabilities=?, employment_type=?, department=?, password=?
+                   shift_type=?, capabilities=?, employment_type=?, department=?, password=?,
+                   weekly_hours_limit=?
                    WHERE id=?""",
                 (name, username.strip().lower(), email or None, role, hourly_rate,
                  shift_type, capabilities, employment_type, department or None,
-                 hash_password(new_password), emp_id),
+                 hash_password(new_password), whl, emp_id),
             )
         else:
             conn.execute(
                 """UPDATE employees SET name=?, username=?, email=?, role=?, hourly_rate=?,
-                   shift_type=?, capabilities=?, employment_type=?, department=?
+                   shift_type=?, capabilities=?, employment_type=?, department=?, weekly_hours_limit=?
                    WHERE id=?""",
                 (name, username.strip().lower(), email or None, role, hourly_rate,
-                 shift_type, capabilities, employment_type, department or None, emp_id),
+                 shift_type, capabilities, employment_type, department or None, whl, emp_id),
             )
     flash(request, "Employee updated.")
     return RedirectResponse("/employees", status_code=302)
@@ -3298,9 +3524,20 @@ async def send_chat_message(
     reply_id = int(reply_to_id) if reply_to_id.strip().isdigit() else None
 
     import re as _re
-    mentions = _re.findall(r'@([A-Za-z][A-Za-z ]{1,30}?)(?=\s|$|[^\w ])', body + " ")
 
     with get_db() as conn:
+        # Match against real employee names (longest first, so multi-word names
+        # like "Sarah Connor" resolve fully instead of stopping at the first space)
+        # plus the special @Everyone / @Admin group mentions.
+        other_names = [
+            r["name"] for r in conn.execute(
+                "SELECT name FROM employees WHERE is_active=1 AND id!=?", (user["id"],)
+            ).fetchall()
+        ]
+        mention_targets = sorted(other_names, key=len, reverse=True) + ["Everyone", "Admin"]
+        pattern = r'@(' + '|'.join(_re.escape(t) for t in mention_targets) + r')\b'
+        mentions = set(_re.findall(pattern, body, _re.IGNORECASE))
+
         cur = conn.execute(
             """INSERT INTO chat_messages
                (room, sender_id, sender_name, body,
@@ -3316,14 +3553,28 @@ async def send_chat_message(
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
             (user["id"], room, msg_id)
         )
-        # Notify @mentioned employees
+        # Notify @mentioned employees / groups
+        notified_ids = set()
         for mention in mentions:
-            mentioned = conn.execute(
-                "SELECT id FROM employees WHERE LOWER(name) LIKE LOWER(?) AND id!=? AND is_active=1 LIMIT 1",
-                (f"%{mention.strip()}%", user["id"])
-            ).fetchone()
-            if mentioned:
-                push_notification(conn, mentioned["id"],
+            if mention.lower() == "everyone":
+                if room != "group":
+                    continue
+                targets = conn.execute(
+                    "SELECT id FROM employees WHERE is_active=1 AND id!=?", (user["id"],)
+                ).fetchall()
+            elif mention.lower() == "admin":
+                targets = conn.execute(
+                    "SELECT id FROM employees WHERE is_active=1 AND role='Admin' AND id!=?", (user["id"],)
+                ).fetchall()
+            else:
+                targets = conn.execute(
+                    "SELECT id FROM employees WHERE name=? AND is_active=1 AND id!=?", (mention, user["id"])
+                ).fetchall()
+            for t in targets:
+                if t["id"] in notified_ids:
+                    continue
+                notified_ids.add(t["id"])
+                push_notification(conn, t["id"],
                     f"{user['name']} mentioned you",
                     body[:80], "/chat")
 
@@ -3692,7 +3943,8 @@ async def my_timesheet(request: Request, week: str = None):
             manual_hours = entry["manual_hours"]
             ot_hours = entry["ot_hours"]
         else:
-            manual_hours = 0.0 if lv else min(computed, 8.0)
+            # Default to the exact clock in/out computed value — no rounding or capping.
+            manual_hours = 0.0 if lv else computed
             ot_hours = ot_hours_approved
 
         rows.append({
@@ -3715,6 +3967,9 @@ async def my_timesheet(request: Request, week: str = None):
     total_ot      = round(sum(r["ot_hours"] for r in rows), 2)
     total_leave   = round(sum(r["leave_hours"] for r in rows), 2)
 
+    weekly_hours_limit = user.get("weekly_hours_limit")
+    is_over_allocated = bool(weekly_hours_limit) and (total_manual + total_ot) > weekly_hours_limit
+
     return templates.TemplateResponse(request, "employee/my_timesheet.html", {
         "user": user,
         "week_start": week_start,
@@ -3727,6 +3982,8 @@ async def my_timesheet(request: Request, week: str = None):
         "total_manual": total_manual,
         "total_ot": total_ot,
         "total_leave": total_leave,
+        "weekly_hours_limit": weekly_hours_limit,
+        "is_over_allocated": is_over_allocated,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
@@ -3845,6 +4102,24 @@ async def timesheet_save(request: Request):
 # ── HR TIMESHEETS ─────────────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
+@app.get("/timesheets/{sub_id}")
+async def view_timesheet_redirect(request: Request, sub_id: int):
+    """The Payroll page's per-submission 'View' link — jumps into the HR
+    Timesheets view on the right status tab/week with that card opened."""
+    require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        sub = conn.execute(
+            "SELECT status, week_start FROM timesheet_submissions WHERE id=?", (sub_id,)
+        ).fetchone()
+    if not sub:
+        flash(request, "Timesheet submission not found.", "error")
+        return RedirectResponse("/hr-timesheets", status_code=302)
+    return RedirectResponse(
+        f"/hr-timesheets?status={sub['status']}&week={sub['week_start']}&open={sub_id}#sub-{sub_id}",
+        status_code=302,
+    )
+
+
 @app.get("/hr-timesheets", response_class=HTMLResponse)
 async def hr_timesheets(request: Request, status: str = "Submitted", week: str = ""):
     user = require_role(request, "HR Manager", "Admin")
@@ -3881,7 +4156,7 @@ async def hr_timesheets(request: Request, status: str = "Submitted", week: str =
             missing_employees = [dict(e) for e in all_emps if e["id"] not in submitted_ids]
         else:
             subs = conn.execute(
-                """SELECT ts.*, e.name as emp_name, e.profile_pic_path
+                """SELECT ts.*, e.name as emp_name, e.profile_pic_path, e.weekly_hours_limit
                    FROM timesheet_submissions ts
                    JOIN employees e ON ts.emp_id = e.id
                    WHERE ts.status = ?
@@ -3902,6 +4177,8 @@ async def hr_timesheets(request: Request, status: str = "Submitted", week: str =
                 sub["has_unapproved_ot"] = any(
                     e["ot_hours"] > 0 and not e["ot_approved"] for e in sub["entries"]
                 )
+                sub["is_over_allocated"] = bool(sub["weekly_hours_limit"]) and \
+                    (sub["total_manual"] + sub["total_ot"]) > sub["weekly_hours_limit"]
 
         counts = {}
         for s in ("Submitted", "Approved", "Rejected", "Draft"):
@@ -3935,7 +4212,11 @@ async def hr_timesheets(request: Request, status: str = "Submitted", week: str =
 
 @app.post("/hr-timesheets/{sub_id}/approve")
 async def hr_approve_timesheet(request: Request, sub_id: int):
+    """Approves a timesheet. HR/Admin can also set final hours here — instead of
+    returning a timesheet for correction, they can edit each day's Manual/OT hours
+    directly and approve with those final values in one step."""
     user = require_role(request, "HR Manager", "Admin")
+    form = await request.form()
     with get_db() as conn:
         sub = conn.execute(
             "SELECT * FROM timesheet_submissions WHERE id=?", (sub_id,)
@@ -3943,18 +4224,41 @@ async def hr_approve_timesheet(request: Request, sub_id: int):
         if not sub:
             flash(request, "Timesheet not found.", "error")
             return RedirectResponse("/hr-timesheets", status_code=302)
+
+        entries = conn.execute(
+            "SELECT * FROM timesheet_entries WHERE submission_id=?", (sub_id,)
+        ).fetchall()
+        edited = False
+        for e in entries:
+            manual_key = f"manual_{e['date']}"
+            ot_key = f"ot_{e['date']}"
+            if manual_key not in form and ot_key not in form:
+                continue  # plain approve with no edited-hours fields posted
+            try:
+                manual_h = max(0.0, float(form.get(manual_key, e["manual_hours"])))
+                ot_h     = max(0.0, float(form.get(ot_key, e["ot_hours"])))
+            except ValueError:
+                continue
+            if manual_h != e["manual_hours"] or ot_h != e["ot_hours"]:
+                edited = True
+            conn.execute(
+                "UPDATE timesheet_entries SET manual_hours=?, ot_hours=?, total_hours=? WHERE id=?",
+                (manual_h, ot_h, round(manual_h + ot_h + (e["leave_hours"] or 0), 2), e["id"]),
+            )
+
         conn.execute(
             """UPDATE timesheet_submissions
                SET status='Approved', reviewed_by=?, reviewed_at=? WHERE id=?""",
             (user["name"], get_pht_now().strftime("%Y-%m-%d %H:%M:%S"), sub_id)
         )
+        note = " (hours were adjusted by HR before approval)" if edited else ""
         push_notification(conn, sub["emp_id"],
             "Timesheet Approved",
-            f"Your timesheet for the week of {sub['week_start']} was approved by {user['name']}.",
+            f"Your timesheet for the week of {sub['week_start']} was approved by {user['name']}{note}.",
             f"/my-timesheet?week={sub['week_start']}")
         audit(conn, user["id"], user["name"], "timesheet_approve",
               "timesheet_submissions", sub_id)
-    flash(request, "Timesheet approved.")
+    flash(request, "Timesheet hours updated and approved." if edited else "Timesheet approved.")
     return RedirectResponse("/hr-timesheets", status_code=302)
 
 
@@ -4210,8 +4514,8 @@ async def print_payslip(request: Request, payslip_id: int):
     user = require_role(request, "HR Manager", "Admin")
     with get_db() as conn:
         ps = conn.execute(
-            """SELECT pl.*, e.name AS emp_name, e.role AS position, e.bank_name, e.bank_account,
-                      e.bank_account_name, e.bank_qr_path, e.hourly_rate
+            """SELECT pl.*, e.id AS emp_no, e.name AS emp_name, e.role AS position, e.department,
+                      e.bank_name, e.bank_account, e.bank_account_name, e.bank_qr_path, e.hourly_rate
                FROM payslip_logs pl
                JOIN employees e ON e.id = pl.emp_id
                WHERE pl.id=?""",
@@ -5225,8 +5529,9 @@ async def export_payroll(
             """SELECT e.name AS employee, e.role,
                       pr.week_start, pr.week_end,
                       pr.regular_hours, pr.overtime_hours,
-                      pr.gross_pay, pr.sss_ee, pr.philhealth_ee,
-                      pr.pagibig_ee, pr.tax, pr.net_pay, pr.status
+                      pr.gross_pay, pr.sss_deduction, pr.philhealth_deduction,
+                      pr.pagibig_deduction, pr.tax_deduction, pr.loan_deduction,
+                      pr.net_pay, pr.status
                FROM payroll_runs pr
                JOIN employees e ON pr.emp_id = e.id
                WHERE pr.week_start = ?
@@ -5237,7 +5542,8 @@ async def export_payroll(
     headers = [
         "employee", "role", "week_start", "week_end",
         "regular_hours", "overtime_hours", "gross_pay",
-        "sss_ee", "philhealth_ee", "pagibig_ee", "tax", "net_pay", "status",
+        "sss_deduction", "philhealth_deduction", "pagibig_deduction",
+        "tax_deduction", "loan_deduction", "net_pay", "status",
     ]
     return _csv_response(f"payroll_{ws}.csv", headers, [dict(r) for r in rows])
 
@@ -5263,8 +5569,11 @@ async def export_timesheets(
     with get_db() as conn:
         rows = conn.execute(
             f"""SELECT e.name AS employee, ts.week_start, ts.week_end,
-                       ts.total_hours, ts.total_ot_hours, ts.status,
-                       ts.submitted_at, ts.reviewed_at, ts.reviewer_notes
+                       COALESCE((SELECT SUM(te.manual_hours) FROM timesheet_entries te
+                                 WHERE te.submission_id = ts.id), 0) AS total_hours,
+                       COALESCE((SELECT SUM(te.ot_hours) FROM timesheet_entries te
+                                 WHERE te.submission_id = ts.id), 0) AS total_ot_hours,
+                       ts.status, ts.submitted_at, ts.reviewed_at, ts.hr_notes
                FROM timesheet_submissions ts
                JOIN employees e ON ts.emp_id = e.id
                WHERE {" AND ".join(filters)}
@@ -5275,7 +5584,7 @@ async def export_timesheets(
     headers = [
         "employee", "week_start", "week_end",
         "total_hours", "total_ot_hours", "status",
-        "submitted_at", "reviewed_at", "reviewer_notes",
+        "submitted_at", "reviewed_at", "hr_notes",
     ]
     return _csv_response(f"timesheets_{df}_to_{dt}.csv", headers, [dict(r) for r in rows])
 
@@ -5882,12 +6191,12 @@ async def global_search(request: Request, q: str = ""):
     with get_db() as conn:
         # Employees (all roles can find people)
         emp_rows = conn.execute(
-            """SELECT id, name, role, department, position
+            """SELECT id, name, role, department
                FROM employees
-               WHERE (name LIKE ? OR department LIKE ? OR position LIKE ?)
-                 AND status='Active'
+               WHERE (name LIKE ? OR department LIKE ?)
+                 AND is_active=1
                LIMIT 8""",
-            (like, like, like),
+            (like, like),
         ).fetchall()
         if emp_rows:
             results["Employees"] = [
@@ -5913,14 +6222,14 @@ async def global_search(request: Request, q: str = ""):
         # Clients (HR + Admin only)
         if user["role"] in ("HR Manager", "Admin"):
             cli_rows = conn.execute(
-                """SELECT id, name, industry, contact_person FROM clients
-                   WHERE name LIKE ? OR industry LIKE ? OR contact_person LIKE ? LIMIT 6""",
-                (like, like, like),
+                """SELECT id, name FROM clients
+                   WHERE name LIKE ? LIMIT 6""",
+                (like,),
             ).fetchall()
             if cli_rows:
                 results["Clients"] = [
                     {"label": r["name"],
-                     "sub": f"{r['industry'] or '—'} · {r['contact_person'] or ''}",
+                     "sub": "Client",
                      "url": f"/clients/{r['id']}"}
                     for r in cli_rows
                 ]
@@ -6902,7 +7211,7 @@ async def hr_onboarding(request: Request):
     user = require_role(request, "Admin", "HR Manager")
     with get_db() as conn:
         assignments = conn.execute("""
-            SELECT oa.*, e.name as emp_name, e.position as emp_position,
+            SELECT oa.*, e.name as emp_name, e.department as emp_position,
                    (SELECT COUNT(*) FROM onboarding_day_completion odc WHERE odc.emp_id=oa.emp_id) as days_done
             FROM onboarding_assignments oa
             JOIN employees e ON e.id=oa.emp_id
@@ -6920,7 +7229,7 @@ async def hr_onboarding_assign_page(request: Request):
         assigned_ids = {r[0] for r in conn.execute(
             "SELECT emp_id FROM onboarding_assignments").fetchall()}
         employees = conn.execute(
-            "SELECT id, name, position FROM employees WHERE is_active=1 ORDER BY name"
+            "SELECT id, name, department AS position FROM employees WHERE is_active=1 ORDER BY name"
         ).fetchall()
         eligible = [dict(e) for e in employees if e["id"] not in assigned_ids]
     return templates.TemplateResponse(request, "shared/onboarding_assign.html", {

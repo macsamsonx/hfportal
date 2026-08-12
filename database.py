@@ -129,6 +129,38 @@ BIBLE_VERSES = [
     {"verse": "Taste and see that the Lord is good; blessed is the one who takes refuge in him.", "ref": "Psalm 34:8"},
 ]
 
+# Rotates once per day (deterministic by date, not random per page load)
+LOGIN_QUOTES = [
+    "Good day to create something good.",
+    "Today is for God's glory.",
+    "Something good is about to happen.",
+    "Show up today — the rest will follow.",
+    "Small, steady work builds great things.",
+    "Every login is a fresh page. Write it well.",
+    "Do today's work with today's strength.",
+    "Excellence is a habit, not an accident.",
+    "Let your work speak of who you serve.",
+    "New day, new grace, new opportunity.",
+    "Be faithful in the small things today.",
+    "You were made for meaningful work.",
+]
+
+REGISTER_QUOTES = [
+    "You're on the right team.",
+    "We're happy you're part of a growing family.",
+    "Great things are built by people who show up.",
+    "Welcome — your story here is just beginning.",
+    "Talent brought you here; character will keep you here.",
+    "Together, we build more than any of us could alone.",
+    "Your best work is ahead of you.",
+    "This is more than a job — it's a family.",
+]
+
+
+def get_daily_quote(quotes: list) -> str:
+    idx = date.today().toordinal() % len(quotes)
+    return quotes[idx]
+
 
 def get_pht_now() -> datetime:
     return datetime.now(PHT).replace(tzinfo=None)
@@ -773,6 +805,33 @@ def init_db():
                 FOREIGN KEY(emp_id) REFERENCES employees(id)
             );
 
+            -- ── Employee loans / cash advances ───────────────────────────────────────
+            CREATE TABLE IF NOT EXISTS employee_loans (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                emp_id INTEGER NOT NULL,
+                loan_type TEXT DEFAULT 'Loan',
+                principal_amount REAL NOT NULL,
+                installment_amount REAL NOT NULL,
+                balance_remaining REAL NOT NULL,
+                notes TEXT,
+                status TEXT DEFAULT 'Active',
+                created_by TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(emp_id) REFERENCES employees(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS loan_payments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                loan_id INTEGER NOT NULL,
+                payroll_run_id INTEGER,
+                week_start TEXT,
+                week_end TEXT,
+                amount REAL NOT NULL,
+                balance_after REAL NOT NULL,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(loan_id) REFERENCES employee_loans(id) ON DELETE CASCADE
+            );
+
             -- ── Clients & notes ───────────────────────────────────────────────────────
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -965,6 +1024,7 @@ def init_db():
             ("bank_account_name", "TEXT"),
             ("bank_qr_path", "TEXT"),
             ("status_note", "TEXT"),
+            ("weekly_hours_limit", "REAL"),
         ]:
             col_name = col.split()[0]
             if col_name not in _ecols:
@@ -1014,6 +1074,12 @@ def init_db():
             ("tax_deduction", "REAL DEFAULT 0"),
             ("total_deductions", "REAL DEFAULT 0"),
             ("net_pay", "REAL DEFAULT 0"),
+            ("loan_deduction", "REAL DEFAULT 0"),
+            ("is_last_cutoff", "INTEGER DEFAULT 0"),
+            ("sss_enrolled", "INTEGER DEFAULT 1"),
+            ("philhealth_enrolled", "INTEGER DEFAULT 1"),
+            ("pagibig_enrolled", "INTEGER DEFAULT 1"),
+            ("tax_enrolled", "INTEGER DEFAULT 1"),
         ]:
             if col not in _pcols:
                 conn.execute(f"ALTER TABLE payroll_runs ADD COLUMN {col} {typ}")
@@ -1477,6 +1543,20 @@ def init_db():
                 ]
             )
 
+        # ── One-time policy migration: payroll cutoffs reset to 15/30 (2026-08) ────
+        _settings_keys = {r[0] for r in conn.execute("SELECT key FROM company_settings").fetchall()}
+        if "cutoff_policy_2026_08_migrated" not in _settings_keys:
+            for k, v in (("payroll_cutoff_1", "15"), ("payroll_cutoff_2", "30")):
+                conn.execute(
+                    "INSERT INTO company_settings (key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (k, v),
+                )
+            conn.execute(
+                "INSERT INTO company_settings (key, value) VALUES ('cutoff_policy_2026_08_migrated', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+            )
+
         # ── Seed clients ──────────────────────────────────────────────────────────
         if conn.execute("SELECT COUNT(*) FROM clients").fetchone()[0] == 0:
             conn.executemany(
@@ -1566,21 +1646,24 @@ def get_compliance_status(emp: dict) -> tuple[str, int]:
 # ── Deduction helpers ─────────────────────────────────────────────────────────
 
 def compute_sss(monthly_equiv: float) -> float:
-    """Employee SSS share — 4.5% of monthly salary credit, min ₱135, max ₱900."""
+    """Employee SSS share — 4.5% of monthly salary credit, min ₱135, max ₱900.
+    Deducted in full on the last cutoff of the month only (see is_last_cutoff_period)."""
     contrib = round(monthly_equiv * SSS_EMPLOYEE_RATE, 2)
     return max(135.0, min(contrib, 900.0))
 
 
 def compute_philhealth(monthly_equiv: float) -> float:
-    """Employee PhilHealth share — 2.5% of basic salary, min ₱250, max ₱2,500."""
+    """Employee PhilHealth share — 2.5% of basic salary, min ₱250, max ₱2,500 per month.
+    Deducted in full on the last cutoff of the month only."""
     contrib = round(monthly_equiv * PHILHEALTH_RATE, 2)
-    return max(250.0, min(contrib, 2500.0)) / 2  # divided by 2 because semi-monthly
+    return max(250.0, min(contrib, 2500.0))
 
 
 def compute_pagibig(monthly_equiv: float) -> float:
-    """Employee Pag-IBIG share — 2%, max ₱100 per month (₱50 per semi-monthly)."""
+    """Employee Pag-IBIG share — 2%, max ₱100 per month.
+    Deducted in full on the last cutoff of the month only."""
     contrib = round(monthly_equiv * PAGIBIG_RATE, 2)
-    return min(contrib, PAGIBIG_MAX) / 2
+    return min(contrib, PAGIBIG_MAX)
 
 
 def compute_sss_employer(monthly_equiv: float) -> float:
@@ -1594,21 +1677,22 @@ def compute_sss_employer(monthly_equiv: float) -> float:
 def compute_philhealth_employer(monthly_equiv: float) -> float:
     """Employer PhilHealth share equals employee share (2.5%)."""
     contrib = round(monthly_equiv * PHILHEALTH_RATE, 2)
-    return max(250.0, min(contrib, 2500.0)) / 2
+    return max(250.0, min(contrib, 2500.0))
 
 
 def compute_pagibig_employer(monthly_equiv: float) -> float:
     """Employer Pag-IBIG share equals employee share (2%, max ₱100/month)."""
     contrib = round(monthly_equiv * PAGIBIG_RATE, 2)
-    return min(contrib, PAGIBIG_MAX) / 2
+    return min(contrib, PAGIBIG_MAX)
 
 
 def compute_withholding_tax(taxable_income: float) -> float:
     """
-    Simplified semi-monthly withholding tax (BIR 2023 tax table).
-    taxable_income = gross semi-monthly pay after mandatory deductions.
+    Monthly withholding tax (BIR 2023 tax table).
+    taxable_income = full month's gross pay (both cutoffs combined) after mandatory deductions.
+    Deducted in full on the last cutoff of the month only.
     """
-    ann = taxable_income * 24  # annualize
+    ann = taxable_income * 12  # annualize
     if ann <= 250_000:
         return 0.0
     elif ann <= 400_000:
@@ -1621,7 +1705,7 @@ def compute_withholding_tax(taxable_income: float) -> float:
         t = 402_500 + (ann - 2_000_000) * 0.30
     else:
         t = 2_202_500 + (ann - 8_000_000) * 0.35
-    return round(t / 24, 2)  # de-annualize back to semi-monthly
+    return round(t / 12, 2)  # de-annualize back to monthly
 
 
 def get_bimonthly_periods(cutoff1: int = 15, cutoff2: int = 31, num_periods: int = 6) -> list:
@@ -1686,28 +1770,57 @@ def get_approved_ot_hours(emp_id: int, week_start: str, week_end: str) -> float:
 
 # ── Payroll computation ───────────────────────────────────────────────────────
 
+def is_last_cutoff_period(period_start: str, cutoff1: int = 15, cutoff2: int = 30) -> bool:
+    """True when period_start falls in the second (last) cutoff of its month.
+    Government deductions and loan/advance installments are only applied on this cutoff."""
+    try:
+        d = datetime.strptime(period_start, "%Y-%m-%d").date()
+    except (ValueError, TypeError):
+        return False
+    from calendar import monthrange
+    days_in_month = monthrange(d.year, d.month)[1]
+    c1 = min(cutoff1, days_in_month)
+    return d.day > c1
+
+
+def get_active_loan_deduction(conn, emp_id: int) -> float:
+    """Sum of this period's installment amounts across all active loans (capped at balance)."""
+    loans = conn.execute(
+        "SELECT installment_amount, balance_remaining FROM employee_loans WHERE emp_id=? AND status='Active'",
+        (emp_id,),
+    ).fetchall()
+    return round(sum(min(l["installment_amount"], l["balance_remaining"]) for l in loans if l["balance_remaining"] > 0), 2)
+
+
 def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) -> dict:
+    settings = get_company_settings()
+    cutoff1 = int(settings.get("payroll_cutoff_1") or 15)
+    cutoff2 = int(settings.get("payroll_cutoff_2") or 30)
+    last_cutoff = is_last_cutoff_period(week_start, cutoff1, cutoff2)
+
     with get_db() as conn:
         emp = conn.execute("SELECT * FROM employees WHERE id=?", (emp_id,)).fetchone()
         if not emp:
             return {}
         emp = dict(emp)
 
-        # Prefer approved timesheet hours over raw attendance
-        approved_ts = conn.execute(
-            """SELECT ts.id FROM timesheet_submissions ts
-               WHERE ts.emp_id=? AND ts.week_start=? AND ts.status='Approved'
-               LIMIT 1""",
-            (emp_id, week_start),
-        ).fetchone()
+        # Prefer approved timesheet hours over raw attendance. Timesheets are
+        # weekly (Mon-Sat) while payroll periods are bi-monthly (~15 days), so
+        # a single period can span multiple weekly submissions — match on each
+        # entry's actual date falling inside the period, not on week_start
+        # equaling the period start (which only holds by coincidence).
+        approved_entries = conn.execute(
+            """SELECT te.manual_hours, te.ot_hours
+               FROM timesheet_entries te
+               JOIN timesheet_submissions ts ON ts.id = te.submission_id
+               WHERE ts.emp_id=? AND ts.status='Approved'
+                 AND te.date BETWEEN ? AND ?""",
+            (emp_id, week_start, week_end),
+        ).fetchall()
 
-        if approved_ts:
-            entries = conn.execute(
-                "SELECT * FROM timesheet_entries WHERE submission_id=?",
-                (approved_ts["id"],),
-            ).fetchall()
-            regular_hours = sum(e["manual_hours"] or 0 for e in entries)
-            approved_ot   = sum(e["ot_hours"] or 0 for e in entries)
+        if approved_entries:
+            regular_hours = sum(e["manual_hours"] or 0 for e in approved_entries)
+            approved_ot   = sum(e["ot_hours"] or 0 for e in approved_entries)
         else:
             records = conn.execute(
                 "SELECT * FROM attendance WHERE emp_id=? AND date_logged BETWEEN ? AND ?",
@@ -1721,6 +1834,8 @@ def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) ->
                 regular_hours += min(daily, 8.0)
             approved_ot = get_approved_ot_hours(emp_id, week_start, week_end)
 
+        loan_deduction = get_active_loan_deduction(conn, emp_id) if last_cutoff else 0.0
+
     rate = emp["hourly_rate"]
     ot_rate = rate * OT_MULTIPLIER_REGULAR
 
@@ -1728,17 +1843,20 @@ def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) ->
     overtime_pay = round(approved_ot * ot_rate, 2)
     gross_pay = round(regular_pay + overtime_pay, 2)
 
-    # Estimate monthly equivalent (assume 2 payroll periods/month)
+    # Estimate monthly equivalent (assume 2 payroll periods/month); only used
+    # when this is the last cutoff, since gov't deductions apply once/month.
     monthly_equiv = gross_pay * 2
 
-    sss   = compute_sss(monthly_equiv)   if emp.get("sss_enrolled", 1)       else 0.0
-    phic  = compute_philhealth(monthly_equiv) if emp.get("philhealth_enrolled", 1) else 0.0
-    hdmf  = compute_pagibig(monthly_equiv)    if emp.get("pagibig_enrolled", 1)    else 0.0
+    if last_cutoff:
+        sss   = compute_sss(monthly_equiv)   if emp.get("sss_enrolled", 1)       else 0.0
+        phic  = compute_philhealth(monthly_equiv) if emp.get("philhealth_enrolled", 1) else 0.0
+        hdmf  = compute_pagibig(monthly_equiv)    if emp.get("pagibig_enrolled", 1)    else 0.0
+        taxable = gross_pay - sss - phic - hdmf
+        tax   = compute_withholding_tax(taxable) if emp.get("tax_enrolled", 1) else 0.0
+    else:
+        sss = phic = hdmf = tax = 0.0
 
-    taxable = gross_pay - sss - phic - hdmf
-    tax   = compute_withholding_tax(taxable) if emp.get("tax_enrolled", 1) else 0.0
-
-    total_deductions = round(sss + phic + hdmf + tax, 2)
+    total_deductions = round(sss + phic + hdmf + tax + loan_deduction, 2)
     net_pay = round(gross_pay - total_deductions, 2)
 
     return {
@@ -1755,6 +1873,7 @@ def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) ->
         "philhealth_deduction": phic,
         "pagibig_deduction":   hdmf,
         "tax_deduction":       tax,
+        "loan_deduction":      loan_deduction,
         "total_deductions":    total_deductions,
         "net_pay":             net_pay,
         "total_pay":           gross_pay,  # kept for backwards compat
@@ -1762,6 +1881,8 @@ def compute_payroll_for_employee(emp_id: int, week_start: str, week_end: str) ->
         "philhealth_enrolled": bool(emp.get("philhealth_enrolled", 1)),
         "pagibig_enrolled":    bool(emp.get("pagibig_enrolled", 1)),
         "tax_enrolled":        bool(emp.get("tax_enrolled", 1)),
+        "is_last_cutoff":      last_cutoff,
+        "weekly_hours_limit":  emp.get("weekly_hours_limit"),
         "run_id":              None,
     }
 
@@ -1862,7 +1983,9 @@ _COMPANY_DEFAULTS = {
     "dti":         "",
     "logo_path":   "",
     "payroll_cutoff_1": "15",
-    "payroll_cutoff_2": "31",
+    "payroll_cutoff_2": "30",
+    "payroll_release_1": "20",
+    "payroll_release_2": "5",
 }
 
 def get_company_settings() -> dict:

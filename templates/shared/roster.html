@@ -33,13 +33,11 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h2>Employee Roster</h2>
+    <h2>Team</h2>
     <p>{{ total }} active employees · Compliance &amp; attendance overview</p>
   </div>
-  {% if user.role == 'Admin' %}
-    <a href="/employees" class="btn btn-primary btn-sm">⚙️ Manage Employees</a>
-  {% endif %}
 </div>
+{% include "shared/_team_tabs.html" %}
 
 <!-- ── Composition dashboard ─────────────────────────────────────────── -->
 {% set gs = comp_stats.gender %}

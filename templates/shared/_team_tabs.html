@@ -1,0 +1,6 @@
+{% set _team_tab = 'directory' if request.url.path == '/directory' else ('roster' if request.url.path == '/roster' else ('manage' if request.url.path == '/employees' or request.url.path.startswith('/employees/') else '')) %}
+<div class="team-tabs">
+  <a href="/directory" class="team-tab {% if _team_tab == 'directory' %}active{% endif %}">🗂️ Directory</a>
+  <a href="/roster" class="team-tab {% if _team_tab == 'roster' %}active{% endif %}">📋 Roster &amp; Compliance</a>
+  <a href="/employees" class="team-tab {% if _team_tab == 'manage' %}active{% endif %}">⚙️ Manage</a>
+</div>

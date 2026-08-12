@@ -56,6 +56,7 @@
         {% else %}<span class="badge badge-green">Admin</span>{% endif %}
         <span class="badge badge-gray">{{ emp.shift_type }}</span>
         {% if emp.hourly_rate %}<span class="badge badge-green">₱{{ emp.hourly_rate }}/hr</span>{% endif %}
+        {% if emp.weekly_hours_limit %}<span class="badge badge-yellow">⏱ {{ emp.weekly_hours_limit }}h/week limit</span>{% endif %}
         {% if emp.is_active %}<span class="badge badge-green">Active</span>
         {% else %}<span class="badge badge-red">Inactive</span>{% endif %}
       </div>

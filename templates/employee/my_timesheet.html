@@ -125,7 +125,7 @@
               {% else %}
                 <input type="number" name="manual_{{ row.date }}"
                        value="{{ row.manual_hours }}"
-                       min="0" max="24" step="0.25"
+                       min="0" max="24" step="0.01"
                        class="ts-input" data-row="{{ loop.index0 }}"
                        onchange="recalcRow({{ loop.index0 }})">
               {% endif %}
@@ -152,7 +152,7 @@
                 <div class="flex gap-4" style="align-items:center; justify-content:center;">
                   <input type="number" name="ot_{{ row.date }}"
                          value="{{ row.ot_hours }}"
-                         min="0" max="24" step="0.25"
+                         min="0" max="24" step="0.01"
                          class="ts-input ot-input" data-row="{{ loop.index0 }}"
                          data-approved="{{ '1' if row.ot_approved else '0' }}"
                          onchange="recalcRow({{ loop.index0 }}); checkOt(this)">
@@ -203,9 +203,23 @@
     ⚠ You have entered OT hours for days without an approved OT request. These will be flagged for HR review.
   </div>
 
+  {# ── Weekly allowed-hours warning ────────────────────────────────────────── #}
+  {% if weekly_hours_limit %}
+  <div id="allocation-warning" class="flash warning" style="{% if not is_over_allocated %}display:none;{% endif %} margin-bottom:16px;">
+    ⚠ You're scheduled for up to <strong>{{ weekly_hours_limit }}h</strong> this week — hours beyond that are over-allocated and will be flagged for HR review.
+  </div>
+  {% endif %}
+
   {# ── Summary card ────────────────────────────────────────────────────────── #}
   <div class="card mb-20">
-    <div class="card-header"><h3>Week Summary</h3></div>
+    <div class="card-header">
+      <h3>Week Summary</h3>
+      {% if weekly_hours_limit %}
+        <span class="badge {{ 'badge-red' if is_over_allocated else 'badge-gray' }}" style="font-size:.72rem;">
+          Allowed: {{ weekly_hours_limit }}h/week
+        </span>
+      {% endif %}
+    </div>
     <div class="card-body">
       <div class="grid-4" style="gap:12px;">
         <div class="stat-card blue" style="padding:14px 16px;">
@@ -290,6 +304,7 @@ const rowData = [
   { manual: {{ row.manual_hours }}, ot: {{ row.ot_hours }}, leave: {{ row.leave_hours }}, otApproved: {{ 'true' if row.ot_approved else 'false' }} },
   {% endfor %}
 ];
+const weeklyHoursLimit = {{ weekly_hours_limit if weekly_hours_limit else 'null' }};
 
 function recalcRow(idx) {
   const manualInput = document.querySelector(`input[name^="manual_"]:nth-of-type(${idx+1})`);
@@ -333,6 +348,12 @@ function recalcFooter() {
   document.getElementById('sum-ot').textContent      = totalOt     + 'h';
   document.getElementById('sum-leave').textContent   = totalLeave  + 'h';
   document.getElementById('sum-total').textContent   = grandTotal  + 'h';
+
+  if (weeklyHoursLimit) {
+    const overAllocated = (totalManual + totalOt) > weeklyHoursLimit;
+    const warn = document.getElementById('allocation-warning');
+    if (warn) warn.style.display = overAllocated ? 'flex' : 'none';
+  }
 }
 
 function checkOt(input) {

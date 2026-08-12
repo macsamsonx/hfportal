@@ -5,7 +5,7 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h2>Employee Management</h2>
+    <h2>Team</h2>
     <p>{{ employees | length }} {{ status_tab | lower }} accounts</p>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -15,6 +15,7 @@
     {% endif %}
   </div>
 </div>
+{% include "shared/_team_tabs.html" %}
 
 <!-- Status tabs -->
 <div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
@@ -102,7 +103,8 @@
                   '{{ emp.shift_type }}',
                   '{{ (emp.capabilities or '') | replace("'","\\'")|e }}',
                   '{{ emp.employment_type or "Full-time" }}',
-                  '{{ (emp.department or "") | replace("'","\\'")|e }}'
+                  '{{ (emp.department or "") | replace("'","\\'")|e }}',
+                  {{ 'null' if emp.weekly_hours_limit is none else emp.weekly_hours_limit }}
                 )">Edit</button>
               {% elif user.role == 'HR Manager' and emp.role == 'Employee' %}
               <button class="btn btn-outline btn-sm" onclick="openHrEdit(
@@ -110,7 +112,8 @@
                   '{{ emp.name | replace("'","\\'")|e }}',
                   '{{ emp.shift_type }}',
                   {{ emp.hourly_rate or 0 }},
-                  '{{ (emp.capabilities or '') | replace("'","\\'")|e }}'
+                  '{{ (emp.capabilities or '') | replace("'","\\'")|e }}',
+                  {{ 'null' if emp.weekly_hours_limit is none else emp.weekly_hours_limit }}
                 )">Edit</button>
               {% endif %}
             </div>
@@ -198,6 +201,13 @@
             <input type="text" name="capabilities" class="form-input" placeholder="e.g. Web Design, SEO">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Allowed Hours / Week <span class="text-muted text-xs">(optional)</span></label>
+            <input type="number" name="weekly_hours_limit" class="form-input" min="0" step="0.5" placeholder="e.g. 30 for part-time">
+            <div class="form-hint">Leave blank for no limit. Hours filed beyond this are flagged as over-allocated.</div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('add-emp-modal')">Cancel</button>
@@ -279,6 +289,13 @@
             <input type="text" id="edit-caps" name="capabilities" class="form-input">
           </div>
         </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Allowed Hours / Week <span class="text-muted text-xs">(optional)</span></label>
+            <input type="number" id="edit-whl" name="weekly_hours_limit" class="form-input" min="0" step="0.5" placeholder="e.g. 30 for part-time">
+            <div class="form-hint">Leave blank for no limit. Hours filed beyond this are flagged as over-allocated.</div>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-outline" onclick="closeModal('edit-emp-modal')">Cancel</button>
@@ -323,6 +340,11 @@
           <label class="form-label">Skills / Capabilities</label>
           <input type="text" id="hr-edit-caps" name="capabilities" class="form-input"
                  placeholder="e.g. Web Design, SEO, Copywriting">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Allowed Hours / Week <span class="text-muted text-xs">(optional)</span></label>
+          <input type="number" id="hr-edit-whl" name="weekly_hours_limit" class="form-input" min="0" step="0.5" placeholder="e.g. 30 for part-time">
+          <div class="form-hint">Leave blank for no limit. Hours filed beyond this are flagged as over-allocated.</div>
         </div>
         <p class="form-hint" style="margin-top:12px;">
           HR can update name, shift, rate, and skills. To change role or username, contact an Admin.
@@ -394,7 +416,7 @@
   }
 
   // Admin: open full edit modal
-  function openEditEmployee(id, name, username, email, role, rate, shift, caps, emptype, dept) {
+  function openEditEmployee(id, name, username, email, role, rate, shift, caps, emptype, dept, whl) {
     document.getElementById('edit-name').value        = name;
     document.getElementById('edit-username').value    = username || '';
     document.getElementById('edit-email').value       = email || '';
@@ -404,17 +426,19 @@
     document.getElementById('edit-caps').value        = caps || '';
     document.getElementById('edit-emptype').value     = emptype || 'Full-time';
     document.getElementById('edit-dept').value        = dept || '';
+    document.getElementById('edit-whl').value         = (whl === null || whl === undefined) ? '' : whl;
     document.getElementById('edit-form').action       = `/api/employees/${id}/update`;
     openModal('edit-emp-modal');
   }
 
   // HR: open limited edit modal
-  function openHrEdit(id, name, shift, rate, caps) {
+  function openHrEdit(id, name, shift, rate, caps, whl) {
     document.getElementById('hr-edit-name-label').textContent = name;
     document.getElementById('hr-edit-name').value  = name;
     document.getElementById('hr-edit-shift').value = shift;
     document.getElementById('hr-edit-rate').value  = rate;
     document.getElementById('hr-edit-caps').value  = caps || '';
+    document.getElementById('hr-edit-whl').value   = (whl === null || whl === undefined) ? '' : whl;
     document.getElementById('hr-edit-form').action = `/api/employees/${id}/hr-update`;
     openModal('hr-edit-modal');
   }

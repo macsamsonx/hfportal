@@ -113,7 +113,8 @@
 #upload-progress.open { display: block; }
 
 /* ── @mention ──────────────────────────────────────────────────────────────── */
-.mention { color: var(--primary); font-weight: 700; }
+.mention { color: var(--primary); font-weight: 700; background: var(--primary-l); border-radius: 4px; padding: 0 3px; }
+.chat-msg.mine .chat-msg-bubble .mention { color: #fff; background: rgba(255,255,255,.24); }
 #mention-drop {
   position: absolute; bottom: calc(100% + 4px); left: 56px;
   background: var(--surface); border: 1px solid var(--border);
@@ -134,6 +135,11 @@
 .chat-msg:hover .msg-act-btn { opacity: 1; }
 .chat-msg-bubble.deleted { font-style: italic; color: var(--muted) !important; }
 .msg-edited { font-size: .58rem; color: var(--muted); font-style: italic; margin-left: 3px; }
+
+/* ── Full-height chat layout (chat page only — override the standard
+   page chrome so the thread fills the viewport like a real messenger) ── */
+.page-content { padding-top: 10px; padding-bottom: 10px; }
+.chat-shell { height: calc(100vh - var(--topbar-h) - 20px); }
 
 /* ── Search ────────────────────────────────────────────────────────────────── */
 #chat-search-wrap {
@@ -157,13 +163,6 @@
 {% macro ft_badge(name) %}{% set ext = (name or '').rsplit('.',1)[-1].lower() if '.' in (name or '') else '' %}{% set _c = {'pdf':'#ef4444','doc':'#2563eb','docx':'#2563eb','xls':'#16a34a','xlsx':'#16a34a','csv':'#16a34a','ppt':'#f59e0b','pptx':'#f59e0b','html':'#7c3aed','htm':'#7c3aed','zip':'#64748b','rar':'#64748b'} %}{% set _l = {'doc':'DOC','docx':'DOC','xls':'XLS','xlsx':'XLS','csv':'CSV','ppt':'PPT','pptx':'PPT','html':'HTML','htm':'HTML','zip':'ZIP','rar':'ZIP'} %}<span class="ft-badge" style="background:{{ _c.get(ext,'#64748b') }};">{{ _l.get(ext, ext.upper()[:4] if ext else 'FILE') }}</span>{% endmacro %}
 
 {% block content %}
-<div class="page-header">
-  <div>
-    <h2>Chat</h2>
-    <p>Team channel and direct messages</p>
-  </div>
-</div>
-
 <div class="chat-shell">
   <!-- Contacts sidebar -->
   <div class="chat-contacts">
@@ -244,31 +243,10 @@
 
         {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}</div>{% endif %}
 
-        <div class="chat-msg-bubble" id="msg-{{ m.id }}">
-          <!-- Attachment -->
-          {% if m.attachment_type == 'image' and m.attachment_drive_id %}
-            <a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
-              <img class="chat-attach-img"
+        <div class="chat-msg-bubble" id="msg-{{ m.id }}">{% if m.attachment_type == 'image' and m.attachment_drive_id %}<a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><img class="chat-attach-img"
                    src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w320"
                    alt="{{ m.attachment_name or 'Image' }}"
-                   onerror="this.style.display='none'">
-            </a>
-          {% elif m.attachment_type == 'video' and m.attachment_drive_id %}
-            <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
-              <span class="ft-badge" style="background:#0891b2;">MP4</span>
-              <span class="ca-fname">{{ m.attachment_name or 'Video' }}</span>
-            </a>
-          {% elif m.attachment_type and m.attachment_drive_id %}
-            <a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">
-              {{ ft_badge(m.attachment_name or '') }}
-              <span class="ca-fname">{{ m.attachment_name or 'File' }}</span>
-            </a>
-          {% endif %}
-          <!-- Text body -->
-          {% if m.get('is_deleted') %}<span class="deleted">This message was deleted.</span>
-          {% elif m.body %}<span class="msg-body-text">{{ m.body }}</span>{% if m.edited_at %}<span class="msg-edited">(edited)</span>{% endif %}
-          {% endif %}
-        </div>
+                   onerror="this.style.display='none'"></a>{% elif m.attachment_type == 'video' and m.attachment_drive_id %}<a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><span class="ft-badge" style="background:#0891b2;">MP4</span><span class="ca-fname">{{ m.attachment_name or 'Video' }}</span></a>{% elif m.attachment_type and m.attachment_drive_id %}<a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">{{ ft_badge(m.attachment_name or '') }}<span class="ca-fname">{{ m.attachment_name or 'File' }}</span></a>{% endif %}{% if m.get('is_deleted') %}<span class="deleted">This message was deleted.</span>{% elif m.body %}<span class="msg-body-text">{{ m.body }}</span>{% if m.edited_at %}<span class="msg-edited">(edited)</span>{% endif %}{% endif %}</div>
 
         <!-- Meta: time + reply + react + edit/delete + read tick -->
         <div class="chat-msg-meta">
@@ -367,6 +345,12 @@
   const form   = document.getElementById('chat-form');
   const input  = document.getElementById('chat-input');
   const EMPLOYEE_NAMES = {{ contacts | map(attribute='name') | list | tojson }};
+  // Longest-first so multi-word names (e.g. "Sarah Connor") match in full
+  // before a shorter name/group could steal the match.
+  const MENTION_TARGETS = [...EMPLOYEE_NAMES].sort((a,b) => b.length - a.length).concat(['Everyone','Admin']);
+  const _mentionRegex = new RegExp(
+    '@(' + MENTION_TARGETS.map(n => n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\b', 'gi'
+  );
   let lastId   = 0;
   let replyToId    = null;
   let pendingAttach = null;
@@ -418,8 +402,7 @@
 
   // ── Mention highlighting ──────────────────────────────────────────────────
   function mentionBody(text) {
-    return esc(text).replace(/@([A-Za-z][A-Za-z ]{1,29}?)(?=\s|$|[^\w ])/g,
-      '<span class="mention">@$1</span>');
+    return esc(text).replace(_mentionRegex, '<span class="mention">@$1</span>');
   }
 
   // Highlight @mentions in server-rendered bubbles on load
@@ -796,10 +779,13 @@
     if (m) {
       mentionQuery = m[1].toLowerCase();
       mentionStart = pos - m[0].length;
-      const matches = EMPLOYEE_NAMES.filter(n => n.toLowerCase().includes(mentionQuery)).slice(0,8);
+      const groupMatches = (room === 'group' ? ['Everyone','Admin'] : ['Admin'])
+        .filter(n => n.toLowerCase().includes(mentionQuery));
+      const peopleMatches = EMPLOYEE_NAMES.filter(n => n.toLowerCase().includes(mentionQuery));
+      const matches = groupMatches.concat(peopleMatches).slice(0,8);
       if (matches.length) {
         mentionDrop.innerHTML = matches.map((n,i) =>
-          `<div class="mention-opt" data-name="${n}" data-idx="${i}">👤 ${n}</div>`
+          `<div class="mention-opt" data-name="${n}" data-idx="${i}">${groupMatches.includes(n) ? '📢' : '👤'} ${n}</div>`
         ).join('');
         mentionDrop.classList.add('open');
         mentionSel = -1;

@@ -139,6 +139,13 @@
         {% if sub.has_unapproved_ot %}
           <span class="badge badge-yellow" title="Contains unapproved OT hours">⚠ Unapproved OT</span>
         {% endif %}
+        {% if sub.is_over_allocated %}
+          {% set filed_hours = (sub.total_manual + sub.total_ot) | round(2) %}
+          {% set over_by = (filed_hours - sub.weekly_hours_limit) | round(2) %}
+          <span class="badge badge-red" title="Filed {{ filed_hours }}h against a {{ sub.weekly_hours_limit }}h/week allowance">
+            ⏱ Over Allocated — Allowed {{ sub.weekly_hours_limit }}h, Filed {{ filed_hours }}h (+{{ over_by }}h)
+          </span>
+        {% endif %}
       </div>
 
       <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
@@ -157,8 +164,19 @@
       </div>
     </div>
 
+    {% set editable = filter_status == 'Submitted' %}
+    {% if editable %}
+    <form method="post" action="/hr-timesheets/{{ sub.id }}/approve" id="approve-form-{{ sub.id }}">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+    {% endif %}
+
     {# Per-day breakdown (hidden by default) #}
     <div id="detail-{{ sub.id }}" style="display:none;">
+      {% if editable %}
+      <p class="text-xs text-muted" style="padding:8px 16px 0;">
+        ✎ HR/Admin can adjust Manual and OT hours below, then Approve to set them as final — no need to return the timesheet for the employee to fix.
+      </p>
+      {% endif %}
       <div class="table-wrapper">
         <table>
           <thead>
@@ -178,8 +196,6 @@
             {% for e in sub.entries %}
             <tr style="{% if e.leave_hours > 0 %}background:#eff6ff;{% endif %}">
               <td class="fw-600 text-sm">
-                {% set weekdays = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}
-                {# compute weekday from date string #}
                 {{ e.date }}
               </td>
               <td class="text-muted text-sm">{{ e.date[5:] | replace('-', '/') }}</td>
@@ -190,24 +206,38 @@
               </td>
               <td class="text-center fw-600">
                 {% if e.leave_hours > 0 %}—
+                {% elif editable %}
+                  <input type="number" name="manual_{{ e.date }}" value="{{ e.manual_hours }}"
+                         min="0" max="24" step="0.01" class="ts-input"
+                         onchange="hrRecalcRow(this)">
                 {% else %}{{ e.manual_hours }}h{% endif %}
               </td>
               <td class="text-center fw-600">
-                {% if e.ot_hours > 0 %}
-                  {{ e.ot_hours }}h
-                  {% if e.ot_approved %}
-                    <span class="badge badge-green" style="font-size:.6rem; margin-left:2px;">✓</span>
-                  {% else %}
-                    <span class="badge badge-yellow" style="font-size:.6rem; margin-left:2px;" title="No approved OT request">!</span>
+                {% if e.leave_hours > 0 %}—
+                {% elif editable %}
+                  <input type="number" name="ot_{{ e.date }}" value="{{ e.ot_hours }}"
+                         min="0" max="24" step="0.01" class="ts-input"
+                         onchange="hrRecalcRow(this)">
+                  {% if not e.ot_approved and e.ot_hours > 0 %}
+                    <span class="badge badge-yellow" style="font-size:.6rem;" title="No approved OT request">!</span>
                   {% endif %}
-                {% else %}—{% endif %}
+                {% else %}
+                  {% if e.ot_hours > 0 %}
+                    {{ e.ot_hours }}h
+                    {% if e.ot_approved %}
+                      <span class="badge badge-green" style="font-size:.6rem; margin-left:2px;">✓</span>
+                    {% else %}
+                      <span class="badge badge-yellow" style="font-size:.6rem; margin-left:2px;" title="No approved OT request">!</span>
+                    {% endif %}
+                  {% else %}—{% endif %}
+                {% endif %}
               </td>
               <td class="text-center">
                 {% if e.leave_hours > 0 %}
                   <span class="badge badge-blue" style="font-size:.68rem;">{{ e.leave_type }} · 8h</span>
                 {% else %}—{% endif %}
               </td>
-              <td class="text-right fw-700" style="color:var(--primary);">{{ e.total_hours }}h</td>
+              <td class="text-right fw-700 hr-ts-total" style="color:var(--primary);">{{ e.total_hours }}h</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -236,12 +266,8 @@
 
       {% if filter_status == 'Submitted' %}
       <div class="flex gap-8" style="align-items:center; flex-wrap:wrap;">
-        <form method="post" action="/hr-timesheets/{{ sub.id }}/approve">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-          <button class="btn btn-success btn-sm" type="submit">✓ Approve</button>
-        </form>
-
-        <button class="btn btn-danger btn-sm" onclick="openReject('{{ sub.id }}')">
+        <button class="btn btn-success btn-sm" type="submit">✓ Set Hours &amp; Approve</button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="openReject('{{ sub.id }}')">
           ✗ Return
         </button>
       </div>
@@ -255,6 +281,9 @@
         <span class="badge badge-red">Returned to employee</span>
       {% endif %}
     </div>
+    {% if editable %}
+    </form>
+    {% endif %}
 
   </div>
 
@@ -294,6 +323,20 @@
 {% endblock %}
 
 {% block extra_js %}
+<style>
+.ts-input {
+  width: 68px;
+  text-align: center;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: .82rem;
+  font-weight: 600;
+  background: var(--surface);
+  color: var(--text);
+}
+.ts-input:focus { border-color: var(--primary); outline: none; }
+</style>
 <script>
 function toggleDetail(id) {
   const el = document.getElementById('detail-' + id);
@@ -302,5 +345,28 @@ function toggleDetail(id) {
 function openReject(id) {
   openModal('reject-modal-' + id);
 }
+
+// Live-recalculate a row's Total cell when HR edits Manual/OT hours
+function hrRecalcRow(input) {
+  const row = input.closest('tr');
+  if (!row) return;
+  const inputs = row.querySelectorAll('.ts-input');
+  let sum = 0;
+  inputs.forEach(i => sum += parseFloat(i.value) || 0);
+  const totalCell = row.querySelector('.hr-ts-total');
+  if (totalCell) totalCell.textContent = (Math.round(sum * 100) / 100) + 'h';
+}
+
+// Auto-open the card linked from Payroll's "View" button (?open=<sub_id>)
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const openId = params.get('open');
+  if (openId) {
+    const detail = document.getElementById('detail-' + openId);
+    if (detail) detail.style.display = 'block';
+    const card = document.getElementById('sub-' + openId);
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+})();
 </script>
 {% endblock %}

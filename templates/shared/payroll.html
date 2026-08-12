@@ -9,6 +9,15 @@
     <p>Period: <strong>{{ week_start }}</strong> — <strong>{{ week_end }}</strong>
       {% if existing_run %}<span class="badge badge-blue" style="margin-left:8px;">Saved Run</span>
       {% else %}<span class="badge badge-gray" style="margin-left:8px;">Preview</span>{% endif %}
+      {% if period_is_last_cutoff %}
+        <span class="badge badge-yellow" style="margin-left:4px;" title="Government deductions and loan/advance installments apply in full this period">
+          🏛️ Last cutoff — deductions apply · pay released day {{ release2 }}
+        </span>
+      {% else %}
+        <span class="badge badge-gray" style="margin-left:4px;" title="No government deductions or loan installments on the first cutoff">
+          No gov't/loan deductions this period · pay released day {{ release1 }}
+        </span>
+      {% endif %}
     </p>
   </div>
   <div class="flex gap-8 flex-wrap">
@@ -189,6 +198,7 @@
             <th style="color:var(--muted);">PhilHealth</th>
             <th style="color:var(--muted);">Pag-IBIG</th>
             <th style="color:var(--muted);">Tax</th>
+            <th style="color:var(--muted);">Loan/Adv</th>
             <th style="color:var(--muted);">Deductions</th>
             <th class="text-right" style="color:var(--success);">Net Pay</th>
             {% if existing_run and user.role in ('HR Manager', 'Admin') %}<th>Actions</th>{% endif %}
@@ -202,6 +212,7 @@
             {% set phic  = p.get('philhealth_deduction', 0) %}
             {% set hdmf  = p.get('pagibig_deduction', 0) %}
             {% set tax   = p.get('tax_deduction', 0) %}
+            {% set loan  = p.get('loan_deduction', 0) %}
             {% set tded  = p.get('total_deductions', 0) %}
             {% set net   = p.get('net_pay') or gross %}
             <tr>
@@ -218,6 +229,7 @@
               <td class="text-sm text-muted">{% if phic > 0 %}₱{{ "%.0f"|format(phic) }}{% else %}—{% endif %}</td>
               <td class="text-sm text-muted">{% if hdmf > 0 %}₱{{ "%.0f"|format(hdmf) }}{% else %}—{% endif %}</td>
               <td class="text-sm text-muted">{% if tax > 0 %}₱{{ "%.0f"|format(tax) }}{% else %}—{% endif %}</td>
+              <td class="text-sm text-muted">{% if loan > 0 %}₱{{ "%.0f"|format(loan) }}{% else %}—{% endif %}</td>
               <td class="text-sm" style="color:var(--danger);">
                 {% if tded > 0 %}— ₱{{ "%.2f"|format(tded) }}{% else %}—{% endif %}
               </td>
@@ -239,7 +251,7 @@
             </tr>
             {% endfor %}
           {% else %}
-            <tr><td colspan="12" class="text-center text-muted" style="padding:32px">
+            <tr><td colspan="13" class="text-center text-muted" style="padding:32px">
               No attendance records found for this period.
             </td></tr>
           {% endif %}
@@ -251,7 +263,7 @@
             <td class="fw-700">{{ total_reg_hrs | round(1) }}h</td>
             <td class="fw-700">{{ total_ot_hrs | round(1) }}h</td>
             <td class="fw-700">₱{{ "%.2f"|format(total_gross) }}</td>
-            <td colspan="4"></td>
+            <td colspan="5"></td>
             <td class="fw-700" style="color:var(--danger);">
               — ₱{{ "%.2f"|format(total_gross - total_net) }}
             </td>
@@ -265,7 +277,7 @@
       </table>
     </div>
   </div>
-  <p class="text-xs text-muted mt-8">* Regular ≤ 8h/day · OT = approved filed hours only · Deductions apply to enrolled employees only (SSS 4.5% · PhilHealth 2.5% · Pag-IBIG 2% max ₱100 · BIR 2023 brackets) · Regenerate to recalculate deductions</p>
+  <p class="text-xs text-muted mt-8">* Hours are taken as computed/filed, not rounded · OT = approved filed hours only · Gov't deductions and loan/advance installments apply in full on the last cutoff of the month only (SSS 4.5% · PhilHealth 2.5% · Pag-IBIG 2% max ₱100 · BIR 2023 brackets) · Regenerate to recalculate</p>
 </div>
 
 <!-- ══════════════════════════════════════════════════════════ -->
@@ -495,12 +507,12 @@
           <div class="form-group">
             <label class="form-label">Regular Hours</label>
             <input type="number" id="hrs-regular" name="regular_hours"
-                   class="form-input" min="0" step="0.25">
+                   class="form-input" min="0" step="0.01">
           </div>
           <div class="form-group">
             <label class="form-label">Overtime Hours</label>
             <input type="number" id="hrs-ot" name="overtime_hours"
-                   class="form-input" min="0" step="0.25" value="0">
+                   class="form-input" min="0" step="0.01" value="0">
           </div>
         </div>
         <p class="form-hint">Pay will be recalculated at the employee's current hourly rate.</p>

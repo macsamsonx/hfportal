@@ -32,35 +32,12 @@
 .dash-stat.accent .dash-stat-sub { color: #fff; }
 .dash-stat.accent .dash-stat-value { color: rgba(255,255,255,.95); }
 
-/* ── Verse square ── */
-.verse-square {
-  background: var(--primary);
-  border-radius: 14px;
-  padding: 16px 14px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-  box-shadow: var(--shadow);
-  min-height: 100px;
-  position: relative;
-  overflow: hidden;
-}
-.verse-square::before {
-  content: '✝';
-  position: absolute; top: -8px; right: 4px;
-  font-size: 4rem; color: rgba(255,255,255,.08);
-  pointer-events: none; user-select: none; line-height: 1;
-}
-.verse-text { font-size: .75rem; font-style: italic; color: rgba(255,255,255,.9); line-height: 1.5; position: relative; }
-.verse-ref  { font-size: .62rem; font-weight: 700; color: rgba(255,255,255,.6); position: relative; }
-
 /* ── Clock square ── */
 .clock-square {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 14px;
-  padding: 16px 14px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -68,9 +45,36 @@
   box-shadow: var(--shadow);
   min-height: 100px;
   text-align: center;
+  grid-column: span 2;
 }
-.clock-time { font-size: 1.45rem; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1; }
-.clock-date { font-size: .65rem; color: var(--muted); margin-top: 2px; }
+.clock-time { font-size: 1.7rem; font-weight: 900; color: var(--primary); font-variant-numeric: tabular-nums; line-height: 1; }
+.clock-date { font-size: .68rem; color: var(--muted); margin-top: 2px; }
+
+/* ── Task status strip ── */
+.task-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.task-status-cell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: var(--shadow);
+  text-align: center;
+  text-decoration: none;
+  transition: transform .12s, box-shadow .12s;
+  border-left: 4px solid var(--border-color, #94a3b8);
+}
+.task-status-cell:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,.08); }
+.task-status-cell .tsc-count { font-size: 1.6rem; font-weight: 900; color: var(--text); line-height: 1; }
+.task-status-cell .tsc-label { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-top: 4px; }
+.task-status-cell.todo     { border-left-color: #94a3b8; }
+.task-status-cell.doing    { border-left-color: #2563eb; }
+.task-status-cell.review   { border-left-color: #f59e0b; }
+.task-status-cell.done     { border-left-color: #16a34a; }
 
 /* ── Attendance strip ── */
 .att-strip {
@@ -173,14 +177,6 @@
     <div style="margin-top:4px;"><span class="badge badge-blue" style="font-size:.62rem;">{{ user.shift_type }} Shift</span></div>
   </div>
 
-  <!-- Bible verse -->
-  {% if verse %}
-  <div class="verse-square" style="grid-column: span 2;">
-    <div class="verse-text">"{{ verse.verse }}"</div>
-    <div class="verse-ref">— {{ verse.ref }}</div>
-  </div>
-  {% endif %}
-
   <!-- Hours this week -->
   <div class="dash-stat">
     <div class="dash-stat-icon">⏱</div>
@@ -197,26 +193,6 @@
     <div class="dash-stat-value">{{ tasks_today | selectattr('status','eq','Done') | list | length }}</div>
     <div class="dash-stat-sub">of {{ tasks_today | length }} tasks</div>
   </div>
-
-  <!-- VL balance -->
-  {% if vl_enabled %}
-  <div class="dash-stat">
-    <div class="dash-stat-icon">🏖</div>
-    <div class="dash-stat-label">VL Balance</div>
-    <div class="dash-stat-value">{{ vl_balance }}</div>
-    <div class="dash-stat-sub">of {{ vl_total }} days</div>
-  </div>
-  {% endif %}
-
-  <!-- SL balance -->
-  {% if sl_enabled %}
-  <div class="dash-stat">
-    <div class="dash-stat-icon">🏥</div>
-    <div class="dash-stat-label">SL Balance</div>
-    <div class="dash-stat-value">{{ sl_balance }}</div>
-    <div class="dash-stat-sub">of {{ sl_total }} days</div>
-  </div>
-  {% endif %}
 
   <!-- Timesheet status -->
   {% set ts_color = {'Approved':'#16a34a','Returned':'#dc2626','Submitted':'#2563eb','Draft':'#d97706'} %}
@@ -244,6 +220,26 @@
   </div>
   {% endif %}
 
+</div>
+
+{# ── TASK STATUS STRIP ── #}
+<div class="task-status-grid">
+  <a href="/kanban?status=Todo" class="task-status-cell todo">
+    <div class="tsc-count">{{ task_status_counts.get('Todo', 0) }}</div>
+    <div class="tsc-label">Todo</div>
+  </a>
+  <a href="/kanban?status=In Progress" class="task-status-cell doing">
+    <div class="tsc-count">{{ task_status_counts.get('In Progress', 0) }}</div>
+    <div class="tsc-label">Doing</div>
+  </a>
+  <a href="/kanban?status=For Review" class="task-status-cell review">
+    <div class="tsc-count">{{ task_status_counts.get('For Review', 0) }}</div>
+    <div class="tsc-label">For Review</div>
+  </a>
+  <a href="/kanban?status=Done" class="task-status-cell done">
+    <div class="tsc-count">{{ task_status_counts.get('Done', 0) }}</div>
+    <div class="tsc-label">Done</div>
+  </a>
 </div>
 
 {# ── ATTENDANCE STRIP ── #}
@@ -294,15 +290,10 @@
       </div>
     {% endif %}
   {% else %}
-    <form method="post" action="/api/clock-in">
+    <form method="post" action="/api/clock-in" style="display:flex;gap:8px;align-items:center;">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
-        <div style="flex:1;min-width:160px;">
-          <label class="form-label" style="font-size:.72rem;">Clock In Time (PHT)</label>
-          <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="height:44px;font-size:1.1rem;font-weight:700;text-align:center;">
-        </div>
-        <button type="submit" class="btn btn-success" style="height:44px;font-weight:700;font-size:1rem;padding:0 24px;">▶ Clock In</button>
-      </div>
+      <input type="time" name="clock_time" id="clock-in-input" class="form-input" style="width:120px;height:40px;font-size:1rem;font-weight:700;text-align:center;">
+      <button type="submit" class="btn btn-success" style="height:40px;font-weight:700;padding:0 20px;">▶ Clock In</button>
     </form>
   {% endif %}
 

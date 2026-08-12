@@ -397,6 +397,18 @@ function kbRte(cmd) {
   if (rte) { document.getElementById('kb-notes-val').value = rte.innerHTML; rte.focus(); }
 }
 document.addEventListener('DOMContentLoaded', function() {
+  // ── Deep link from dashboard: ?status=Todo scrolls to + highlights the column ──
+  (function() {
+    const status = new URLSearchParams(window.location.search).get('status');
+    if (!status) return;
+    const col = document.querySelector(`.kanban-col[data-status="${status}"]`);
+    if (!col) return;
+    col.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+    col.style.transition = 'box-shadow .3s';
+    col.style.boxShadow = '0 0 0 3px var(--primary)';
+    setTimeout(() => { col.style.boxShadow = ''; }, 1800);
+  })();
+
   const rte = document.getElementById('kb-notes-rte');
   if (rte) rte.addEventListener('input', function() {
     document.getElementById('kb-notes-val').value = rte.innerHTML;

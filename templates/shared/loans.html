@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}Loans & Advances{% endblock %}
+{% block page_title %}Loans & Advances{% endblock %}
+
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>🏦 Loans &amp; Advances</h2>
+    <p>Installments are deducted automatically from net pay on the last cutoff of each month (16th–30th) until paid off.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('add-loan-modal')">+ Record Loan / Advance</button>
+</div>
+
+<div class="stat-card blue mb-16" style="max-width:320px;">
+  <div class="stat-icon blue">💰</div>
+  <div>
+    <div class="stat-label">Total Active Balance</div>
+    <div class="stat-value">₱{{ "%.2f"|format(active_total) }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">
+    <h3>All Loans &amp; Advances</h3>
+    <span class="text-sm text-muted">{{ loans | length }} record{{ 's' if loans | length != 1 }}</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Type</th>
+          <th>Principal</th>
+          <th>Installment / cutoff</th>
+          <th>Balance</th>
+          <th>Status</th>
+          <th>Notes</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if loans %}
+          {% for l in loans %}
+          <tr>
+            <td class="fw-600">
+              <div class="flex-center gap-8">
+                {% if l.profile_pic_path %}
+                  <img src="/uploads/{{ l.profile_pic_path }}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;">
+                {% else %}
+                  <div style="width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#5b21b6,#7c3aed);display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;color:#fff;">{{ l.emp_name[0] }}</div>
+                {% endif %}
+                {{ l.emp_name }}
+              </div>
+            </td>
+            <td><span class="badge badge-gray">{{ l.loan_type }}</span></td>
+            <td>₱{{ "%.2f"|format(l.principal_amount) }}</td>
+            <td>₱{{ "%.2f"|format(l.installment_amount) }}</td>
+            <td class="fw-700" style="color:{{ 'var(--success)' if l.balance_remaining <= 0 else 'var(--text)' }};">
+              ₱{{ "%.2f"|format(l.balance_remaining) }}
+            </td>
+            <td>
+              {% if l.status == 'Active' %}<span class="badge badge-yellow">Active</span>
+              {% elif l.status == 'Paid' %}<span class="badge badge-green">Paid Off</span>
+              {% else %}<span class="badge badge-gray">Closed</span>{% endif %}
+            </td>
+            <td class="text-sm text-muted" style="max-width:160px;">{{ l.notes or '—' }}</td>
+            <td>
+              <div class="flex gap-6" style="flex-wrap:wrap; align-items:center;">
+                {% if l.payments %}
+                  <button class="btn btn-outline btn-sm" onclick="toggleDetail('{{ l.id }}')">History ({{ l.payments | length }})</button>
+                {% endif %}
+                {% if l.status == 'Active' %}
+                <form method="post" action="/loans/{{ l.id }}/close" onsubmit="return confirm('Close this loan? No further deductions will be made.')">
+                  <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                  <button type="submit" class="btn btn-outline btn-sm">Close</button>
+                </form>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% if l.payments %}
+          <tr id="detail-{{ l.id }}" style="display:none;">
+            <td colspan="8" style="background:var(--surface-2); padding:10px 16px;">
+              <div class="text-xs fw-700 text-muted mb-6">Deduction History</div>
+              <table style="width:100%;">
+                <thead>
+                  <tr class="text-xs text-muted">
+                    <th style="text-align:left;">Period</th>
+                    <th style="text-align:right;">Amount</th>
+                    <th style="text-align:right;">Balance After</th>
+                    <th style="text-align:right;">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for p in l.payments %}
+                  <tr class="text-sm">
+                    <td>{{ p.week_start }} – {{ p.week_end }}</td>
+                    <td class="text-right">₱{{ "%.2f"|format(p.amount) }}</td>
+                    <td class="text-right">₱{{ "%.2f"|format(p.balance_after) }}</td>
+                    <td class="text-right text-muted">{{ p.created_at[:10] if p.created_at else '—' }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="8" class="text-center text-muted" style="padding:40px;">No loans or advances recorded yet.</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Loan Modal -->
+<div class="modal-overlay" id="add-loan-modal">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-header">
+      <span class="modal-title">Record Loan / Advance</span>
+      <button class="modal-close" onclick="closeModal('add-loan-modal')">×</button>
+    </div>
+    <form method="post" action="/loans/create">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Employee</label>
+          <select name="emp_id" class="form-select" required>
+            <option value="">Select employee…</option>
+            {% for e in employees %}
+              <option value="{{ e.id }}">{{ e.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Type</label>
+          <select name="loan_type" class="form-select">
+            <option value="Loan">Loan</option>
+            <option value="Cash Advance">Cash Advance</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Total Amount (₱)</label>
+            <input type="number" name="principal_amount" class="form-input" min="0.01" step="0.01" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Deduction per Cutoff (₱)</label>
+            <input type="number" name="installment_amount" class="form-input" min="0.01" step="0.01" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes</label>
+          <input type="text" name="notes" class="form-input" placeholder="e.g. Emergency advance, approved by...">
+        </div>
+        <p class="form-hint">Deducted automatically from net pay on the last cutoff (16th–30th) of each month until the balance reaches ₱0.</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeModal('add-loan-modal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function toggleDetail(id) {
+  const el = document.getElementById('detail-' + id);
+  if (el) el.style.display = el.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+{% endblock %}

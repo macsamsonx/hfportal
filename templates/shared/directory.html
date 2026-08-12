@@ -75,10 +75,11 @@
 {% block content %}
 <div class="page-header">
   <div>
-    <h2>Employee Directory</h2>
+    <h2>Team</h2>
     <p>{{ people | length }} people · search or filter by role</p>
   </div>
 </div>
+{% include "shared/_team_tabs.html" %}
 
 <!-- Search + role filter -->
 <div class="filter-bar">

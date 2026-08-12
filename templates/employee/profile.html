@@ -4,45 +4,122 @@
 
 {% block extra_head %}
 <style>
-.profile-tabs { display:flex; gap:0; border-bottom:2px solid var(--border); margin-bottom:24px; }
-.profile-tab  { padding:10px 24px; font-size:.85rem; font-weight:700; cursor:pointer; border:none;
-                background:none; color:var(--muted); border-bottom:3px solid transparent;
-                margin-bottom:-2px; transition:color .15s, border-color .15s; letter-spacing:.01em; }
-.profile-tab.active   { color:var(--primary); border-bottom-color:var(--primary); }
-.profile-tab:hover:not(.active) { color:var(--text); }
+/* ── Futuristic profile hero ─────────────────────────────────────────────── */
+@keyframes profile-glow {
+  0%, 100% { box-shadow: 0 0 0 4px rgba(255,255,255,.14), 0 0 24px 4px rgba(6,182,212,.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(255,255,255,.14), 0 0 36px 10px rgba(124,58,237,.55); }
+}
+@keyframes profile-drift {
+  0%   { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+.profile-hero {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-xl);
+  padding: 28px 28px 26px;
+  margin-bottom: 20px;
+  background: linear-gradient(120deg, var(--primary-d), #7c3aed 45%, var(--accent) 100%);
+  background-size: 220% 220%;
+  animation: profile-drift 14s ease infinite;
+  box-shadow: var(--shadow-lg);
+  color: #fff;
+}
+.profile-hero::before {
+  content: '';
+  position: absolute; inset: 0;
+  background-image:
+    radial-gradient(circle at 15% 20%, rgba(255,255,255,.14) 0, transparent 40%),
+    radial-gradient(circle at 85% 85%, rgba(255,255,255,.10) 0, transparent 45%),
+    repeating-linear-gradient(115deg, rgba(255,255,255,.05) 0 1px, transparent 1px 26px);
+  pointer-events: none;
+}
+.profile-hero-inner { position: relative; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+.profile-avatar-ring {
+  width: 88px; height: 88px; border-radius: 50%; flex-shrink: 0;
+  padding: 3px; background: rgba(255,255,255,.9);
+  animation: profile-glow 3.2s ease-in-out infinite;
+}
+.profile-avatar-ring img,
+.profile-avatar-ring .avatar-fallback {
+  width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: flex;
+  align-items: center; justify-content: center; font-size: 1.9rem; font-weight: 800;
+  background: linear-gradient(135deg,#5b21b6,#7c3aed); color: #fff;
+}
+.profile-hero-name { font-size: 1.4rem; font-weight: 900; letter-spacing: -.02em; text-shadow: 0 1px 12px rgba(0,0,0,.15); }
+.profile-hero-email { font-size: .85rem; color: rgba(255,255,255,.78); margin-top: 2px; }
+.profile-glass-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: rgba(255,255,255,.16); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.28);
+  color: #fff; font-size: .72rem; font-weight: 700;
+  padding: 4px 11px; border-radius: 99px;
+}
+.profile-hero-photo-btn {
+  background: rgba(255,255,255,.14); backdrop-filter: blur(6px);
+  border: 1px solid rgba(255,255,255,.3); color: #fff !important;
+}
+.profile-hero-photo-btn:hover { background: rgba(255,255,255,.24); }
+
+/* ── Compliance strip ─────────────────────────────────────────────────────── */
+.profile-compliance-strip {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 12px 18px; margin-bottom: 20px; box-shadow: var(--shadow-xs);
+}
+
+/* ── Segmented tab control ────────────────────────────────────────────────── */
+.profile-tabs {
+  display: inline-flex; gap: 4px; padding: 4px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 99px; margin-bottom: 22px;
+}
+.profile-tab {
+  padding: 8px 18px; font-size: .82rem; font-weight: 700; cursor: pointer; border: none;
+  background: none; color: var(--muted); border-radius: 99px;
+  transition: color .15s, background .15s; letter-spacing: .01em;
+}
+.profile-tab.active { color: #fff; background: linear-gradient(120deg, var(--primary), var(--accent)); box-shadow: 0 2px 10px rgba(37,99,235,.35); }
+.profile-tab:hover:not(.active) { color: var(--text); }
 .tab-panel    { display:none; }
 .tab-panel.active { display:block; }
+
+/* ── Accented cards on this page ──────────────────────────────────────────── */
+#tab-personal .card, #tab-bank .card {
+  border-top: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--primary), var(--accent)) 1;
+}
 </style>
 {% endblock %}
 
 {% block content %}
 
-<!-- Profile header -->
-<div class="card mb-20" style="padding:20px 24px;">
-  <div style="display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
-    {% if emp.profile_pic_path %}
-      <img src="/uploads/{{ emp.profile_pic_path }}"
-           style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);flex-shrink:0;">
-    {% else %}
-      <div style="width:72px;height:72px;border-radius:50%;background:linear-gradient(135deg,#5b21b6,#7c3aed);
-                  color:#fff;font-size:1.8rem;font-weight:800;display:flex;align-items:center;
-                  justify-content:center;flex-shrink:0;">{{ emp.name[0] }}</div>
-    {% endif %}
-    <div style="flex:1;">
-      <div class="fw-700" style="font-size:1.15rem;">{{ emp.name }}</div>
-      <div class="text-muted text-sm">{{ emp.email }}</div>
-      <div class="mt-6" style="display:flex; gap:6px; flex-wrap:wrap;">
-        <span class="badge badge-blue">{{ emp.role }}</span>
-        <span class="badge badge-gray">{{ emp.shift_type }} Shift</span>
-        {% if emp.employment_type %}<span class="badge badge-gray">{{ emp.employment_type }}</span>{% endif %}
-        {% if emp.department %}<span class="badge badge-gray">{{ emp.department }}</span>{% endif %}
+<!-- Profile hero -->
+<div class="profile-hero">
+  <div class="profile-hero-inner">
+    <div class="profile-avatar-ring">
+      {% if emp.profile_pic_path %}
+        <img src="/uploads/{{ emp.profile_pic_path }}" alt="{{ emp.name }}">
+      {% else %}
+        <div class="avatar-fallback">{{ emp.name[0] }}</div>
+      {% endif %}
+    </div>
+    <div style="flex:1; min-width:200px;">
+      <div class="profile-hero-name">{{ emp.name }}</div>
+      <div class="profile-hero-email">{{ emp.email }}</div>
+      <div class="mt-8" style="display:flex; gap:7px; flex-wrap:wrap;">
+        <span class="profile-glass-badge">💼 {{ emp.role }}</span>
+        <span class="profile-glass-badge">🕒 {{ emp.shift_type }} Shift</span>
+        {% if emp.employment_type %}<span class="profile-glass-badge">{{ emp.employment_type }}</span>{% endif %}
+        {% if emp.department %}<span class="profile-glass-badge">🗂️ {{ emp.department }}</span>{% endif %}
+        {% if emp.weekly_hours_limit %}<span class="profile-glass-badge">⏱ {{ emp.weekly_hours_limit }}h/week</span>{% endif %}
       </div>
     </div>
     <!-- Upload photo -->
     <form method="post" action="/profile/avatar" enctype="multipart/form-data"
           style="display:flex; align-items:center; gap:8px;">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-      <label class="btn btn-outline btn-sm" style="cursor:pointer; margin:0;">
+      <label class="btn btn-sm profile-hero-photo-btn" style="cursor:pointer; margin:0;">
         📷 Change Photo
         <input type="file" name="avatar" accept="image/*" style="display:none"
                onchange="this.closest('form').submit()">
@@ -51,8 +128,8 @@
   </div>
 </div>
 
-<!-- Compliance pill -->
-<div style="margin-bottom:20px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+<!-- Compliance strip -->
+<div class="profile-compliance-strip">
   {% if compliance_status == 'compliant' %}
     <span class="badge badge-green" style="font-size:.8rem; padding:5px 12px;">✓ Fully Compliant ({{ doc_count }}/6)</span>
   {% elif compliance_status == 'partial' %}

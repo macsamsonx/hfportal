@@ -66,15 +66,6 @@
         </a>
 
         <div class="nav-section">Requests</div>
-        <a href="/my-ot" class="nav-link {% if request.url.path == '/my-ot' %}active{% endif %}">
-          <span class="icon">⏰</span> OT Request
-          {% if pending_ot_count and pending_ot_count > 0 %}
-            <span class="nav-badge">{{ pending_ot_count }}</span>
-          {% endif %}
-        </a>
-        <a href="/my-leave" class="nav-link {% if request.url.path == '/my-leave' %}active{% endif %}">
-          <span class="icon">🌴</span> Leave Request
-        </a>
         <a href="/my-incidents" class="nav-link {% if request.url.path.startswith('/my-incidents') %}active{% endif %}">
           <span class="icon">⚖️</span> Incidents &amp; NTEs
         </a>
@@ -127,17 +118,14 @@
         </a>
 
         <div class="nav-section">People &amp; Records</div>
-        <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
-          <span class="icon">👥</span> Roster
+        <a href="/directory" class="nav-link {% if request.url.path in ('/directory','/roster','/employees') or request.url.path.startswith('/employees/') %}active{% endif %}">
+          <span class="icon">👥</span> Team
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">🕒</span> Attendance
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">📅</span> Schedule
-        </a>
-        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
-          <span class="icon">🗂️</span> Directory
         </a>
 
         <div class="nav-section">Requests</div>
@@ -178,6 +166,9 @@
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll &amp; Timesheets
         </a>
+        <a href="/loans" class="nav-link {% if request.url.path.startswith('/loans') %}active{% endif %}">
+          <span class="icon">🏦</span> Loans &amp; Advances
+        </a>
         <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
           <span class="icon">📊</span> Reports
         </a>
@@ -197,9 +188,6 @@
         </a>
 
         <div class="nav-section">Admin</div>
-        <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
-          <span class="icon">⚙️</span> Employee Mgmt
-        </a>
         <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
           <span class="icon">📝</span> Registrations
           {% if pending_reg_count and pending_reg_count > 0 %}
@@ -233,17 +221,14 @@
         </a>
 
         <div class="nav-section">People &amp; Records</div>
-        <a href="/roster" class="nav-link {% if request.url.path == '/roster' %}active{% endif %}">
-          <span class="icon">👥</span> Roster
+        <a href="/directory" class="nav-link {% if request.url.path in ('/directory','/roster','/employees') or request.url.path.startswith('/employees/') %}active{% endif %}">
+          <span class="icon">👥</span> Team
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">🕒</span> Attendance
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">📅</span> Schedule
-        </a>
-        <a href="/directory" class="nav-link {% if request.url.path == '/directory' %}active{% endif %}">
-          <span class="icon">🗂️</span> Directory
         </a>
 
         <div class="nav-section">Requests</div>
@@ -284,6 +269,9 @@
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
           <span class="icon">💰</span> Payroll &amp; Timesheets
         </a>
+        <a href="/loans" class="nav-link {% if request.url.path.startswith('/loans') %}active{% endif %}">
+          <span class="icon">🏦</span> Loans &amp; Advances
+        </a>
         <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
           <span class="icon">💳</span> My Bills
         </a>
@@ -306,9 +294,6 @@
         </a>
 
         <div class="nav-section">Admin</div>
-        <a href="/employees" class="nav-link {% if request.url.path == '/employees' %}active{% endif %}">
-          <span class="icon">⚙️</span> Employee Mgmt
-        </a>
         <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
           <span class="icon">📝</span> Registrations
           {% if pending_reg_count and pending_reg_count > 0 %}
@@ -355,7 +340,14 @@
         <span></span><span></span><span></span>
       </button>
 
-      <div class="topbar-title">{% block page_title %}Dashboard{% endblock %}</div>
+      <div class="topbar-title" style="display:flex;align-items:center;gap:14px;min-width:0;">
+        <span style="flex-shrink:0;">{% block page_title %}Dashboard{% endblock %}</span>
+        {% if verse %}
+        <span class="topbar-verse" title="&quot;{{ verse.verse }}&quot; — {{ verse.ref }}">
+          <span style="opacity:.7;">✝</span> "{{ verse.verse }}" <span style="opacity:.6;">— {{ verse.ref }}</span>
+        </span>
+        {% endif %}
+      </div>
 
       {# ── Attendance status pill (employees only) ── #}
       {% if user.role == 'Employee' and att_status is defined %}
