@@ -121,7 +121,7 @@
             <td class="fw-700" style="color:{{ client.hex_color }}">{{ "%.2f"|format(hrs) }}h</td>
             <td>
               <div class="hours-bar">
-                <div class="hours-bar-fill" style="width:{{ ((hrs / max_day_hrs) * 100)|int }}%"></div>
+                <div class="hours-bar-fill" style="width:{{ ((hrs / max_day_hrs) * 100)|int if max_day_hrs else 0 }}%"></div>
               </div>
             </td>
           </tr>

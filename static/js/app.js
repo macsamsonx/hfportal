@@ -194,10 +194,11 @@ const _activityIcon = {
 const _statusColor = { 'Todo': 'gray', 'In Progress': 'blue', 'For Review': 'yellow', 'Done': 'green' };
 
 function _buildTimeline(activities, comments) {
+  // Latest first — this is the per-task audit trail.
   const items = [
     ...activities.map(a => ({ ...a, _kind: 'event',   _ts: a.created_at })),
     ...comments.map(c  => ({ ...c, _kind: 'comment', _ts: c.timestamp  })),
-  ].sort((a, b) => a._ts.localeCompare(b._ts));
+  ].sort((a, b) => b._ts.localeCompare(a._ts));
 
   if (!items.length) return '<p class="text-muted text-sm" style="padding:8px 0;">No activity yet.</p>';
 
@@ -340,7 +341,6 @@ async function openCardModal(taskId) {
         </div>
       </div>
 
-      ${canReview ? `
       <div class="mb-12">
         <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">RE-ASSIGN TO</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
@@ -350,7 +350,7 @@ async function openCardModal(taskId) {
           </select>
           <button class="btn btn-outline btn-sm" onclick="saveAssignee(${card.id})">Assign</button>
         </div>
-      </div>` : ''}
+      </div>
 
       ${card.notes ? `
       <div class="mb-12">
@@ -463,23 +463,19 @@ async function openCardModal(taskId) {
           input.value = '';
           const tl = document.getElementById('timeline-list');
           if (tl) {
-            tl.innerHTML += `
+            tl.insertAdjacentHTML('afterbegin', `
               <div class="comment">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
                   <span class="comment-author">${esc(comment.author_name)}</span>
                   <span class="comment-time text-xs text-muted">${esc(comment.timestamp)}</span>
                 </div>
                 <div class="comment-text">${esc(comment.comment_text).replace(/\n/g,'<br>')}</div>
-              </div>`;
-            tl.scrollTop = tl.scrollHeight;
+              </div>`);
+            tl.scrollTop = 0;
           }
         }
       });
     }
-
-    // Scroll timeline to bottom
-    const tl = document.getElementById('timeline-list');
-    if (tl) tl.scrollTop = tl.scrollHeight;
 
   } catch (err) {
     body.innerHTML = `<p class="text-danger" style="padding:16px">Failed to load card: ${err.message}</p>`;
@@ -538,7 +534,7 @@ async function saveDueDate(taskId) {
 async function saveAssignee(taskId) {
   const sel = document.getElementById('assign-emp-select');
   if (!sel || !sel.value) return;
-  const res = await apiFetch(`/api/tasks/${taskId}/assign`, {
+  const res = await apiFetch(`/api/tasks/${taskId}/transfer`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ emp_id: parseInt(sel.value) }),

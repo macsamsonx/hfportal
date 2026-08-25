@@ -397,6 +397,7 @@ function kbRte(cmd) {
   if (rte) { document.getElementById('kb-notes-val').value = rte.innerHTML; rte.focus(); }
 }
 document.addEventListener('DOMContentLoaded', function() {
+
   // ── Deep link from dashboard: ?status=Todo scrolls to + highlights the column ──
   (function() {
     const status = new URLSearchParams(window.location.search).get('status');

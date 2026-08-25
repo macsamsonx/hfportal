@@ -245,6 +245,12 @@
                           onclick="openRateEdit({{ p.run_id or p.id or 0 }}, {{ p.hourly_rate }}, '{{ p.emp_name | e }}')">
                     Edit Rate
                   </button>
+                  {% if loan > 0 %}
+                  <button class="btn btn-outline btn-sm"
+                          onclick="openLoanEdit({{ p.run_id or p.id or 0 }}, '{{ p.emp_name | e }}')">
+                    Edit Loan
+                  </button>
+                  {% endif %}
                 </div>
               </td>
               {% endif %}
@@ -550,6 +556,25 @@
     </form>
   </div>
 </div>
+
+<!-- Edit Loan Deduction Modal -->
+<div class="modal-overlay" id="loan-edit-modal">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-header">
+      <span class="modal-title">Loan Deductions — <span id="loan-edit-name"></span></span>
+      <button class="modal-close" onclick="closeModal('loan-edit-modal')">×</button>
+    </div>
+    <div class="modal-body">
+      <p class="text-sm text-muted mb-12">Set how much of each active loan to deduct this pay period. Each loan can only be deducted up to its remaining balance.</p>
+      <div id="loan-edit-list">
+        <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn btn-outline" onclick="closeModal('loan-edit-modal')">Close</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
@@ -596,6 +621,69 @@
     document.getElementById('rate-input').value = rate;
     document.getElementById('rate-edit-name').textContent = empName;
     openModal('rate-edit-modal');
+  }
+
+  let _loanEditRunId = null;
+  function openLoanEdit(runId, empName) {
+    if (!runId) { alert('Generate payroll first to edit loan deductions.'); return; }
+    _loanEditRunId = runId;
+    document.getElementById('loan-edit-name').textContent = empName;
+    document.getElementById('loan-edit-list').innerHTML = '<div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>';
+    openModal('loan-edit-modal');
+    loadLoanAllocations(runId);
+  }
+
+  async function loadLoanAllocations(runId) {
+    const list = document.getElementById('loan-edit-list');
+    try {
+      const res = await apiFetch(`/api/payroll/${runId}/loans`);
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        list.innerHTML = `<p class="text-danger text-sm">${esc(data.error || 'Failed to load loans.')}</p>`;
+        return;
+      }
+      if (!data.loans.length) {
+        list.innerHTML = '<p class="text-sm text-muted">No active loans for this employee.</p>';
+        return;
+      }
+      list.innerHTML = data.loans.map(l => `
+        <div class="loan-alloc-row" style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;">
+            <div class="fw-600 text-sm">Loan #${l.loan_id}</div>
+            <div class="text-xs text-muted">Balance: ₱${l.balance_remaining.toFixed(2)}</div>
+          </div>
+          <input type="number" class="form-input" id="loan-amt-${l.loan_id}" value="${l.amount}"
+                 min="0" max="${l.balance_remaining}" step="0.01" style="width:110px;"
+                 ${data.locked ? 'disabled' : ''}>
+          ${data.locked ? '' : `<button class="btn btn-outline btn-sm" onclick="saveLoanAllocation(${l.loan_id}, ${l.balance_remaining})">Save</button>`}
+        </div>
+      `).join('');
+      if (data.locked) {
+        list.insertAdjacentHTML('beforeend', '<p class="text-xs text-muted mt-8">This payroll is already approved — deductions are locked.</p>');
+      }
+    } catch (e) {
+      list.innerHTML = '<p class="text-danger text-sm">Failed to load loans.</p>';
+    }
+  }
+
+  async function saveLoanAllocation(loanId, balanceRemaining) {
+    if (!_loanEditRunId) return;
+    const input = document.getElementById('loan-amt-' + loanId);
+    let amount = parseFloat(input.value) || 0;
+    if (amount < 0) amount = 0;
+    if (amount > balanceRemaining) amount = balanceRemaining;
+    input.value = amount;
+    const fd = new FormData();
+    fd.append('loan_id', loanId);
+    fd.append('amount', amount);
+    const res = await apiFetch(`/api/payroll/${_loanEditRunId}/edit-loan-deduction`, { method: 'POST', body: fd });
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      showToast('Loan deduction saved.', 'success');
+      setTimeout(() => location.reload(), 700);
+    } else {
+      showToast(data.error || 'Could not save deduction.', 'error');
+    }
   }
 </script>
 {% endblock %}

@@ -11,8 +11,11 @@
   <button class="btn btn-primary" onclick="openModal('add-client-modal')">+ Add Client</button>
 </div>
 
-{% if flash_msg %}
-<div class="alert alert-{{ flash_type or 'success' }}" style="margin-bottom:14px;">{{ flash_msg }}</div>
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">
+  {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+  {{ flash.msg }}
+</div>
 {% endif %}
 
 <div class="card">

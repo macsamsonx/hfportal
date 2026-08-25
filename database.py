@@ -832,6 +832,21 @@ def init_db():
                 FOREIGN KEY(loan_id) REFERENCES employee_loans(id) ON DELETE CASCADE
             );
 
+            -- Editable per-loan deduction amount for a specific payroll run — lets HR/Admin
+            -- override how much of each active loan gets deducted this cycle, since an
+            -- employee can have several loans running at once.
+            CREATE TABLE IF NOT EXISTS payroll_loan_allocations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                payroll_run_id INTEGER NOT NULL,
+                loan_id INTEGER NOT NULL,
+                amount REAL NOT NULL DEFAULT 0,
+                updated_by TEXT,
+                updated_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(payroll_run_id) REFERENCES payroll_runs(id) ON DELETE CASCADE,
+                FOREIGN KEY(loan_id) REFERENCES employee_loans(id) ON DELETE CASCADE,
+                UNIQUE(payroll_run_id, loan_id)
+            );
+
             -- ── Clients & notes ───────────────────────────────────────────────────────
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1584,11 +1599,12 @@ def get_today_date(shift_type: str = "Morning") -> str:
 
 
 def get_week_range(ref_date: date = None):
+    """Timesheet week runs Thursday through the following Wednesday (7 days)."""
     if ref_date is None:
         ref_date = date.today()
-    monday = ref_date - timedelta(days=ref_date.weekday())
-    saturday = monday + timedelta(days=5)
-    return monday.strftime("%Y-%m-%d"), saturday.strftime("%Y-%m-%d")
+    thursday = ref_date - timedelta(days=(ref_date.weekday() - 3) % 7)
+    wednesday = thursday + timedelta(days=6)
+    return thursday.strftime("%Y-%m-%d"), wednesday.strftime("%Y-%m-%d")
 
 
 def calculate_hours(clock_in: str, clock_out: str) -> float:

@@ -1262,24 +1262,47 @@ async def delete_task(request: Request, task_id: int):
 async def assign_reviewer(request: Request, task_id: int, reviewer_name: str = Form(...)):
     user = require_user(request)
     with get_db() as conn:
-        task = conn.execute("SELECT emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute("SELECT emp_id, task_title, reviewer_name FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
+        old_reviewer = task["reviewer_name"]
         reviewer = reviewer_name.strip() or None
         conn.execute("UPDATE work_logs SET reviewer_name=? WHERE id=?", (reviewer, task_id))
         detail = f"Assigned: {reviewer}" if reviewer else "Reviewer cleared"
         log_card_activity(conn, task_id, user["name"], "reviewer_set", detail)
+        title_short = (task["task_title"] or "")[:50]
+        notified_ids = {user["id"]}
         if reviewer:
             rev_emp = conn.execute(
                 "SELECT id FROM employees WHERE name=? AND is_active=1 LIMIT 1", (reviewer,)
             ).fetchone()
-            if rev_emp and rev_emp["id"] != user["id"]:
+            if rev_emp and rev_emp["id"] not in notified_ids:
                 push_notification(
                     conn, rev_emp["id"],
                     "📋 Assigned as Reviewer",
-                    f"You are now reviewing: '{task['task_title']}'",
+                    f"You are now reviewing: '{title_short}'",
                     "/kanban"
                 )
+                notified_ids.add(rev_emp["id"])
+        if old_reviewer and old_reviewer != reviewer:
+            old_rev_emp = conn.execute(
+                "SELECT id FROM employees WHERE name=? AND is_active=1 LIMIT 1", (old_reviewer,)
+            ).fetchone()
+            if old_rev_emp and old_rev_emp["id"] not in notified_ids:
+                push_notification(
+                    conn, old_rev_emp["id"],
+                    "Reviewer Changed",
+                    f'{user["name"]} removed you as reviewer on "{title_short}".',
+                    "/kanban"
+                )
+                notified_ids.add(old_rev_emp["id"])
+        if task["emp_id"] and task["emp_id"] not in notified_ids:
+            push_notification(
+                conn, task["emp_id"],
+                "Reviewer Updated",
+                f'{user["name"]} set the reviewer for "{title_short}" to {reviewer or "none"}.',
+                "/kanban"
+            )
     return JSONResponse({"ok": True})
 
 
@@ -1389,9 +1412,15 @@ async def profile_documents(
                 flash(request, f"{field}: file too large. Maximum is 10 MB.", "error")
                 return RedirectResponse("/profile", status_code=302)
             fname = f"{field.upper()}_{user['id']}_{uuid.uuid4().hex[:8]}.pdf"
-            dest = os.path.join(UPLOAD_DIR, "docs", fname)
-            with open(dest, "wb") as f:
-                f.write(content)
+            docs_dir = os.path.join(UPLOAD_DIR, "docs")
+            dest = os.path.join(docs_dir, fname)
+            try:
+                os.makedirs(docs_dir, exist_ok=True)
+                with open(dest, "wb") as f:
+                    f.write(content)
+            except OSError:
+                flash(request, f"{field}: upload failed due to a server storage error. Please contact IT/Admin.", "error")
+                return RedirectResponse("/profile", status_code=302)
             updates[field] = f"docs/{fname}"
 
     # Expiry dates (save even without new file upload)
@@ -1417,6 +1446,24 @@ async def profile_documents(
 
 
 # ── Kanban Board ───────────────────────────────────────────────────────────────
+def notify_task_stakeholders(conn, task_id: int, actor_id: int, actor_name: str, title: str, body: str):
+    """Notify the card's assignee (doer) and reviewer about a change, excluding whoever made it."""
+    task = conn.execute("SELECT emp_id, reviewer_name FROM work_logs WHERE id=?", (task_id,)).fetchone()
+    if not task:
+        return
+    notified_ids = {actor_id}
+    if task["emp_id"] and task["emp_id"] not in notified_ids:
+        push_notification(conn, task["emp_id"], title, body, "/kanban")
+        notified_ids.add(task["emp_id"])
+    if task["reviewer_name"]:
+        reviewer = conn.execute(
+            "SELECT id FROM employees WHERE name=? AND is_active=1", (task["reviewer_name"],)
+        ).fetchone()
+        if reviewer and reviewer["id"] not in notified_ids:
+            push_notification(conn, reviewer["id"], title, body, "/kanban")
+            notified_ids.add(reviewer["id"])
+
+
 @app.get("/kanban", response_class=HTMLResponse)
 async def kanban_page(request: Request):
     user = require_user(request)
@@ -1459,7 +1506,7 @@ async def move_task(request: Request, task_id: int):
     if new_status not in all_statuses:
         return JSONResponse({"error": "Invalid status"}, status_code=400)
     with get_db() as conn:
-        task = conn.execute("SELECT status, emp_id FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute("SELECT status, emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
         old_status = task["status"]
@@ -1473,6 +1520,10 @@ async def move_task(request: Request, task_id: int):
         if old_status != new_status:
             log_card_activity(conn, task_id, user["name"], "status_changed",
                               f"{old_status} → {new_status}")
+            title_short = (task["task_title"] or "")[:50]
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "📋 Card Moved",
+                f'{user["name"]} moved "{title_short}" from {old_status} to {new_status}.')
     return JSONResponse({"ok": True, "actual_status": new_status})
 
 
@@ -1480,6 +1531,7 @@ async def move_task(request: Request, task_id: int):
 async def review_task(request: Request, task_id: int):
     user = require_user(request)
     with get_db() as conn:
+        task = conn.execute("SELECT task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if user["role"] in ("HR Manager", "Admin"):
             conn.execute(
                 "UPDATE work_logs SET status='Done', hr_reviewed_by=? WHERE id=? AND status='For Review'",
@@ -1491,6 +1543,11 @@ async def review_task(request: Request, task_id: int):
                 (user["name"], task_id, user["id"]),
             )
         log_card_activity(conn, task_id, user["name"], "reviewed", "Marked Done via review")
+        if task:
+            title_short = (task["task_title"] or "")[:50]
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "✅ Card Reviewed",
+                f'{user["name"]} reviewed and marked "{title_short}" as Done.')
     flash(request, "Task reviewed and marked Done.")
     return RedirectResponse("/kanban", status_code=302)
 
@@ -1522,11 +1579,17 @@ async def return_task(request: Request, task_id: int, return_note: str = Form(""
 async def approve_task(request: Request, task_id: int):
     user = require_role(request, "Admin")
     with get_db() as conn:
+        task = conn.execute("SELECT task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         conn.execute(
             "UPDATE work_logs SET admin_approved_by=? WHERE id=?",
             (user["name"], task_id),
         )
         log_card_activity(conn, task_id, user["name"], "approved", "Admin approved")
+        if task:
+            title_short = (task["task_title"] or "")[:50]
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "🔒 Card Approved",
+                f'{user["name"]} approved "{title_short}".')
     flash(request, "Task approved.")
     return RedirectResponse("/kanban", status_code=302)
 
@@ -1536,12 +1599,18 @@ async def add_comment(request: Request, task_id: int, comment_text: str = Form(.
     user = require_user(request)
     now_str = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
+        task = conn.execute("SELECT task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         conn.execute(
             "INSERT INTO card_comments (card_id, author_name, comment_text, timestamp) VALUES (?, ?, ?, ?)",
             (task_id, user["name"], comment_text, now_str),
         )
         log_card_activity(conn, task_id, user["name"], "commented",
                           comment_text[:120] if len(comment_text) > 120 else comment_text)
+        if task:
+            title_short = (task["task_title"] or "")[:50]
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "💬 New Comment",
+                f'{user["name"]} commented on "{title_short}": {comment_text[:100]}')
     return JSONResponse({"ok": True, "comment": {
         "author_name": user["name"],
         "comment_text": comment_text,
@@ -1591,6 +1660,10 @@ async def task_file_upload(
         new_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "file_uploaded",
                           f"{label.capitalize()}: {fname}")
+        title_short = (card["task_title"] or "")[:50]
+        notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+            "📎 File Uploaded",
+            f'{user["name"]} uploaded {label.lower()} file "{fname}" to "{title_short}".')
     return JSONResponse({
         "ok":              True,
         "id":              new_id,
@@ -1637,7 +1710,7 @@ async def task_detail(request: Request, task_id: int):
             (task_id,),
         ).fetchall()
         activities = conn.execute(
-            "SELECT * FROM card_activities WHERE card_id=? ORDER BY created_at ASC",
+            "SELECT * FROM card_activities WHERE card_id=? ORDER BY created_at DESC, id DESC",
             (task_id,),
         ).fetchall()
         all_employees = conn.execute(
@@ -1700,12 +1773,6 @@ async def transfer_task(request: Request, task_id: int):
         ).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        # Only the card owner, reviewer, or HR/Admin can transfer
-        is_owner    = task["emp_id"] == user["id"]
-        is_reviewer = task["reviewer_name"] == user["name"]
-        is_manager  = user["role"] in ("HR Manager", "Admin")
-        if not (is_owner or is_reviewer or is_manager):
-            return JSONResponse({"error": "Not authorized"}, status_code=403)
         new_emp = conn.execute("SELECT id, name FROM employees WHERE id=? AND is_active=1", (new_emp_id,)).fetchone()
         if not new_emp:
             return JSONResponse({"error": "Employee not found"}, status_code=404)
@@ -1750,16 +1817,18 @@ async def set_due_date(request: Request, task_id: int):
     data = await request.json()
     new_due = data.get("due_date", "")
     with get_db() as conn:
-        task = conn.execute("SELECT due_date, emp_id FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute("SELECT due_date, emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        if user["role"] not in ("HR Manager", "Admin") and task["emp_id"] != user["id"]:
-            return JSONResponse({"error": "Not authorized"}, status_code=403)
         old_due = task["due_date"] or ""
         conn.execute("UPDATE work_logs SET due_date=? WHERE id=?", (new_due or None, task_id))
         if old_due != new_due:
             detail = f"{old_due or 'none'} → {new_due or 'removed'}"
             log_card_activity(conn, task_id, user["name"], "due_date_changed", detail)
+            title_short = (task["task_title"] or "")[:50]
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "🗓 Deadline Changed",
+                f'{user["name"]} changed the deadline for "{title_short}": {detail}.')
     return JSONResponse({"ok": True})
 
 
@@ -1892,8 +1961,10 @@ async def clients_page(request: Request):
         clients = [dict(r) for r in conn.execute(
             "SELECT * FROM clients ORDER BY sort_order, name"
         ).fetchall()]
-    return templates.TemplateResponse(request, "admin/clients.html",
-        {"user": user, "clients": clients, "flash": get_flash(request)})
+    return templates.TemplateResponse(request, "admin/clients.html", {
+        "user": user, "clients": clients, "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
 
 
 @app.post("/api/clients")
@@ -2258,6 +2329,21 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
                     (p["emp_id"], cur.lastrowid, week_start, week_end,
                      p["gross_pay"], p["total_deductions"], p["net_pay"], user["name"]),
                 )
+                # Default per-loan deduction allocations — HR/Admin can edit these
+                # amounts individually before approval (see edit-loan-deduction).
+                if p["is_last_cutoff"]:
+                    active_loans = conn.execute(
+                        "SELECT id, installment_amount, balance_remaining FROM employee_loans WHERE emp_id=? AND status='Active'",
+                        (p["emp_id"],)
+                    ).fetchall()
+                    for loan in active_loans:
+                        default_amt = round(min(loan["installment_amount"], loan["balance_remaining"]), 2)
+                        if default_amt > 0:
+                            conn.execute(
+                                """INSERT INTO payroll_loan_allocations (payroll_run_id, loan_id, amount, updated_by)
+                                   VALUES (?, ?, ?, ?)""",
+                                (cur.lastrowid, loan["id"], default_amt, "system"),
+                            )
         hr_staff = conn.execute(
             "SELECT id FROM employees WHERE role IN ('HR Manager','Admin') AND is_active=1"
         ).fetchall()
@@ -2284,30 +2370,47 @@ async def approve_payroll(request: Request, run_id: int):
                 (week_start,)
             ).fetchall()
             for r in pending_rows:
-                remaining = r["loan_deduction"] or 0
-                if not r["is_last_cutoff"] or remaining <= 0:
+                if not r["is_last_cutoff"]:
                     continue
-                loans = conn.execute(
-                    "SELECT * FROM employee_loans WHERE emp_id=? AND status='Active' ORDER BY created_at",
-                    (r["emp_id"],)
+                # Use HR/Admin's per-loan allocations for this run (see
+                # edit-loan-deduction) rather than re-deriving a spread from each
+                # loan's fixed installment_amount, so manual overrides are honored.
+                allocations = conn.execute(
+                    """SELECT pla.loan_id, pla.amount, l.balance_remaining
+                       FROM payroll_loan_allocations pla JOIN employee_loans l ON l.id = pla.loan_id
+                       WHERE pla.payroll_run_id=? AND l.status='Active'""",
+                    (r["id"],)
                 ).fetchall()
-                for loan in loans:
-                    if remaining <= 0:
-                        break
-                    pay = min(loan["installment_amount"], loan["balance_remaining"], remaining)
+                if not allocations and (r["loan_deduction"] or 0) > 0:
+                    # Run predates per-loan allocations (generated before this feature
+                    # existed) — fall back to spreading across active loans by installment.
+                    remaining = r["loan_deduction"] or 0
+                    for loan in conn.execute(
+                        "SELECT id, installment_amount, balance_remaining FROM employee_loans WHERE emp_id=? AND status='Active' ORDER BY created_at",
+                        (r["emp_id"],)
+                    ).fetchall():
+                        if remaining <= 0:
+                            break
+                        amt = min(loan["installment_amount"], loan["balance_remaining"], remaining)
+                        if amt <= 0:
+                            continue
+                        remaining = round(remaining - amt, 2)
+                        allocations.append({"loan_id": loan["id"], "amount": amt, "balance_remaining": loan["balance_remaining"]})
+                for alloc in allocations:
+                    pay = min(alloc["amount"] or 0, alloc["balance_remaining"] or 0)
+                    pay = round(pay, 2)
                     if pay <= 0:
                         continue
-                    new_balance = round(loan["balance_remaining"] - pay, 2)
+                    new_balance = round(alloc["balance_remaining"] - pay, 2)
                     conn.execute(
                         "UPDATE employee_loans SET balance_remaining=?, status=? WHERE id=?",
-                        (new_balance, "Paid" if new_balance <= 0 else "Active", loan["id"]),
+                        (new_balance, "Paid" if new_balance <= 0 else "Active", alloc["loan_id"]),
                     )
                     conn.execute(
                         """INSERT INTO loan_payments (loan_id, payroll_run_id, week_start, week_end, amount, balance_after)
                            VALUES (?,?,?,?,?,?)""",
-                        (loan["id"], r["id"], r["week_start"], r["week_end"], pay, new_balance),
+                        (alloc["loan_id"], r["id"], r["week_start"], r["week_end"], pay, new_balance),
                     )
-                    remaining = round(remaining - pay, 2)
             conn.execute(
                 "UPDATE payroll_runs SET status='Approved', approved_by=? WHERE week_start=?",
                 (user["name"], week_start),
@@ -2392,6 +2495,98 @@ async def edit_payroll_rate(
             week_start = run["week_start"]
     flash(request, "Rate updated for this payroll run.")
     return RedirectResponse(f"/payroll?week={week_start}", status_code=302)
+
+
+@app.get("/api/payroll/{run_id}/loans")
+async def get_payroll_loan_allocations(request: Request, run_id: int):
+    """Active loans for this payroll run's employee, with their editable per-run deduction amount."""
+    require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        run = conn.execute("SELECT emp_id, status FROM payroll_runs WHERE id=?", (run_id,)).fetchone()
+        if not run:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        active_loans = conn.execute(
+            "SELECT id, installment_amount, balance_remaining FROM employee_loans WHERE emp_id=? AND status='Active' ORDER BY created_at",
+            (run["emp_id"],)
+        ).fetchall()
+        # Lazily create an allocation row for any active loan that doesn't have one yet
+        # (covers loans taken out after this payroll run was generated).
+        for loan in active_loans:
+            existing = conn.execute(
+                "SELECT id FROM payroll_loan_allocations WHERE payroll_run_id=? AND loan_id=?",
+                (run_id, loan["id"])
+            ).fetchone()
+            if not existing:
+                default_amt = round(min(loan["installment_amount"], loan["balance_remaining"]), 2)
+                conn.execute(
+                    "INSERT INTO payroll_loan_allocations (payroll_run_id, loan_id, amount, updated_by) VALUES (?,?,?,?)",
+                    (run_id, loan["id"], default_amt, "system")
+                )
+        allocations = conn.execute(
+            """SELECT pla.amount, l.id as loan_id, l.loan_type, l.balance_remaining, l.installment_amount
+               FROM payroll_loan_allocations pla JOIN employee_loans l ON l.id = pla.loan_id
+               WHERE pla.payroll_run_id=? ORDER BY l.created_at""",
+            (run_id,)
+        ).fetchall()
+    return JSONResponse({
+        "ok": True,
+        "locked": run["status"] == "Approved",
+        "loans": [dict(a) for a in allocations],
+    })
+
+
+@app.post("/api/payroll/{run_id}/edit-loan-deduction")
+async def edit_loan_deduction(
+    request: Request, run_id: int,
+    loan_id: int = Form(...), amount: float = Form(...),
+):
+    """HR/Admin sets how much of one specific loan to deduct this payroll cycle."""
+    user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        run = conn.execute("SELECT * FROM payroll_runs WHERE id=?", (run_id,)).fetchone()
+        if not run:
+            return JSONResponse({"error": "Not found"}, status_code=404)
+        if run["status"] == "Approved":
+            return JSONResponse({"error": "Payroll already approved — cannot edit."}, status_code=400)
+        loan = conn.execute(
+            "SELECT * FROM employee_loans WHERE id=? AND emp_id=?", (loan_id, run["emp_id"])
+        ).fetchone()
+        if not loan:
+            return JSONResponse({"error": "Loan not found for this employee"}, status_code=404)
+
+        amount = max(0.0, round(amount, 2))
+        if amount > loan["balance_remaining"]:
+            amount = round(loan["balance_remaining"], 2)
+
+        conn.execute(
+            """INSERT INTO payroll_loan_allocations (payroll_run_id, loan_id, amount, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, datetime('now','+8 hours'))
+               ON CONFLICT(payroll_run_id, loan_id) DO UPDATE SET
+                 amount=excluded.amount, updated_by=excluded.updated_by, updated_at=excluded.updated_at""",
+            (run_id, loan_id, amount, user["name"]),
+        )
+        total_loan = conn.execute(
+            "SELECT COALESCE(SUM(amount),0) FROM payroll_loan_allocations WHERE payroll_run_id=?",
+            (run_id,)
+        ).fetchone()[0]
+        total_loan = round(total_loan, 2)
+        other_deductions = round(
+            (run["sss_deduction"] or 0) + (run["philhealth_deduction"] or 0)
+            + (run["pagibig_deduction"] or 0) + (run["tax_deduction"] or 0), 2
+        )
+        new_total_deductions = round(other_deductions + total_loan, 2)
+        new_net_pay = round((run["gross_pay"] or 0) - new_total_deductions, 2)
+        conn.execute(
+            "UPDATE payroll_runs SET loan_deduction=?, total_deductions=?, net_pay=? WHERE id=?",
+            (total_loan, new_total_deductions, new_net_pay, run_id),
+        )
+        conn.execute(
+            "UPDATE payslip_logs SET total_deductions=?, net_pay=? WHERE payroll_run_id=?",
+            (new_total_deductions, new_net_pay, run_id),
+        )
+        audit(conn, user["id"], user["name"], "loan_deduction_edit", "payroll_loan_allocations", loan_id,
+              None, f"run={run_id} amount={amount}")
+    return JSONResponse({"ok": True, "amount": amount, "total_loan": total_loan, "net_pay": new_net_pay})
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3959,7 +4154,7 @@ async def my_timesheet(request: Request, week: str = None):
             "leave": lv,
             "leave_hours": leave_hours,
             "total": round(manual_hours + ot_hours + leave_hours, 2),
-            "is_weekend": date_type.fromisoformat(d).weekday() == 5,
+            "is_weekend": date_type.fromisoformat(d).weekday() in (5, 6),
         })
 
     total_computed = round(sum(r["computed"] for r in rows), 2)
@@ -6070,7 +6265,7 @@ async def hr_schedule(request: Request, week: str = ""):
     ws, _ = get_week_range()
     week_start = week or ws
 
-    # Build Mon–Sun dates for this week
+    # Build the 7 dates for this week (Thu–Wed)
     from datetime import date as _date
     try:
         base_date = _date.fromisoformat(week_start)
@@ -6818,6 +7013,11 @@ async def hr_compliance_admin(request: Request):
 @app.post("/hr/compliance/documents/{doc_id}/upload")
 async def hr_compliance_upload_pdf(request: Request, doc_id: int):
     user = require_role(request, "HR Manager", "Admin")
+    with get_db() as conn:
+        doc = conn.execute("SELECT title FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
+    if not doc:
+        flash(request, "Document not found.", "error")
+        return RedirectResponse("/hr/compliance", status_code=302)
     form = await request.form()
     pdf_file = form.get("pdf_file")
     if not pdf_file or not hasattr(pdf_file, "filename") or not pdf_file.filename:
@@ -6825,17 +7025,20 @@ async def hr_compliance_upload_pdf(request: Request, doc_id: int):
         return RedirectResponse("/hr/compliance", status_code=302)
     import os, aiofiles
     upload_dir = os.path.join("static", "compliance_docs")
-    os.makedirs(upload_dir, exist_ok=True)
     safe_name = f"doc_{doc_id}_{get_pht_now().strftime('%Y%m%d%H%M%S')}.pdf"
     save_path = os.path.join(upload_dir, safe_name)
-    async with aiofiles.open(save_path, "wb") as f:
-        await f.write(await pdf_file.read())
+    try:
+        os.makedirs(upload_dir, exist_ok=True)
+        async with aiofiles.open(save_path, "wb") as f:
+            await f.write(await pdf_file.read())
+    except OSError:
+        flash(request, "Upload failed due to a server storage error. Please contact IT/Admin.", "error")
+        return RedirectResponse("/hr/compliance", status_code=302)
     with get_db() as conn:
         conn.execute(
             "UPDATE compliance_documents SET file_path=?, updated_at=? WHERE id=?",
             (save_path, get_pht_now().isoformat(sep=" ", timespec="seconds"), doc_id)
         )
-        doc = conn.execute("SELECT title FROM compliance_documents WHERE id=?", (doc_id,)).fetchone()
     flash(request, f"PDF uploaded for '{doc['title']}'.", "success")
     return RedirectResponse("/hr/compliance", status_code=302)
 
