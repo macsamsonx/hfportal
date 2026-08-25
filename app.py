@@ -177,7 +177,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"]  = "nosniff"
-        response.headers["X-Frame-Options"]          = "DENY"
+        response.headers["X-Frame-Options"]          = "SAMEORIGIN"
         response.headers["X-XSS-Protection"]         = "1; mode=block"
         response.headers["Referrer-Policy"]          = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"]       = "geolocation=(), microphone=(), camera=()"
@@ -187,7 +187,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
-            "frame-src https://www.google.com; "
+            "frame-src 'self' https://www.google.com; "
             "connect-src 'self' https://www.google.com;"
         )
         return response
@@ -244,7 +244,7 @@ for _ud in [
     except (PermissionError, OSError):
         pass
 # static/img and static/uploads must stay world-writable so both the app and rsync can write
-for _sd in ["static/img", "static/uploads", "static/uploads/bank_qr"]:
+for _sd in ["static/img", "static/uploads", "static/uploads/bank_qr", "static/compliance_docs"]:
     try:
         os.makedirs(_sd, mode=0o777, exist_ok=True)
         os.chmod(_sd, 0o777)
