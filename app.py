@@ -4067,7 +4067,7 @@ async def my_timesheet(request: Request, week: str = None):
     ws = date_type.fromisoformat(week_start)
     prev_week = (ws - timedelta(days=7)).strftime("%Y-%m-%d")
     next_week = (ws + timedelta(days=7)).strftime("%Y-%m-%d")
-    days = [(ws + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6)]
+    days = [(ws + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)]
 
     with get_db() as conn:
         submission = conn.execute(
@@ -4228,7 +4228,7 @@ async def timesheet_save(request: Request):
 
         conn.execute("DELETE FROM timesheet_entries WHERE submission_id=?", (sub_id,))
 
-        for i in range(6):
+        for i in range(7):
             d = (ws + timedelta(days=i)).strftime("%Y-%m-%d")
             try:
                 manual_h = max(0.0, float(form.get(f"manual_{d}") or 0))
