@@ -86,8 +86,13 @@
   <div class="tr-grid" style="margin-bottom:28px;">
     {% for t in assigned %}{{ training_card(t) }}{% endfor %}
   </div>
+{% elif not is_editor %}
+  <div class="empty-state"><div class="emoji">{{ icon('cap', 32) }}</div>
+    <p>No trainings assigned to you yet. They'll appear here when your lead assigns one.</p>
+  </div>
 {% endif %}
 
+{% if is_editor %}
 <div class="tr-section-title">Library</div>
 <div class="tr-toolbar">
   <input type="text" id="tr-search" class="form-input" placeholder="🔍 Search trainings…">
@@ -103,9 +108,10 @@
     {% for t in trainings %}{{ training_card(t) }}{% endfor %}
   </div>
 {% else %}
-  <div class="empty-state"><div class="emoji">🎓</div>
-    <p>No trainings yet.{% if is_editor %} Create the first one with <strong>+ New Training</strong>.{% endif %}</p>
+  <div class="empty-state"><div class="emoji">{{ icon('cap', 32) }}</div>
+    <p>No trainings yet. Create the first one with <strong>+ New Training</strong>.</p>
   </div>
+{% endif %}
 {% endif %}
 {% endblock %}
 

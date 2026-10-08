@@ -8100,6 +8100,16 @@ def _training_kind(mime: str, name: str) -> str:
     return "file"
 
 
+def _can_view_training(conn, user: dict, training) -> bool:
+    """Editors see every training; everyone else only published ones assigned to them."""
+    if user["role"] in TRAINING_EDITOR_ROLES:
+        return True
+    if not training["is_published"]:
+        return False
+    return conn.execute("SELECT 1 FROM training_assignments WHERE training_id=? AND emp_id=?",
+                        (training["id"], user["id"])).fetchone() is not None
+
+
 def _can_edit_training(user: dict, training) -> bool:
     if user["role"] in ("Admin", "HR Manager"):
         return True
@@ -8124,7 +8134,7 @@ async def training_home(request: Request):
                        ON c.training_id=x.training_id AND c.emp_id=x.emp_id WHERE x.training_id=t.id) AS assigned_done
                FROM trainings t
                LEFT JOIN training_assignments a ON a.training_id=t.id AND a.emp_id=?
-               {'' if is_editor else 'WHERE t.is_published=1'}
+               {'' if is_editor else 'WHERE t.is_published=1 AND a.id IS NOT NULL'}
                ORDER BY t.created_at DESC""",
             (user["id"], user["id"]),
         ).fetchall()
@@ -8225,7 +8235,8 @@ async def training_detail(request: Request, training_id: int):
     user = require_user(request)
     with get_db() as conn:
         t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
-        if not t or (not t["is_published"] and user["role"] not in TRAINING_EDITOR_ROLES):
+        if not t or not _can_view_training(conn, user, t):
+            flash(request, "That training isn't assigned to you.", "error")
             return RedirectResponse("/training", status_code=302)
         files = [dict(f) for f in conn.execute(
             "SELECT * FROM training_files WHERE training_id=? ORDER BY kind, id", (training_id,))]
@@ -8307,8 +8318,8 @@ async def training_file_delete(request: Request, file_id: int):
 async def training_complete(request: Request, training_id: int):
     user = require_user(request)
     with get_db() as conn:
-        t = conn.execute("SELECT id, title, created_by_id FROM trainings WHERE id=?", (training_id,)).fetchone()
-        if not t:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t or not _can_view_training(conn, user, t):
             return JSONResponse({"ok": False}, status_code=404)
         done = conn.execute("SELECT 1 FROM training_completions WHERE training_id=? AND emp_id=?",
                             (training_id, user["id"])).fetchone()
@@ -8330,8 +8341,8 @@ async def training_comment(request: Request, training_id: int):
     if not body:
         return JSONResponse({"ok": False}, status_code=400)
     with get_db() as conn:
-        t = conn.execute("SELECT id, title, created_by_id FROM trainings WHERE id=?", (training_id,)).fetchone()
-        if not t:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t or not _can_view_training(conn, user, t):
             return JSONResponse({"ok": False}, status_code=404)
         cid = conn.execute(
             "INSERT INTO training_comments (training_id, emp_id, author_name, body) VALUES (?,?,?,?)",

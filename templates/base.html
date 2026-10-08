@@ -574,7 +574,7 @@
             <textarea id="msg-input" rows="1"
                    placeholder="Message…"
                    style="flex:1;padding:7px 10px;border:1px solid var(--border,#e2e8f0);border-radius:12px;font-size:.82rem;outline:none;background:var(--surface-2,#fafafa);resize:none;line-height:1.45;max-height:90px;overflow-y:auto;font-family:inherit;color:var(--text);"
-                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMsg();}"
+                   onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.parentNode.querySelector('.mention-drop.open')){event.preventDefault();sendMsg();}"
                    oninput="this.style.height='auto';this.style.height=Math.min(this.scrollHeight,90)+'px';"></textarea>
             <button onclick="sendMsg()" title="Send" style="background:var(--primary);color:#fff;border:none;border-radius:50%;width:34px;height:34px;font-size:1rem;cursor:pointer;flex-shrink:0;margin-bottom:1px;">↑</button>
           </div>
@@ -605,6 +605,12 @@
     const _senderColor = id => _SENDER_COLORS[Math.abs(id) % _SENDER_COLORS.length];
     const _e = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
     let _msgSenders = {};
+    let _msgNames = [];   // people you can @mention (from the contact list)
+    // @mention suggestions — attachMentionAutocomplete() lives in app.js, loaded after this script
+    document.addEventListener('DOMContentLoaded', () => {
+      attachMentionAutocomplete(document.getElementById('msg-input'), () => _msgNames,
+                                { groups: () => _msgRoom === 'group' });
+    });
     function _msgAvatar(p, size) {
       const vip = (typeof vipClass === 'function') ? vipClass(p.role) : '';
       const base = `width:${size}px;height:${size}px;border-radius:50%;flex-shrink:0;`;
@@ -627,6 +633,7 @@
         return r.json();
       }).then(data=>{
         const el = document.getElementById('msg-contacts');
+        _msgNames = (data.contacts || []).filter(c => !c.is_group).map(c => c.name);
         if (!data.contacts || !data.contacts.length) { el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:.8rem;padding:20px;">No contacts yet.</div>'; return; }
         el.innerHTML = data.contacts.map(c => {
           const avatarHtml = c.is_group
@@ -709,7 +716,7 @@
             <div style="max-width:80%;padding:7px 11px;border-radius:${mine?'14px 14px 4px 14px':'14px 14px 14px 4px'};
                  background:${mine?'var(--primary)':'var(--surface-2,#f1f5f9)'};
                  color:${mine?'#fff':'var(--text)'};font-size:.8rem;line-height:1.4;word-break:break-word;">
-              ${m.body ? _e(m.body).replace(/\n/g,'<br>') : ''}${attachHtml}
+              ${m.body ? highlightMentions(_e(m.body), _msgNames.concat([{{ user.name | tojson }}])).replace(/\n/g,'<br>') : ''}${attachHtml}
             </div>
             <div style="font-size:.6rem;color:var(--muted);margin-top:2px;padding:0 4px;">${m.created_at ? m.created_at.slice(11,16) : ''}</div>`;
           el.appendChild(div);
@@ -837,7 +844,7 @@
   </div>
 
 </div>
-<script src="/static/js/app.js?v=5"></script>
+<script src="/static/js/app.js?v=6"></script>
 {% block extra_js %}{% endblock %}
 <script>
 // Global search

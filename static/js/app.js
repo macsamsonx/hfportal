@@ -741,9 +741,13 @@ function highlightMentions(html, names) {
 
 const MENTION_GROUPS = ['everyone', 'teamlead', 'admin', 'hr', 'morningshift', 'nightshift'];
 
-function attachMentionAutocomplete(input, names) {
-  if (!input || !names || !names.length) return;
-  names = MENTION_GROUPS.concat(names);
+// names: array, or a function returning the current list.
+// opts.groups: include @groups (boolean, or a function checked on each keystroke).
+function attachMentionAutocomplete(input, names, opts = {}) {
+  if (!input || input._mentionReady) return;
+  input._mentionReady = true;
+  const peopleNow = () => (typeof names === 'function' ? names() : names) || [];
+  const groupsOn = () => typeof opts.groups === 'function' ? opts.groups() : opts.groups !== false;
   const drop = document.createElement('div');
   drop.className = 'mention-drop';
   input.parentNode.style.position = 'relative';
@@ -762,7 +766,8 @@ function attachMentionAutocomplete(input, names) {
     if (!m) return close();
     const q = m[1].toLowerCase();
     start = input.selectionStart - m[1].length - 1;
-    const matches = names.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+    const pool = (groupsOn() ? MENTION_GROUPS : []).concat(peopleNow());
+    const matches = pool.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
     if (!matches.length) return close();
     drop.innerHTML = matches.map(n =>
       `<div class="mention-opt" data-name="${esc(n)}">${MENTION_GROUPS.includes(n) ? '📢' : '👤'} ${esc(n)}</div>`).join('');
@@ -772,13 +777,14 @@ function attachMentionAutocomplete(input, names) {
   });
   input.addEventListener('keydown', e => {
     if (!drop.classList.contains('open')) return;
-    const opts = drop.querySelectorAll('.mention-opt');
+    const items = drop.querySelectorAll('.mention-opt');
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
-      sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
-      opts.forEach((o, i) => o.classList.toggle('sel', i === sel));
-    } else if ((e.key === 'Enter' || e.key === 'Tab') && sel >= 0) {
-      e.preventDefault(); choose(opts[sel].dataset.name);
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+      items.forEach((o, i) => o.classList.toggle('sel', i === sel));
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      // Enter picks the highlighted (or first) suggestion instead of sending
+      e.preventDefault(); e.stopImmediatePropagation(); choose(items[sel >= 0 ? sel : 0].dataset.name);
     } else if (e.key === 'Escape') { e.stopPropagation(); close(); }
   });
   input.addEventListener('blur', () => setTimeout(close, 150));
