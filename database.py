@@ -1297,6 +1297,60 @@ def init_db():
                 UNIQUE(emp_id, day_num)
             )""")
 
+        # ── Training library (cards with text, video, files, comments) ─────────────
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS trainings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                body TEXT,                      -- sanitized rich text
+                category TEXT,
+                video_drive_id TEXT,            -- Google Drive file, embedded via /preview
+                cover_color TEXT DEFAULT '#3b82f6',
+                is_published INTEGER DEFAULT 1,
+                created_by_id INTEGER,
+                created_by_name TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                updated_at TEXT
+            );
+            CREATE TABLE IF NOT EXISTS training_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                training_id INTEGER NOT NULL,
+                kind TEXT NOT NULL,             -- image | pdf | video | file
+                drive_id TEXT NOT NULL,
+                file_name TEXT,
+                file_size INTEGER DEFAULT 0,
+                uploaded_by_name TEXT,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(training_id) REFERENCES trainings(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS training_assignments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                training_id INTEGER NOT NULL,
+                emp_id INTEGER NOT NULL,
+                assigned_by_name TEXT,
+                due_date TEXT,
+                assigned_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                UNIQUE(training_id, emp_id),
+                FOREIGN KEY(training_id) REFERENCES trainings(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS training_completions (
+                training_id INTEGER NOT NULL,
+                emp_id INTEGER NOT NULL,
+                completed_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                PRIMARY KEY(training_id, emp_id),
+                FOREIGN KEY(training_id) REFERENCES trainings(id) ON DELETE CASCADE
+            );
+            CREATE TABLE IF NOT EXISTS training_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                training_id INTEGER NOT NULL,
+                emp_id INTEGER,
+                author_name TEXT NOT NULL,
+                body TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                FOREIGN KEY(training_id) REFERENCES trainings(id) ON DELETE CASCADE
+            );
+        """)
+
         # ── Seed onboarding questions (runs once) ─────────────────────────────────
         if not conn.execute("SELECT 1 FROM onboarding_modules WHERE is_seeded=1 LIMIT 1").fetchone():
             _seed_onboarding(conn)
@@ -1921,8 +1975,7 @@ def get_unread_count(user_id: int) -> int:
     with get_db() as conn:
         row = conn.execute(
             """SELECT COUNT(*) FROM notifications
-               WHERE user_id=? AND is_read=0
-               AND (link IS NULL OR link NOT LIKE '/chat%')""",
+               WHERE user_id=? AND is_read=0""",
             (user_id,)
         ).fetchone()
     return row[0] if row else 0

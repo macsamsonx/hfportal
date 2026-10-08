@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Training{% endblock %}
+{% block page_title %}Training{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tr-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
+  .tr-card { display:flex; flex-direction:column; background:var(--surface); border:1px solid var(--border);
+             border-radius:14px; overflow:hidden; text-decoration:none; color:var(--text);
+             transition:transform .15s, box-shadow .15s; }
+  .tr-card:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(0,0,0,.10); }
+  .tr-cover { height:92px; position:relative; display:flex; align-items:flex-end; padding:12px 14px;
+              background:linear-gradient(135deg, var(--c), color-mix(in srgb, var(--c) 55%, #000)); color:#fff; }
+  .tr-cover .tr-play { position:absolute; right:14px; top:14px; width:38px; height:38px; border-radius:50%;
+              background:rgba(255,255,255,.22); display:flex; align-items:center; justify-content:center; font-size:1rem; }
+  .tr-cat { font-size:.62rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; opacity:.9; }
+  .tr-body { padding:12px 14px 14px; display:flex; flex-direction:column; gap:8px; flex:1; }
+  .tr-title { font-weight:800; font-size:.95rem; line-height:1.3; }
+  .tr-meta { display:flex; gap:10px; flex-wrap:wrap; font-size:.72rem; color:var(--muted); margin-top:auto; }
+  .tr-status { font-size:.66rem; font-weight:800; padding:2px 8px; border-radius:99px; align-self:flex-start; }
+  .tr-done   { background:#dcfce7; color:#15803d; }
+  .tr-due    { background:#fef3c7; color:#92400e; }
+  .tr-late   { background:#fee2e2; color:#b91c1c; }
+  .tr-draft  { background:var(--surface-2); color:var(--muted); }
+  .tr-toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  .tr-toolbar .form-input, .tr-toolbar .form-select { width:auto; height:34px; font-size:.82rem; }
+  .tr-section-title { font-size:.78rem; font-weight:800; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); margin:6px 0 12px; }
+  .tr-progress { height:5px; border-radius:99px; background:var(--border); overflow:hidden; }
+  .tr-progress > div { height:100%; background:#10b981; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>🎓 Training</h2>
+    <p>Lessons, videos and guides — open a card to watch, comment and mark it complete.</p>
+  </div>
+  <div class="flex gap-8">
+    {% if user.role in ('HR Manager', 'Admin') %}
+      <a href="/hr/onboarding" class="btn btn-outline btn-sm">🧭 New-hire Onboarding</a>
+    {% elif has_onboarding %}
+      <a href="/onboarding" class="btn btn-outline btn-sm">🧭 My Onboarding Program</a>
+    {% endif %}
+    {% if is_editor %}<a href="/training/new" class="btn btn-primary btn-sm">+ New Training</a>{% endif %}
+  </div>
+</div>
+
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">{% if flash.kind == 'error' %}✗{% else %}✓{% endif %} {{ flash.msg }}</div>
+{% endif %}
+
+{% macro training_card(t, show_assignment=false) %}
+  <a href="/training/{{ t.id }}" class="tr-card" style="--c: {{ t.cover_color or '#3b82f6' }};"
+     data-search="{{ (t.title ~ ' ' ~ (t.category or '')) | lower }}" data-cat="{{ t.category or '' }}">
+    <div class="tr-cover">
+      <div>
+        <div class="tr-cat">{{ t.category or 'Training' }}</div>
+      </div>
+      {% if t.video_drive_id or t.video_count %}<div class="tr-play">▶</div>{% endif %}
+    </div>
+    <div class="tr-body">
+      <div class="tr-title">{{ t.title }}</div>
+      {% if not t.is_published %}<span class="tr-status tr-draft">Draft — only editors can see it</span>
+      {% elif t.my_completed_at %}<span class="tr-status tr-done">✓ Completed</span>
+      {% elif t.my_assignment_id and t.my_due_date and t.my_due_date < today %}<span class="tr-status tr-late">Overdue · {{ t.my_due_date }}</span>
+      {% elif t.my_assignment_id %}<span class="tr-status tr-due">Assigned{% if t.my_due_date %} · due {{ t.my_due_date }}{% endif %}</span>{% endif %}
+      {% if is_editor and t.assigned_count %}
+        <div>
+          <div class="text-xs text-muted" style="margin-bottom:4px;">{{ t.assigned_done }}/{{ t.assigned_count }} assigned completed</div>
+          <div class="tr-progress"><div style="width:{{ (t.assigned_done * 100 / t.assigned_count) | int }}%"></div></div>
+        </div>
+      {% endif %}
+      <div class="tr-meta">
+        {% if t.video_drive_id or t.video_count %}<span>🎬 Video</span>{% endif %}
+        {% if t.pdf_count %}<span>📄 {{ t.pdf_count }} PDF</span>{% endif %}
+        {% if t.image_count %}<span>🖼️ {{ t.image_count }}</span>{% endif %}
+        <span>💬 {{ t.comment_count }}</span>
+      </div>
+    </div>
+  </a>
+{% endmacro %}
+
+{% if assigned %}
+  <div class="tr-section-title">Assigned to you</div>
+  <div class="tr-grid" style="margin-bottom:28px;">
+    {% for t in assigned %}{{ training_card(t) }}{% endfor %}
+  </div>
+{% endif %}
+
+<div class="tr-section-title">Library</div>
+<div class="tr-toolbar">
+  <input type="text" id="tr-search" class="form-input" placeholder="🔍 Search trainings…">
+  {% if categories %}
+  <select id="tr-cat" class="form-select" aria-label="Category">
+    <option value="">All categories</option>
+    {% for c in categories %}<option value="{{ c }}">{{ c }}</option>{% endfor %}
+  </select>
+  {% endif %}
+</div>
+{% if trainings %}
+  <div class="tr-grid" id="tr-library">
+    {% for t in trainings %}{{ training_card(t) }}{% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state"><div class="emoji">🎓</div>
+    <p>No trainings yet.{% if is_editor %} Create the first one with <strong>+ New Training</strong>.{% endif %}</p>
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const search = document.getElementById('tr-search');
+  const cat = document.getElementById('tr-cat');
+  function apply() {
+    const q = (search?.value || '').toLowerCase();
+    const c = cat?.value || '';
+    document.querySelectorAll('#tr-library .tr-card').forEach(el => {
+      el.style.display = (!q || el.dataset.search.includes(q)) && (!c || el.dataset.cat === c) ? '' : 'none';
+    });
+  }
+  search?.addEventListener('input', apply);
+  cat?.addEventListener('change', apply);
+})();
+</script>
+{% endblock %}

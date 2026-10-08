@@ -1,0 +1,120 @@
+{# Shared "add task" form — used by the Kanban modal and the dashboard.
+   Needs: clients, all_employees, user, csrf_token.
+   Optional: task_form_next (redirect after save), task_form_status (default status),
+             task_form_compact (dashboard sidebar layout). #}
+{% set _status = task_form_status or 'Todo' %}
+<form method="post" action="/api/tasks" id="add-task-form" class="task-form">
+  <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+  <input type="hidden" name="next" value="{{ task_form_next or '' }}">
+  <input type="hidden" name="input_drive_id"   id="at-input-drive-id">
+  <input type="hidden" name="input_file_name"  id="at-input-file-name">
+  <input type="hidden" name="input_file_size"  id="at-input-file-size">
+  <input type="hidden" name="notes" id="kb-notes-val">
+
+  <div class="form-group mb-12">
+    <label class="form-label">Task Title <span style="color:red">*</span></label>
+    <input type="text" name="task_title" class="form-input" required maxlength="200" placeholder="What needs to be done?">
+  </div>
+
+  <div class="tf-grid {% if task_form_compact %}tf-compact{% endif %}">
+    <div class="form-group">
+      <label class="form-label">Client</label>
+      <select name="client" class="form-select">
+        <option value="">— No client —</option>
+        {% for c in clients | sort(attribute='name', case_sensitive=false) %}
+        <option value="{{ c.name }}">{{ c.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Assign To</label>
+      <select name="assigned_emp_id" class="form-select">
+        <option value="">Me ({{ user.name }})</option>
+        {% for e in all_employees | sort(attribute='name', case_sensitive=false) if e.id != user.id %}
+        <option value="{{ e.id }}">{{ e.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <select name="status" class="form-select">
+        <option value="Todo" {% if _status == 'Todo' %}selected{% endif %}>⬜ To do</option>
+        <option value="In Progress" {% if _status == 'In Progress' %}selected{% endif %}>🔵 In progress</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Urgency</label>
+      <select name="urgency" class="form-select">
+        <option value="Low">🟢 Low</option>
+        <option value="Normal" selected>⚪ Normal</option>
+        <option value="High">🟡 High</option>
+        <option value="Critical">🔴 Critical</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Due Date</label>
+      <input type="date" name="due_date" class="form-input">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Est. Hours</label>
+      <input type="number" name="estimated_hours" class="form-input" min="0.25" max="200" step="0.25" placeholder="e.g. 2">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Hours Worked <span class="text-xs text-muted">(so far)</span></label>
+      <input type="number" name="hours_worked" class="form-input" min="0" max="200" step="0.25" placeholder="0">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Output Link</label>
+      <input type="text" name="output_files" class="form-input" placeholder="Google Drive link…">
+    </div>
+  </div>
+
+  <div class="form-group mb-12">
+    <label class="form-label">Input File / Brief <span style="font-size:.72rem;color:var(--muted);">(optional — uploads to Drive)</span></label>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <label class="btn btn-outline btn-sm" for="at-input-file-pick"
+             style="cursor:pointer;margin:0;font-size:.78rem;" id="at-file-label">📎 Choose File</label>
+      <input type="file" id="at-input-file-pick" style="display:none;">
+      <span id="at-file-status" style="font-size:.75rem;color:var(--muted);"></span>
+    </div>
+  </div>
+
+  <div class="form-group mb-12">
+    <label class="form-label">Notes</label>
+    <div class="rte-wrap">
+      <div class="rte-toolbar">
+        <button type="button" title="Bold" onmousedown="event.preventDefault();taskFormRte('bold')"><b>B</b></button>
+        <button type="button" title="Italic" onmousedown="event.preventDefault();taskFormRte('italic')"><i>I</i></button>
+        <button type="button" title="Underline" onmousedown="event.preventDefault();taskFormRte('underline')"><u>U</u></button>
+        <button type="button" title="Bullet list" onmousedown="event.preventDefault();taskFormRte('insertUnorderedList')">•</button>
+        <button type="button" title="Numbered list" onmousedown="event.preventDefault();taskFormRte('insertOrderedList')">1.</button>
+      </div>
+      <div id="kb-notes-rte" class="rte-body" contenteditable="true"
+           data-placeholder="Steps, deliverables, context…"></div>
+    </div>
+  </div>
+
+  <div class="form-group mb-12" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:.84rem;">
+      <input type="checkbox" name="is_recurring" value="1"
+             onchange="document.getElementById('at-recur-freq-wrap').style.display=this.checked?'flex':'none'">
+      🔁 Recurring task
+    </label>
+    <div id="at-recur-freq-wrap" style="display:none;align-items:center;gap:6px;">
+      <label style="font-size:.78rem;color:var(--muted);">Every</label>
+      <select name="recur_freq" class="form-select" style="width:auto;">
+        <option value="daily">Day</option>
+        <option value="weekly" selected>Week</option>
+        <option value="biweekly">2 Weeks</option>
+        <option value="monthly">Month</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="flex gap-8" style="justify-content:flex-end;">
+    {% if not task_form_compact %}
+    <button type="button" class="btn btn-outline btn-sm" onclick="closeModal('add-task-modal')">Cancel</button>
+    {% endif %}
+    <button type="submit" class="btn btn-primary {% if task_form_compact %}btn-full{% else %}btn-sm{% endif %}" id="at-submit-btn">+ Create Task</button>
+  </div>
+</form>

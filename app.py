@@ -113,7 +113,7 @@ def _get_csrf_token(request: Request) -> str:
     return request.session["csrf_token"]
 
 # ── App bootstrap ──────────────────────────────────────────────────────────────
-app = FastAPI(title="Employee Portal")
+app = FastAPI(title="HF Hub")
 _SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-only-insecure-secret")
 # ── CSRF middleware ────────────────────────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -189,8 +189,9 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self' 'unsafe-inline' https://www.google.com https://www.gstatic.com; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:; "
-            "frame-src 'self' https://www.google.com; "
+            # Google Drive: chat photos/GIFs, training images and embedded videos/PDFs
+            "img-src 'self' data: blob: https://drive.google.com https://drive.usercontent.google.com https://*.googleusercontent.com; "
+            "frame-src 'self' https://www.google.com https://drive.google.com; "
             "connect-src 'self' https://www.google.com;"
         )
         return response
@@ -255,6 +256,7 @@ def _role_tag(role) -> _Markup:
 
 templates.env.globals["vip_class"] = _vip_class
 templates.env.globals["role_tag"] = _role_tag
+templates.env.globals["mention_groups"] = ["everyone", "teamlead", "admin", "hr", "morningshift", "nightshift"]
 init_db()
 
 # Ensure upload directories are writable by the app process at every startup.
@@ -369,6 +371,67 @@ def get_flash(request: Request) -> Optional[dict]:
     return request.session.pop("flash", None)
 
 
+_STALE_SHIFT_HOURS = 20   # an open shift older than this was a missed clock-out
+
+
+def _shift_start(att, now: datetime) -> Optional[datetime]:
+    """Real start datetime of a shift. clock_in is a bare time and date_logged is the
+    shift date, so a night shift clocked in after midnight sits on the previous date."""
+    if not att or not att["clock_in"]:
+        return None
+    try:
+        start = datetime.strptime(f'{att["date_logged"]} {att["clock_in"][:8]}', "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    if start > now:
+        start -= timedelta(days=1)
+    elif now - start > timedelta(hours=24):
+        start += timedelta(days=1)
+    return start
+
+
+def get_current_attendance(conn, user: dict) -> Optional[dict]:
+    """The shift the user is in now — an open shift may have started yesterday (past
+    midnight) — otherwise today's record for their shift date."""
+    now = get_pht_now().replace(tzinfo=None)
+    yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+    for row in conn.execute(
+        """SELECT * FROM attendance WHERE emp_id=? AND clock_in IS NOT NULL AND clock_out IS NULL
+           AND date_logged >= ? ORDER BY date_logged DESC, id DESC""",
+        (user["id"], yesterday),
+    ).fetchall():
+        start = _shift_start(row, now)
+        if start and now - start <= timedelta(hours=_STALE_SHIFT_HOURS):
+            return dict(row)
+    row = conn.execute(
+        "SELECT * FROM attendance WHERE emp_id=? AND date_logged=?",
+        (user["id"], get_today_date(user["shift_type"])),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def shift_timer_ctx(conn, att: Optional[dict]) -> dict:
+    """Data the live shift timers need: ISO start (+08:00), finished-break seconds,
+    and the open break's start if on break."""
+    if not att or not att.get("clock_in"):
+        return {}
+    now = get_pht_now().replace(tzinfo=None)
+    start = _shift_start(att, now)
+    if not start:
+        return {}
+    ctx = {"shift_start_iso": start.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+           "shift_break_sec": int(get_break_minutes(att["id"]) * 60)}
+    open_break = conn.execute(
+        "SELECT break_start FROM attendance_breaks WHERE att_id=? AND break_end IS NULL", (att["id"],)
+    ).fetchone()
+    if open_break:
+        bs = datetime.strptime(f'{start:%Y-%m-%d} {open_break["break_start"][:8]}', "%Y-%m-%d %H:%M:%S")
+        if bs < start:
+            bs += timedelta(days=1)
+        ctx["shift_break_start_iso"] = bs.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    return ctx
+
+
 def shared_ctx(user: dict, request: Request = None) -> dict:
     """Sidebar badge counts + CSRF token injected into every template response."""
     uid = user["id"]
@@ -403,21 +466,19 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
                 "SELECT COUNT(*) FROM work_logs WHERE emp_id=? AND status='For Review' AND COALESCE(is_archived,0)=0",
                 (uid,)
             ).fetchone()[0]
-            # Attendance pill data
-            today = get_pht_now().strftime("%Y-%m-%d")
-            att = conn.execute(
-                "SELECT clock_in, clock_out, is_on_break FROM attendance WHERE emp_id=? AND date_logged=?",
-                (uid, today)
-            ).fetchone()
-            if att and att["clock_in"] and not att["clock_out"]:
-                ctx["att_status"]   = "on_break" if att["is_on_break"] else "clocked_in"
-                ctx["att_clock_in"] = att["clock_in"][:5]
-            elif att and att["clock_in"] and att["clock_out"]:
-                ctx["att_status"]    = "clocked_out"
-                ctx["att_clock_in"]  = att["clock_in"][:5]
-                ctx["att_clock_out"] = att["clock_out"][:5]
-            else:
-                ctx["att_status"] = "not_clocked_in"
+    with get_db() as conn:
+        # Attendance pill data (anyone who clocks in — staff, and Admin/HR from My Dashboard)
+        att = get_current_attendance(conn, user)
+        if att and att["clock_in"] and not att["clock_out"]:
+            ctx["att_status"]   = "on_break" if att["is_on_break"] else "clocked_in"
+            ctx["att_clock_in"] = att["clock_in"][:5]
+            ctx.update(shift_timer_ctx(conn, att))
+        elif att and att["clock_in"] and att["clock_out"]:
+            ctx["att_status"]    = "clocked_out"
+            ctx["att_clock_in"]  = att["clock_in"][:5]
+            ctx["att_clock_out"] = att["clock_out"][:5]
+        elif role in STAFF_ROLES:
+            ctx["att_status"] = "not_clocked_in"
     ctx["vl_enabled"] = bool(user.get("vl_enabled", 1))
     ctx["sl_enabled"] = bool(user.get("sl_enabled", 1))
     ctx["now"] = get_pht_now().isoformat()
@@ -898,11 +959,8 @@ async def dashboard(request: Request):
     month_end = now_pht.strftime("%Y-%m-%d")
 
     with get_db() as conn:
-        attendance = conn.execute(
-            "SELECT * FROM attendance WHERE emp_id=? AND date_logged=?",
-            (user["id"], today),
-        ).fetchone()
-        attendance = dict(attendance) if attendance else None
+        attendance = get_current_attendance(conn, user)
+        shift_timer = shift_timer_ctx(conn, attendance)
 
         # Active break for this attendance
         active_break = None
@@ -913,11 +971,31 @@ async def dashboard(request: Request):
             ).fetchone()
             active_break = dict(active_break) if active_break else None
 
+        # This month's tasks, plus anything still open from earlier so unfinished
+        # work never drops off the log
         tasks_month = conn.execute(
-            "SELECT * FROM work_logs WHERE emp_id=? AND date_logged BETWEEN ? AND ? ORDER BY is_running DESC, date_logged DESC, timestamp DESC",
-            (user["id"], month_start, month_end),
+            """SELECT * FROM work_logs WHERE emp_id=?
+                 AND (date_logged BETWEEN ? AND ?
+                      OR (status != 'Done' AND COALESCE(is_archived,0)=0))
+               ORDER BY is_running DESC,
+                        CASE status WHEN 'In Progress' THEN 0 WHEN 'For Review' THEN 1 WHEN 'Todo' THEN 2 ELSE 3 END,
+                        date_logged DESC, timestamp DESC""",
+            (user["id"], month_start, max(month_end, today)),
         ).fetchall()
         tasks_month = [dict(t) for t in tasks_month]
+        for t in tasks_month:
+            d = t["date_logged"] or ""
+            t["is_open"] = t["status"] != "Done"
+            t["is_today"] = d == today
+            t["in_week"] = week_start <= d <= week_end
+            t["in_month"] = month_start <= d
+            # Open work counts in every view; hours only count in the period they were logged
+            t["periods"] = " ".join(p for p, hit in (
+                ("today", t["is_today"] or t["is_open"]),
+                ("week", t["in_week"] or t["is_open"]),
+                ("month", True)) if hit)
+        tasks_today = [t for t in tasks_month if "today" in t["periods"]]
+        tasks_week = [t for t in tasks_month if "week" in t["periods"]]
 
         week_records = conn.execute(
             "SELECT * FROM attendance WHERE emp_id=? AND date_logged BETWEEN ? AND ?",
@@ -1028,9 +1106,12 @@ async def dashboard(request: Request):
         "today": today,
         "attendance": attendance,
         "active_break": active_break,
+        "shift_timer": shift_timer,
         "break_minutes": break_minutes,
         "active_hours": active_hours,
         "tasks_month": tasks_month,
+        "tasks_today": tasks_today,
+        "tasks_week": tasks_week,
         "week_hours": round(week_hours, 2),
         "clients": get_clients(),
         "flash": get_flash(request),
@@ -1055,6 +1136,7 @@ async def dashboard(request: Request):
         "reviewer_cards": reviewer_cards,
         "my_cards": my_cards,
         "active_employees": active_employees,
+        "all_employees": active_employees,
         **shared_ctx(user, request),
     })
 
@@ -1067,10 +1149,11 @@ async def clock_in(request: Request, clock_time: str = Form("")):
     now = (raw + ":00")[:8] if raw else get_pht_now().strftime("%H:%M:%S")
     ip = request.client.host if request.client else "unknown"
     with get_db() as conn:
+        current = get_current_attendance(conn, user)
         existing = conn.execute(
             "SELECT id FROM attendance WHERE emp_id=? AND date_logged=?", (user["id"], today)
         ).fetchone()
-        if not existing:
+        if not existing and not (current and not current["clock_out"]):
             conn.execute(
                 "INSERT INTO attendance (emp_id, clock_in, date_logged, ip_address) VALUES (?, ?, ?, ?)",
                 (user["id"], now, today, ip),
@@ -1086,19 +1169,17 @@ async def clock_out(request: Request, clock_time: str = Form("")):
     raw = clock_time.strip()
     now = (raw + ":00")[:8] if raw else get_pht_now().strftime("%H:%M:%S")
     with get_db() as conn:
-        # End any open break first
-        att = conn.execute(
-            "SELECT id FROM attendance WHERE emp_id=? AND date_logged=?", (user["id"], today)
-        ).fetchone()
-        if att:
+        att = get_current_attendance(conn, user)
+        if att and not att["clock_out"]:
+            # End any open break first
             conn.execute(
                 "UPDATE attendance_breaks SET break_end=? WHERE att_id=? AND break_end IS NULL",
                 (now, att["id"]),
             )
-        conn.execute(
-            "UPDATE attendance SET clock_out=?, is_on_break=0 WHERE emp_id=? AND date_logged=? AND clock_out IS NULL",
-            (now, user["id"], today),
-        )
+            conn.execute(
+                "UPDATE attendance SET clock_out=?, is_on_break=0 WHERE id=? AND clock_out IS NULL",
+                (now, att["id"]),
+            )
     return RedirectResponse("/dashboard", status_code=302)
 
 
@@ -1111,9 +1192,7 @@ async def edit_attendance(
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     with get_db() as conn:
-        att = conn.execute(
-            "SELECT id FROM attendance WHERE emp_id=? AND date_logged=?", (user["id"], today)
-        ).fetchone()
+        att = get_current_attendance(conn, user)
         if att:
             if clock_in_time.strip():
                 ci = (clock_in_time.strip() + ":00")[:8]
@@ -1132,10 +1211,7 @@ async def break_start(request: Request):
     today = get_today_date(user["shift_type"])
     now_str = get_pht_now().strftime("%H:%M:%S")
     with get_db() as conn:
-        att = conn.execute(
-            "SELECT id, clock_out FROM attendance WHERE emp_id=? AND date_logged=?",
-            (user["id"], today),
-        ).fetchone()
+        att = get_current_attendance(conn, user)
         if not att or att["clock_out"]:
             flash(request, "You must be clocked in to start a break.", "error")
             return RedirectResponse("/dashboard", status_code=302)
@@ -1161,10 +1237,7 @@ async def break_end(request: Request):
     today = get_today_date(user["shift_type"])
     now_str = get_pht_now().strftime("%H:%M:%S")
     with get_db() as conn:
-        att = conn.execute(
-            "SELECT id FROM attendance WHERE emp_id=? AND date_logged=?",
-            (user["id"], today),
-        ).fetchone()
+        att = get_current_attendance(conn, user)
         if not att:
             flash(request, "No attendance record found.", "error")
             return RedirectResponse("/dashboard", status_code=302)
@@ -1197,7 +1270,7 @@ def _parse_task_hours(value, allow_blank: bool = False) -> Optional[float]:
 @app.post("/api/tasks")
 async def start_task(
     request: Request,
-    client: str = Form(...),
+    client: str = Form(""),
     task_title: str = Form(...),
     output_files: str = Form(""),
     notes: str = Form(""),
@@ -1210,17 +1283,28 @@ async def start_task(
     is_recurring: str = Form(""),
     recur_freq: str = Form(""),
     estimated_hours: str = Form(""),
+    hours_worked: str = Form(""),
+    status: str = Form("Todo"),
+    next: str = Form(""),
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     notes = sanitize_rich_text(notes)
     est = _parse_task_hours(estimated_hours)
+    worked = _parse_task_hours(hours_worked) or 0
+    status = status if status in ("Todo", "In Progress") else "Todo"
+    client = client.strip() or None
+    task_title = task_title.strip()[:200]
     with get_db() as conn:
         # Anyone can assign to a teammate; fall back to self if not specified
+        assignee = None
         if assigned_emp_id.strip().isdigit():
-            emp_id = int(assigned_emp_id)
-        else:
-            emp_id = user["id"]
+            assignee = conn.execute("SELECT id, shift_type FROM employees WHERE id=? AND is_active=1",
+                                    (int(assigned_emp_id),)).fetchone()
+        emp_id = assignee["id"] if assignee else user["id"]
+        # Date the task by the assignee's shift (a night-shift task logged after midnight
+        # belongs to the shift that started the evening before)
+        today = get_today_date(assignee["shift_type"] if assignee else user["shift_type"])
         urgency = urgency if urgency in ("Low", "Normal", "High", "Critical") else "Normal"
         recur = 1 if is_recurring == "1" else 0
         freq  = recur_freq if recur and recur_freq in ("daily","weekly","biweekly","monthly") else None
@@ -1230,13 +1314,18 @@ async def start_task(
                 status, date_logged, started_at, is_running,
                 created_by_name, assigned_emp_id, due_date, urgency, is_recurring, recur_freq,
                 estimated_hours)
-               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)""",
-            (emp_id, client, task_title, notes, output_files or None, today,
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)""",
+            (emp_id, client, task_title, worked, notes, output_files.strip() or None, status, today,
              user["name"], emp_id, due_date or None, urgency, recur, freq, est),
         )
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "created",
                           client if client else None)
+        if worked:
+            log_card_activity(conn, task_id, user["name"], "hours_updated", f"Logged {worked}h")
+        if emp_id != user["id"]:
+            push_notification(conn, emp_id, "📋 New Task Assigned",
+                              f'{user["name"]} assigned you "{task_title[:60]}".', f"/kanban?card={task_id}")
         if due_date:
             log_card_activity(conn, task_id, user["name"], "due_date_set", due_date)
         if est:
@@ -1251,6 +1340,8 @@ async def start_task(
             )
             log_card_activity(conn, task_id, user["name"], "file_uploaded", f"Input: {input_file_name or 'file'}")
     flash(request, "Task created.")
+    if next in ("/kanban", "/dashboard"):
+        return RedirectResponse(next, status_code=302)
     redirect = "/kanban" if user["role"] in TASK_MANAGER_ROLES else "/dashboard"
     return RedirectResponse(redirect, status_code=302)
 
@@ -1515,21 +1606,61 @@ async def profile_documents(
 
 
 # ── Kanban Board ───────────────────────────────────────────────────────────────
-def notify_task_stakeholders(conn, task_id: int, actor_id: int, actor_name: str, title: str, body: str):
+# @group → SQL filter over active employees
+MENTION_GROUPS = {
+    "everyone":     "1=1",
+    "teamlead":     "role='Team Manager'",
+    "admin":        "role='Admin'",
+    "hr":           "role='HR Manager'",
+    "morningshift": "shift_type='Morning'",
+    "nightshift":   "shift_type='Night'",
+}
+
+
+def find_mentions(conn, text: str, exclude_id: int = None, allow_everyone: bool = True) -> list:
+    """Active employees @mentioned in text — by full name (case-insensitive, longest
+    first) or through a group like @hr / @nightshift."""
+    import re as _re
+    if "@" not in (text or ""):
+        return []
+    people = conn.execute("SELECT id, name FROM employees WHERE is_active=1").fetchall()
+    found, seen, taken = [], set(), text
+
+    def add(row):
+        if row["id"] != exclude_id and row["id"] not in seen:
+            seen.add(row["id"])
+            found.append({"id": row["id"], "name": row["name"]})
+
+    for p in sorted(people, key=lambda p: len(p["name"]), reverse=True):
+        pat = _re.compile(r"@" + _re.escape(p["name"]) + r"(?![\w])", _re.IGNORECASE)
+        if pat.search(taken):
+            taken = pat.sub(" ", taken)   # so "@Ann Lee" doesn't also match "@Ann"
+            add(p)
+    for group, where in MENTION_GROUPS.items():
+        if group == "everyone" and not allow_everyone:
+            continue
+        if _re.search(r"@" + group + r"(?![\w])", taken, _re.IGNORECASE):
+            for row in conn.execute(f"SELECT id, name FROM employees WHERE is_active=1 AND {where}"):
+                add(row)
+    return found
+
+
+def notify_task_stakeholders(conn, task_id: int, actor_id: int, actor_name: str, title: str, body: str,
+                             skip_ids=()):
     """Notify the card's assignee (doer) and reviewer about a change, excluding whoever made it."""
     task = conn.execute("SELECT emp_id, reviewer_name FROM work_logs WHERE id=?", (task_id,)).fetchone()
     if not task:
         return
-    notified_ids = {actor_id}
+    notified_ids = {actor_id, *skip_ids}
     if task["emp_id"] and task["emp_id"] not in notified_ids:
-        push_notification(conn, task["emp_id"], title, body, "/kanban")
+        push_notification(conn, task["emp_id"], title, body, f"/kanban?card={task_id}")
         notified_ids.add(task["emp_id"])
     if task["reviewer_name"]:
         reviewer = conn.execute(
             "SELECT id FROM employees WHERE name=? AND is_active=1", (task["reviewer_name"],)
         ).fetchone()
         if reviewer and reviewer["id"] not in notified_ids:
-            push_notification(conn, reviewer["id"], title, body, "/kanban")
+            push_notification(conn, reviewer["id"], title, body, f"/kanban?card={task_id}")
             notified_ids.add(reviewer["id"])
 
 
@@ -1705,9 +1836,14 @@ async def add_comment(request: Request, task_id: int, comment_text: str = Form(.
                           comment_text[:120] if len(comment_text) > 120 else comment_text)
         if task:
             title_short = (task["task_title"] or "")[:50]
+            mentioned = find_mentions(conn, comment_text, exclude_id=user["id"])
+            for m in mentioned:
+                push_notification(conn, m["id"], f"💬 {user['name']} mentioned you",
+                                  f'On "{title_short}": {comment_text[:100]}', f"/kanban?card={task_id}")
             notify_task_stakeholders(conn, task_id, user["id"], user["name"],
                 "💬 New Comment",
-                f'{user["name"]} commented on "{title_short}": {comment_text[:100]}')
+                f'{user["name"]} commented on "{title_short}": {comment_text[:100]}',
+                skip_ids={m["id"] for m in mentioned})
     return JSONResponse({"ok": True, "comment": {
         "author_name": user["name"],
         "comment_text": comment_text,
@@ -2323,15 +2459,23 @@ async def add_client(request: Request):
 
 @app.post("/api/clients/{client_id}/update")
 async def update_client(request: Request, client_id: int):
-    # Client names are permanent: tasks reference clients by name.
-    require_role(request, *CLIENT_ROLES)
+    user = require_role(request, *CLIENT_ROLES)
     form = await request.form()
+    name = (form.get("name") or "").strip()
     hex_color = form.get("hex_color") or "#3b82f6"
     shift_tag = _client_shift_from_form(form)
+    is_active = 1 if form.get("is_active") else 0
     with get_db() as conn:
-        client = conn.execute("SELECT logo_url FROM clients WHERE id=?", (client_id,)).fetchone()
+        client = conn.execute("SELECT name, logo_url FROM clients WHERE id=?", (client_id,)).fetchone()
+        if client and name and name != client["name"] and conn.execute(
+                "SELECT 1 FROM clients WHERE LOWER(name)=LOWER(?) AND id!=?", (name, client_id)).fetchone():
+            flash(request, f'A client named "{name}" already exists.', "error")
+            return RedirectResponse("/clients", status_code=302)
     if not client:
         flash(request, "Client not found.", "error")
+        return RedirectResponse("/clients", status_code=302)
+    if not name:
+        flash(request, "Client name is required.", "error")
         return RedirectResponse("/clients", status_code=302)
     logo_url = client["logo_url"] or ""
     logo_path, err = await _save_client_logo(form, client_id)
@@ -2341,10 +2485,20 @@ async def update_client(request: Request, client_id: int):
     if logo_path or form.get("remove_logo"):
         _remove_client_logo_file(logo_url)
         logo_url = logo_path or ""
+    renamed = name != client["name"]
     with get_db() as conn:
-        conn.execute("UPDATE clients SET hex_color=?, logo_url=?, shift_tag=? WHERE id=?",
-                     (hex_color, logo_url, shift_tag, client_id))
-    flash(request, "Client updated.")
+        conn.execute("UPDATE clients SET name=?, hex_color=?, logo_url=?, shift_tag=?, is_active=? WHERE id=?",
+                     (name, hex_color, logo_url, shift_tag, is_active, client_id))
+        if renamed:
+            # Tasks reference clients by name — carry their history over to the new name
+            moved = conn.execute("UPDATE work_logs SET client=? WHERE client=?",
+                                 (name, client["name"])).rowcount
+            audit(conn, user["id"], user["name"], "client_renamed", "clients", client_id,
+                  old_value=client["name"], new_value=name)
+    if renamed:
+        flash(request, f'Client renamed to "{name}" — {moved} task(s) updated.')
+    else:
+        flash(request, "Client updated.")
     return RedirectResponse("/clients", status_code=302)
 
 
@@ -4076,7 +4230,7 @@ async def get_notifications(request: Request):
     with get_db() as conn:
         rows = conn.execute(
             """SELECT * FROM notifications
-               WHERE user_id=? AND (link IS NULL OR link NOT LIKE '/chat%')
+               WHERE user_id=?
                ORDER BY created_at DESC LIMIT 20""",
             (user["id"],)
         ).fetchall()
@@ -4232,21 +4386,7 @@ async def send_chat_message(
         return JSONResponse({"ok": False, "error": "Invalid room"}, status_code=403)
     reply_id = int(reply_to_id) if reply_to_id.strip().isdigit() else None
 
-    import re as _re
-
     with get_db() as conn:
-        # Match against real employee names (longest first, so multi-word names
-        # like "Sarah Connor" resolve fully instead of stopping at the first space)
-        # plus the special @Everyone / @Admin group mentions.
-        other_names = [
-            r["name"] for r in conn.execute(
-                "SELECT name FROM employees WHERE is_active=1 AND id!=?", (user["id"],)
-            ).fetchall()
-        ]
-        mention_targets = sorted(other_names, key=len, reverse=True) + ["Everyone", "Admin"]
-        pattern = r'@(' + '|'.join(_re.escape(t) for t in mention_targets) + r')\b'
-        mentions = set(_re.findall(pattern, body, _re.IGNORECASE))
-
         cur = conn.execute(
             """INSERT INTO chat_messages
                (room, sender_id, sender_name, body,
@@ -4262,30 +4402,14 @@ async def send_chat_message(
                ON CONFLICT(user_id, room) DO UPDATE SET last_read_msg_id=excluded.last_read_msg_id""",
             (user["id"], room, msg_id)
         )
-        # Notify @mentioned employees / groups
-        notified_ids = set()
-        for mention in mentions:
-            if mention.lower() == "everyone":
-                if room != "group":
-                    continue
-                targets = conn.execute(
-                    "SELECT id FROM employees WHERE is_active=1 AND id!=?", (user["id"],)
-                ).fetchall()
-            elif mention.lower() == "admin":
-                targets = conn.execute(
-                    "SELECT id FROM employees WHERE is_active=1 AND role='Admin' AND id!=?", (user["id"],)
-                ).fetchall()
-            else:
-                targets = conn.execute(
-                    "SELECT id FROM employees WHERE name=? AND is_active=1 AND id!=?", (mention, user["id"])
-                ).fetchall()
-            for t in targets:
-                if t["id"] in notified_ids:
-                    continue
-                notified_ids.add(t["id"])
-                push_notification(conn, t["id"],
-                    f"{user['name']} mentioned you",
-                    body[:80], "/chat")
+        # Notify @mentioned people and groups (@everyone only in the team channel).
+        # In a DM only the other participant can be notified — never leak DM text.
+        dm_members = {int(x) for x in room.split("_")[1:3]} if room.startswith("dm_") else None
+        for m in find_mentions(conn, body, exclude_id=user["id"], allow_everyone=(room == "group")):
+            if dm_members is not None and m["id"] not in dm_members:
+                continue
+            push_notification(conn, m["id"], f"💬 {user['name']} mentioned you",
+                              body[:80], f"/chat?room={room}")
 
     return JSONResponse({"ok": True, "msg_id": msg_id})
 
@@ -4434,7 +4558,16 @@ async def poll_chat_messages(request: Request, room: str = "group", after_id: in
                 (room, after_id, after_id)
             ).fetchall()
             rows += [dict(r) for r in updated]
-    return JSONResponse({"messages": rows})
+        # Sender photos/roles for the messages returned
+        sender_ids = {r["sender_id"] for r in rows if r.get("sender_id")}
+        senders = {}
+        if sender_ids:
+            marks = ",".join("?" * len(sender_ids))
+            for e in conn.execute(f"SELECT id, name, role, profile_pic_path FROM employees WHERE id IN ({marks})",
+                                  tuple(sender_ids)):
+                senders[e["id"]] = {"name": e["name"], "role": e["role"],
+                                    "avatar": f"/uploads/{e['profile_pic_path']}" if e["profile_pic_path"] else None}
+    return JSONResponse({"messages": rows, "senders": senders})
 
 
 @app.get("/api/chat/contacts")
@@ -4482,6 +4615,7 @@ async def chat_contacts_api(request: Request):
                 "name": c["name"],
                 "initial": c["name"][0].upper() if c["name"] else "?",
                 "avatar": f"/uploads/{c['profile_pic_path']}" if c["profile_pic_path"] else None,
+                "role": c["role"],
                 "room": r,
                 "unread": unread,
                 "last_msg": preview,
@@ -7930,6 +8064,326 @@ def _get_onboarding_assessments(conn, emp_id: int) -> dict:
 
 
 # ── HR: list ──────────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# ── TRAINING ──────────────────────────────────────────────────────────────────
+# Cards with rich text, an embedded Drive video, images/PDFs, comments and a
+# "mark complete" button. Editors create them and assign them to staff.
+# ══════════════════════════════════════════════════════════════════════════════
+TRAINING_EDITOR_ROLES = ("Admin", "Team Manager", "HR Manager")
+_TRAINING_MAX_UPLOAD = 100 * 1024 * 1024
+_TRAINING_COLORS = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#f43f5e", "#6366f1"]
+
+
+def _drive_file_id(link: str) -> Optional[str]:
+    """File id from a Google Drive share link (or a bare id)."""
+    import re as _re
+    link = (link or "").strip()
+    if not link:
+        return None
+    for pat in (r"/file/d/([A-Za-z0-9_-]{10,})", r"[?&]id=([A-Za-z0-9_-]{10,})", r"^([A-Za-z0-9_-]{20,})$"):
+        m = _re.search(pat, link)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _training_kind(mime: str, name: str) -> str:
+    name = (name or "").lower()
+    if mime.startswith("image/"):
+        return "image"
+    if mime == "application/pdf" or name.endswith(".pdf"):
+        return "pdf"
+    if mime.startswith("video/"):
+        return "video"
+    return "file"
+
+
+def _can_edit_training(user: dict, training) -> bool:
+    if user["role"] in ("Admin", "HR Manager"):
+        return True
+    return user["role"] == "Team Manager" and training["created_by_id"] == user["id"]
+
+
+@app.get("/training", response_class=HTMLResponse)
+async def training_home(request: Request):
+    user = require_user(request)
+    is_editor = user["role"] in TRAINING_EDITOR_ROLES
+    with get_db() as conn:
+        rows = conn.execute(
+            f"""SELECT t.*,
+                   (SELECT COUNT(*) FROM training_files f WHERE f.training_id=t.id AND f.kind='pdf') AS pdf_count,
+                   (SELECT COUNT(*) FROM training_files f WHERE f.training_id=t.id AND f.kind='image') AS image_count,
+                   (SELECT COUNT(*) FROM training_files f WHERE f.training_id=t.id AND f.kind='video') AS video_count,
+                   (SELECT COUNT(*) FROM training_comments c WHERE c.training_id=t.id) AS comment_count,
+                   (SELECT completed_at FROM training_completions c WHERE c.training_id=t.id AND c.emp_id=?) AS my_completed_at,
+                   a.due_date AS my_due_date, a.id AS my_assignment_id,
+                   (SELECT COUNT(*) FROM training_assignments x WHERE x.training_id=t.id) AS assigned_count,
+                   (SELECT COUNT(*) FROM training_assignments x JOIN training_completions c
+                       ON c.training_id=x.training_id AND c.emp_id=x.emp_id WHERE x.training_id=t.id) AS assigned_done
+               FROM trainings t
+               LEFT JOIN training_assignments a ON a.training_id=t.id AND a.emp_id=?
+               {'' if is_editor else 'WHERE t.is_published=1'}
+               ORDER BY t.created_at DESC""",
+            (user["id"], user["id"]),
+        ).fetchall()
+        has_onboarding = conn.execute(
+            "SELECT 1 FROM onboarding_assignments WHERE emp_id=? LIMIT 1", (user["id"],)
+        ).fetchone() is not None
+    trainings = [dict(r) for r in rows]
+    assigned = [t for t in trainings if t["my_assignment_id"]]
+    return templates.TemplateResponse(request, "shared/training_home.html", {
+        "user": user,
+        "trainings": trainings,
+        "assigned": sorted(assigned, key=lambda t: (bool(t["my_completed_at"]), t["my_due_date"] or "9999")),
+        "categories": sorted({t["category"] for t in trainings if t["category"]}, key=str.lower),
+        "is_editor": is_editor,
+        "has_onboarding": has_onboarding,
+        "today": get_pht_now().strftime("%Y-%m-%d"),
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
+
+
+@app.get("/training/new", response_class=HTMLResponse)
+async def training_new(request: Request):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    return templates.TemplateResponse(request, "shared/training_edit.html", {
+        "user": user, "training": None, "colors": _TRAINING_COLORS,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.get("/training/{training_id}/edit", response_class=HTMLResponse)
+async def training_edit(request: Request, training_id: int):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    with get_db() as conn:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+    if not t or not _can_edit_training(user, t):
+        flash(request, "You can't edit this training.", "error")
+        return RedirectResponse("/training", status_code=302)
+    return templates.TemplateResponse(request, "shared/training_edit.html", {
+        "user": user, "training": dict(t), "colors": _TRAINING_COLORS,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/training/save")
+async def training_save(request: Request):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    form = await request.form()
+    training_id = str(form.get("training_id") or "")
+    title = (form.get("title") or "").strip()[:200]
+    if not title:
+        flash(request, "Title is required.", "error")
+        return RedirectResponse(f"/training/{training_id}/edit" if training_id.isdigit() else "/training/new", status_code=302)
+    video_link = (form.get("video_link") or "").strip()
+    video_id = _drive_file_id(video_link)
+    if video_link and not video_id:
+        flash(request, "That doesn't look like a Google Drive video link.", "error")
+        return RedirectResponse(f"/training/{training_id}/edit" if training_id.isdigit() else "/training/new", status_code=302)
+    color = form.get("cover_color") or _TRAINING_COLORS[0]
+    if color not in _TRAINING_COLORS:
+        color = _TRAINING_COLORS[0]
+    values = (title, sanitize_rich_text(form.get("body") or ""), (form.get("category") or "").strip()[:60] or None,
+              video_id, color, 1 if form.get("is_published") else 0)
+    with get_db() as conn:
+        if training_id.isdigit():
+            t = conn.execute("SELECT * FROM trainings WHERE id=?", (int(training_id),)).fetchone()
+            if not t or not _can_edit_training(user, t):
+                flash(request, "You can't edit this training.", "error")
+                return RedirectResponse("/training", status_code=302)
+            conn.execute(
+                """UPDATE trainings SET title=?, body=?, category=?, video_drive_id=?, cover_color=?, is_published=?,
+                   updated_at=datetime('now','+8 hours') WHERE id=?""", values + (t["id"],))
+            tid = t["id"]
+        else:
+            tid = conn.execute(
+                """INSERT INTO trainings (title, body, category, video_drive_id, cover_color, is_published,
+                   created_by_id, created_by_name) VALUES (?,?,?,?,?,?,?,?)""",
+                values + (user["id"], user["name"])).lastrowid
+    flash(request, "Training saved.")
+    return RedirectResponse(f"/training/{tid}", status_code=302)
+
+
+@app.post("/training/{training_id}/delete")
+async def training_delete(request: Request, training_id: int):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    with get_db() as conn:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t or not _can_edit_training(user, t):
+            flash(request, "You can't delete this training.", "error")
+            return RedirectResponse("/training", status_code=302)
+        conn.execute("DELETE FROM trainings WHERE id=?", (training_id,))
+    flash(request, "Training deleted.")
+    return RedirectResponse("/training", status_code=302)
+
+
+@app.get("/training/{training_id}", response_class=HTMLResponse)
+async def training_detail(request: Request, training_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t or (not t["is_published"] and user["role"] not in TRAINING_EDITOR_ROLES):
+            return RedirectResponse("/training", status_code=302)
+        files = [dict(f) for f in conn.execute(
+            "SELECT * FROM training_files WHERE training_id=? ORDER BY kind, id", (training_id,))]
+        comments = [dict(c) for c in conn.execute(
+            """SELECT c.*, e.role, e.profile_pic_path FROM training_comments c
+               LEFT JOIN employees e ON e.id=c.emp_id WHERE c.training_id=? ORDER BY c.id""", (training_id,))]
+        completed = conn.execute(
+            "SELECT completed_at FROM training_completions WHERE training_id=? AND emp_id=?",
+            (training_id, user["id"])).fetchone()
+        my_assignment = conn.execute(
+            "SELECT * FROM training_assignments WHERE training_id=? AND emp_id=?", (training_id, user["id"])).fetchone()
+        progress, staff = [], []
+        if user["role"] in TRAINING_EDITOR_ROLES:
+            progress = [dict(r) for r in conn.execute(
+                """SELECT a.*, e.name, e.role, e.profile_pic_path, c.completed_at FROM training_assignments a
+                   JOIN employees e ON e.id=a.emp_id
+                   LEFT JOIN training_completions c ON c.training_id=a.training_id AND c.emp_id=a.emp_id
+                   WHERE a.training_id=? ORDER BY c.completed_at IS NOT NULL, e.name""", (training_id,))]
+            staff = [dict(r) for r in conn.execute(
+                "SELECT id, name, role, shift_type FROM employees WHERE is_active=1 ORDER BY name COLLATE NOCASE")]
+        mention_names = [r["name"] for r in conn.execute(
+            "SELECT name FROM employees WHERE is_active=1 AND id!=? ORDER BY name", (user["id"],))]
+    return templates.TemplateResponse(request, "shared/training_detail.html", {
+        "user": user, "t": dict(t), "files": files, "comments": comments,
+        "completed_at": completed["completed_at"] if completed else None,
+        "my_assignment": dict(my_assignment) if my_assignment else None,
+        "can_edit": _can_edit_training(user, t),
+        "is_editor": user["role"] in TRAINING_EDITOR_ROLES,
+        "progress": progress, "staff": staff, "mention_names": mention_names,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/training/{training_id}/files")
+async def training_upload(request: Request, training_id: int, file: UploadFile = File(...)):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    with get_db() as conn:
+        t = conn.execute("SELECT * FROM trainings WHERE id=?", (training_id,)).fetchone()
+    if not t or not _can_edit_training(user, t):
+        return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
+    content = await file.read()
+    if len(content) > _TRAINING_MAX_UPLOAD:
+        return JSONResponse({"ok": False, "error": "File too large (max 100 MB). For longer videos, upload to Drive and paste the link."}, status_code=400)
+    mime = file.content_type or "application/octet-stream"
+    fname = file.filename or "file"
+    kind = _training_kind(mime, fname)
+    if kind == "file":
+        return JSONResponse({"ok": False, "error": "Only images, PDFs and videos can be added — they open inside the page."},
+                            status_code=400)
+    try:
+        result = await asyncio.to_thread(_drive_upload, content, f"Training-{training_id}-{fname}", mime)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Drive upload failed: {exc}"}, status_code=500)
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO training_files (training_id, kind, drive_id, file_name, file_size, uploaded_by_name)
+               VALUES (?,?,?,?,?,?)""", (training_id, kind, result["id"], fname, len(content), user["name"]))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/training/files/{file_id}/delete")
+async def training_file_delete(request: Request, file_id: int):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    with get_db() as conn:
+        f = conn.execute(
+            "SELECT f.*, t.created_by_id FROM training_files f JOIN trainings t ON t.id=f.training_id WHERE f.id=?",
+            (file_id,)).fetchone()
+        if not f or not _can_edit_training(user, f):
+            return JSONResponse({"ok": False}, status_code=403)
+        conn.execute("DELETE FROM training_files WHERE id=?", (file_id,))
+    try:
+        await asyncio.to_thread(lambda: _get_drive().files().delete(fileId=f["drive_id"], supportsAllDrives=True).execute())
+    except Exception:
+        pass
+    return JSONResponse({"ok": True})
+
+
+@app.post("/training/{training_id}/complete")
+async def training_complete(request: Request, training_id: int):
+    user = require_user(request)
+    with get_db() as conn:
+        t = conn.execute("SELECT id, title, created_by_id FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t:
+            return JSONResponse({"ok": False}, status_code=404)
+        done = conn.execute("SELECT 1 FROM training_completions WHERE training_id=? AND emp_id=?",
+                            (training_id, user["id"])).fetchone()
+        if done:
+            conn.execute("DELETE FROM training_completions WHERE training_id=? AND emp_id=?", (training_id, user["id"]))
+        else:
+            conn.execute("INSERT INTO training_completions (training_id, emp_id) VALUES (?,?)", (training_id, user["id"]))
+            if t["created_by_id"] and t["created_by_id"] != user["id"]:
+                push_notification(conn, t["created_by_id"], "🎓 Training Completed",
+                                  f'{user["name"]} completed "{t["title"][:60]}".', f"/training/{training_id}")
+    return JSONResponse({"ok": True, "completed": not done})
+
+
+@app.post("/training/{training_id}/comment")
+async def training_comment(request: Request, training_id: int):
+    user = require_user(request)
+    data = await request.json()
+    body = (data.get("body") or "").strip()[:2000]
+    if not body:
+        return JSONResponse({"ok": False}, status_code=400)
+    with get_db() as conn:
+        t = conn.execute("SELECT id, title, created_by_id FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t:
+            return JSONResponse({"ok": False}, status_code=404)
+        cid = conn.execute(
+            "INSERT INTO training_comments (training_id, emp_id, author_name, body) VALUES (?,?,?,?)",
+            (training_id, user["id"], user["name"], body)).lastrowid
+        mentioned = find_mentions(conn, body, exclude_id=user["id"], allow_everyone=False)
+        for m in mentioned:
+            push_notification(conn, m["id"], f"💬 {user['name']} mentioned you",
+                              f'On training "{t["title"][:50]}": {body[:90]}', f"/training/{training_id}")
+        if t["created_by_id"] and t["created_by_id"] != user["id"] and t["created_by_id"] not in {m["id"] for m in mentioned}:
+            push_notification(conn, t["created_by_id"], "💬 New Training Comment",
+                              f'{user["name"]} on "{t["title"][:50]}": {body[:90]}', f"/training/{training_id}")
+        row = conn.execute("SELECT created_at FROM training_comments WHERE id=?", (cid,)).fetchone()
+    return JSONResponse({"ok": True, "comment": {
+        "author_name": user["name"], "role": user["role"], "body": body, "created_at": row["created_at"],
+        "avatar": f"/uploads/{user['profile_pic_path']}" if user.get("profile_pic_path") else None}})
+
+
+@app.post("/training/{training_id}/assign")
+async def training_assign(request: Request, training_id: int):
+    user = require_role(request, *TRAINING_EDITOR_ROLES)
+    form = await request.form()
+    due = (form.get("due_date") or "").strip() or None
+    ids = {int(v) for v in form.getlist("emp_ids") if str(v).isdigit()}
+    with get_db() as conn:
+        t = conn.execute("SELECT id, title FROM trainings WHERE id=?", (training_id,)).fetchone()
+        if not t:
+            return RedirectResponse("/training", status_code=302)
+        # Quick-pick groups (same names as @mentions)
+        for group in form.getlist("groups"):
+            if group in MENTION_GROUPS:
+                ids |= {r["id"] for r in conn.execute(
+                    f"SELECT id FROM employees WHERE is_active=1 AND {MENTION_GROUPS[group]}")}
+        for emp_id in ids:
+            cur = conn.execute(
+                """INSERT INTO training_assignments (training_id, emp_id, assigned_by_name, due_date) VALUES (?,?,?,?)
+                   ON CONFLICT(training_id, emp_id) DO UPDATE SET due_date=excluded.due_date""",
+                (training_id, emp_id, user["name"], due))
+            if cur.rowcount and emp_id != user["id"]:
+                push_notification(conn, emp_id, "🎓 Training Assigned",
+                                  f'{user["name"]} assigned you "{t["title"][:60]}"' + (f" — due {due}" if due else "") + ".",
+                                  f"/training/{training_id}")
+    flash(request, f"Assigned to {len(ids)} people." if ids else "Pick at least one person or group.",
+          "success" if ids else "error")
+    return RedirectResponse(f"/training/{training_id}#progress", status_code=302)
+
+
+@app.post("/training/{training_id}/unassign/{emp_id}")
+async def training_unassign(request: Request, training_id: int, emp_id: int):
+    require_role(request, *TRAINING_EDITOR_ROLES)
+    with get_db() as conn:
+        conn.execute("DELETE FROM training_assignments WHERE training_id=? AND emp_id=?", (training_id, emp_id))
+    return RedirectResponse(f"/training/{training_id}#progress", status_code=302)
+
+
 @app.get("/hr/onboarding", response_class=HTMLResponse)
 async def hr_onboarding(request: Request):
     user = require_role(request, "Admin", "HR Manager")

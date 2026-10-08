@@ -1,0 +1,333 @@
+{% extends "base.html" %}
+{% block title %}{{ t.title }} — Training{% endblock %}
+{% block page_title %}Training{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tr-layout { display:grid; grid-template-columns:minmax(0, 1fr) 320px; gap:20px; align-items:start; }
+  @media (max-width: 1000px) { .tr-layout { grid-template-columns:1fr; } }
+  .tr-hero { border-radius:14px; padding:20px 22px; color:#fff; margin-bottom:16px;
+             background:linear-gradient(135deg, {{ t.cover_color }}, color-mix(in srgb, {{ t.cover_color }} 55%, #000)); }
+  .tr-hero .tr-cat { font-size:.68rem; font-weight:800; letter-spacing:.1em; text-transform:uppercase; opacity:.85; }
+  .tr-hero h2 { margin:4px 0 6px; font-size:1.35rem; color:#fff; }
+  .tr-hero .tr-by { font-size:.78rem; opacity:.85; }
+
+  /* Embedded Drive viewers. The overlay covers Drive's "open in new window" button. */
+  .tr-embed { position:relative; width:100%; border-radius:12px; overflow:hidden; background:#000; margin-bottom:14px; }
+  .tr-embed.video { aspect-ratio:16/9; }
+  .tr-embed.pdf { height:620px; background:var(--surface-2); }
+  .tr-embed iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .tr-embed .tr-shield { position:absolute; top:0; right:0; width:72px; height:64px; z-index:2; }
+
+  .tr-lesson { font-size:.92rem; line-height:1.7; }
+  .tr-lesson ul, .tr-lesson ol { padding-left:22px; margin:6px 0; }
+  .tr-images { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+  .tr-images img { width:100%; height:130px; object-fit:cover; border-radius:10px; cursor:zoom-in; background:var(--surface-2); }
+  .tr-file-row { display:flex; align-items:center; gap:8px; justify-content:space-between; margin-bottom:6px; }
+
+  .tr-protect { -webkit-user-select:none; user-select:none; }
+  .tr-protect img { -webkit-user-drag:none; pointer-events:auto; }
+
+  #tr-lightbox { position:fixed; inset:0; background:rgba(0,0,0,.86); z-index:2000; display:none;
+                 align-items:center; justify-content:center; padding:24px; cursor:zoom-out; }
+  #tr-lightbox.open { display:flex; }
+  #tr-lightbox img { max-width:100%; max-height:100%; border-radius:8px; }
+
+  .tr-comment { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .tr-comment:last-child { border-bottom:none; }
+  .tr-avatar { width:32px; height:32px; border-radius:50%; object-fit:cover; flex-shrink:0;
+               background:var(--primary-l); color:var(--primary); font-weight:700; font-size:.8rem;
+               display:flex; align-items:center; justify-content:center; }
+  .tr-comment-body { font-size:.86rem; line-height:1.5; white-space:pre-wrap; word-break:break-word; }
+
+  .tr-complete-btn { width:100%; padding:12px; font-size:.95rem; font-weight:800; }
+  .tr-complete-btn.done { background:#16a34a; border-color:#16a34a; color:#fff; }
+  .tr-assign-list { max-height:220px; overflow-y:auto; border:1px solid var(--border); border-radius:8px; padding:6px 8px; }
+  .tr-assign-list label { display:flex; align-items:center; gap:8px; font-size:.82rem; padding:3px 0; cursor:pointer; }
+  .tr-group-chips { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
+  .tr-group-chips label { font-size:.74rem; border:1px solid var(--border); border-radius:99px; padding:3px 10px; cursor:pointer; }
+  .tr-group-chips input { margin-right:4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div style="margin-bottom:12px;"><a href="/training" class="btn btn-outline btn-sm">← All Trainings</a></div>
+
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">{% if flash.kind == 'error' %}✗{% else %}✓{% endif %} {{ flash.msg }}</div>
+{% endif %}
+
+<div class="tr-layout">
+  <!-- ── Main column ── -->
+  <div class="tr-protect" id="tr-protect">
+    <div class="tr-hero">
+      <div class="tr-cat">{{ t.category or 'Training' }}{% if not t.is_published %} · Draft{% endif %}</div>
+      <h2>{{ t.title }}</h2>
+      <div class="tr-by">By {{ t.created_by_name or '—' }} · {{ (t.updated_at or t.created_at)[:10] }}</div>
+    </div>
+
+    {% if t.video_drive_id %}
+    <div class="tr-embed video">
+      <iframe src="https://drive.google.com/file/d/{{ t.video_drive_id }}/preview" allow="autoplay; fullscreen" allowfullscreen
+              referrerpolicy="no-referrer" title="Training video"></iframe>
+      <div class="tr-shield"></div>
+    </div>
+    {% endif %}
+
+    {% if t.body %}
+    <div class="card mb-16"><div class="card-body tr-lesson">{{ t.body | safe }}</div></div>
+    {% endif %}
+
+    {% set images = files | selectattr('kind', 'eq', 'image') | list %}
+    {% set pdfs   = files | selectattr('kind', 'eq', 'pdf') | list %}
+    {% set videos = files | selectattr('kind', 'eq', 'video') | list %}
+
+    {% for v in videos %}
+    <div class="text-sm fw-600" style="margin:6px 0;">🎬 {{ v.file_name }}</div>
+    <div class="tr-embed video">
+      <iframe src="https://drive.google.com/file/d/{{ v.drive_id }}/preview" allow="autoplay; fullscreen" allowfullscreen
+              referrerpolicy="no-referrer" title="{{ v.file_name }}"></iframe>
+      <div class="tr-shield"></div>
+    </div>
+    {% endfor %}
+
+    {% if images %}
+    <div class="card mb-16">
+      <div class="card-header"><h3>🖼️ Images</h3></div>
+      <div class="card-body">
+        <div class="tr-images">
+          {% for img in images %}
+            {% set is_gif = (img.file_name or '').lower().endswith('.gif') %}
+            <img src="{% if is_gif %}https://drive.google.com/uc?export=view&id={{ img.drive_id }}{% else %}https://drive.google.com/thumbnail?id={{ img.drive_id }}&sz=w600{% endif %}"
+                 data-full="{% if is_gif %}https://drive.google.com/uc?export=view&id={{ img.drive_id }}{% else %}https://drive.google.com/thumbnail?id={{ img.drive_id }}&sz=w1800{% endif %}"
+                 alt="{{ img.file_name }}" loading="lazy" draggable="false">
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    {% for pdf in pdfs %}
+    <div class="text-sm fw-600" style="margin:6px 0;">📄 {{ pdf.file_name }}</div>
+    <div class="tr-embed pdf">
+      <iframe src="https://drive.google.com/file/d/{{ pdf.drive_id }}/preview" referrerpolicy="no-referrer" title="{{ pdf.file_name }}"></iframe>
+      <div class="tr-shield"></div>
+    </div>
+    {% endfor %}
+
+    <!-- Comments -->
+    <div class="card">
+      <div class="card-header"><h3>💬 Discussion ({{ comments | length }})</h3></div>
+      <div class="card-body">
+        <div id="tr-comments">
+          {% for c in comments %}
+          <div class="tr-comment">
+            {% if c.profile_pic_path %}<img class="tr-avatar {{ vip_class(c.role) }}" src="/uploads/{{ c.profile_pic_path }}" alt="">
+            {% else %}<div class="tr-avatar {{ vip_class(c.role) }}">{{ c.author_name[0] }}</div>{% endif %}
+            <div style="flex:1;min-width:0;">
+              <div class="text-sm fw-700">{{ c.author_name }}{{ role_tag(c.role) }} <span class="text-xs text-muted" style="font-weight:400;">{{ c.created_at[:16] }}</span></div>
+              <div class="tr-comment-body">{{ c.body }}</div>
+            </div>
+          </div>
+          {% else %}
+          <p class="text-muted text-sm" id="tr-no-comments">No questions yet — ask one below.</p>
+          {% endfor %}
+        </div>
+        <form id="tr-comment-form" style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;">
+          <textarea id="tr-comment-input" class="form-textarea" rows="2" style="flex:1;min-height:56px;"
+                    placeholder="Ask a question or share a tip… (type @ to mention someone)"></textarea>
+          <button type="submit" class="btn btn-primary btn-sm">Post</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Side column ── -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="card"><div class="card-body">
+      {% if my_assignment %}
+        <div class="text-xs text-muted" style="margin-bottom:8px;">
+          Assigned by {{ my_assignment.assigned_by_name }}{% if my_assignment.due_date %} · <strong>due {{ my_assignment.due_date }}</strong>{% endif %}
+        </div>
+      {% endif %}
+      <button id="tr-complete" class="btn btn-outline tr-complete-btn {% if completed_at %}done{% endif %}">
+        {% if completed_at %}✓ Completed{% else %}Mark as Complete{% endif %}
+      </button>
+      <div class="text-xs text-muted" id="tr-complete-note" style="margin-top:6px;text-align:center;">
+        {% if completed_at %}Completed {{ completed_at[:16] }} · click to undo{% else %}Finished the lesson? Mark it done.{% endif %}
+      </div>
+    </div></div>
+
+    {% if can_edit %}
+    <div class="card">
+      <div class="card-header"><h3>⚙️ Manage</h3></div>
+      <div class="card-body" style="display:flex;flex-direction:column;gap:10px;">
+        <a href="/training/{{ t.id }}/edit" class="btn btn-outline btn-sm">✏️ Edit text &amp; video</a>
+        <div>
+          <label class="btn btn-outline btn-sm" for="tr-upload" style="cursor:pointer;margin:0;width:100%;justify-content:center;">📎 Add images, PDFs or videos</label>
+          <input type="file" id="tr-upload" multiple accept="image/*,application/pdf,video/*" style="display:none;">
+          <div id="tr-upload-status" class="text-xs text-muted" style="margin-top:6px;"></div>
+        </div>
+        {% if files %}
+        <div>
+          {% for f in files %}
+          <div class="tr-file-row text-xs">
+            <span class="truncate">{{ {'image':'🖼️','pdf':'📄','video':'🎬'}.get(f.kind, '📎') }} {{ f.file_name }}</span>
+            <button class="btn btn-ghost btn-sm" style="padding:0 6px;color:var(--danger);" onclick="deleteTrainingFile({{ f.id }}, this)" title="Remove">✕</button>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+        <form method="post" action="/training/{{ t.id }}/delete">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--danger);width:100%;"
+                  data-confirm="Delete this training, its comments and completions?">🗑️ Delete training</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+
+    {% if is_editor %}
+    <div class="card" id="progress">
+      <div class="card-header"><h3>👥 Assign</h3></div>
+      <div class="card-body">
+        <form method="post" action="/training/{{ t.id }}/assign">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <div class="text-xs text-muted" style="margin-bottom:6px;">Quick groups</div>
+          <div class="tr-group-chips">
+            {% for g, label in [('everyone','Everyone'),('morningshift','☀️ Morning'),('nightshift','🌙 Night'),('teamlead','Leads'),('hr','HR'),('admin','Admins')] %}
+            <label><input type="checkbox" name="groups" value="{{ g }}">{{ label }}</label>
+            {% endfor %}
+          </div>
+          <input type="text" class="form-input" id="tr-assign-search" placeholder="🔍 Find people…" style="height:32px;font-size:.8rem;margin-bottom:6px;">
+          <div class="tr-assign-list" id="tr-assign-list">
+            {% for s in staff %}
+            <label data-name="{{ s.name | lower }}"><input type="checkbox" name="emp_ids" value="{{ s.id }}"> {{ s.name }}{{ role_tag(s.role) }}</label>
+            {% endfor %}
+          </div>
+          <div class="form-group" style="margin:10px 0;">
+            <label class="form-label">Due date <span class="text-xs text-muted">(optional)</span></label>
+            <input type="date" name="due_date" class="form-input">
+          </div>
+          <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">Assign</button>
+        </form>
+
+        {% if progress %}
+        {% set done = progress | selectattr('completed_at') | list | length %}
+        <div class="section-divider" style="margin-top:16px;">Progress — {{ done }}/{{ progress | length }} completed</div>
+        {% for p in progress %}
+        <div class="tr-file-row text-xs">
+          <span>{% if p.completed_at %}✅{% else %}⏳{% endif %} {{ p.name }}{% if p.due_date and not p.completed_at %} <span class="text-muted">· due {{ p.due_date }}</span>{% endif %}</span>
+          <form method="post" action="/training/{{ t.id }}/unassign/{{ p.emp_id }}">
+            <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+            <button class="btn btn-ghost btn-sm" style="padding:0 6px;" title="Unassign">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div id="tr-lightbox"><img alt=""></div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  const TID = {{ t.id }};
+  const NAMES = {{ mention_names | tojson }};
+  const ME = {{ {'name': user.name, 'role': user.role} | tojson }};
+
+  // ── Content protection (deterrent — screen capture can't be blocked) ──
+  const protect = document.getElementById('tr-protect');
+  protect.addEventListener('contextmenu', e => e.preventDefault());
+  protect.addEventListener('dragstart', e => e.preventDefault());
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && ['s', 'p', 'u'].includes(e.key.toLowerCase())) e.preventDefault();
+  });
+
+  // ── Image lightbox (stays in the tab) ──
+  const lb = document.getElementById('tr-lightbox');
+  document.querySelectorAll('.tr-images img').forEach(img => img.addEventListener('click', () => {
+    lb.querySelector('img').src = img.dataset.full;
+    lb.classList.add('open');
+  }));
+  lb.addEventListener('click', () => lb.classList.remove('open'));
+  lb.addEventListener('contextmenu', e => e.preventDefault());
+
+  // ── Mark complete ──
+  const btn = document.getElementById('tr-complete');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const res = await apiFetch(`/training/${TID}/complete`, { method: 'POST' });
+    btn.disabled = false;
+    if (!res.ok) return showToast('Could not update — please try again.', 'error');
+    const { completed } = await res.json();
+    btn.classList.toggle('done', completed);
+    btn.textContent = completed ? '✓ Completed' : 'Mark as Complete';
+    document.getElementById('tr-complete-note').textContent = completed ? 'Nice work! Click to undo.' : 'Finished the lesson? Mark it done.';
+    if (completed) showToast('Training completed 🎉', 'success');
+  });
+
+  // ── Comments with @mentions ──
+  document.querySelectorAll('.tr-comment-body').forEach(el => {
+    el.innerHTML = highlightMentions(esc(el.textContent), NAMES.concat([ME.name]));
+  });
+  const input = document.getElementById('tr-comment-input');
+  attachMentionAutocomplete(input, NAMES);
+  document.getElementById('tr-comment-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = input.value.trim();
+    if (!body) return;
+    const res = await apiFetch(`/training/${TID}/comment`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }),
+    });
+    if (!res.ok) return showToast('Could not post comment.', 'error');
+    const { comment: c } = await res.json();
+    document.getElementById('tr-no-comments')?.remove();
+    const av = c.avatar
+      ? `<img class="tr-avatar ${vipClass(c.role)}" src="${esc(c.avatar)}" alt="">`
+      : `<div class="tr-avatar ${vipClass(c.role)}">${esc(c.author_name[0])}</div>`;
+    document.getElementById('tr-comments').insertAdjacentHTML('beforeend', `
+      <div class="tr-comment">${av}<div style="flex:1;min-width:0;">
+        <div class="text-sm fw-700">${esc(c.author_name)}${roleTag(c.role)} <span class="text-xs text-muted" style="font-weight:400;">${esc(c.created_at.slice(0, 16))}</span></div>
+        <div class="tr-comment-body">${highlightMentions(esc(c.body), NAMES)}</div></div></div>`);
+    input.value = '';
+  });
+
+  // ── Editors: uploads, file delete, assign search ──
+  const up = document.getElementById('tr-upload');
+  up?.addEventListener('change', async () => {
+    const status = document.getElementById('tr-upload-status');
+    const files = [...up.files];
+    for (let i = 0; i < files.length; i++) {
+      status.textContent = `Uploading ${i + 1}/${files.length}: ${files[i].name}…`;
+      const fd = new FormData();
+      fd.append('file', files[i]);
+      const res = await apiFetch(`/training/${TID}/files`, { method: 'POST', body: fd });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        status.textContent = `✕ ${files[i].name}: ${err.error || 'upload failed'}`;
+        return;
+      }
+    }
+    status.textContent = '✓ Uploaded';
+    location.reload();
+  });
+  window.deleteTrainingFile = async (id, el) => {
+    if (!confirm('Remove this file?')) return;
+    const res = await apiFetch(`/training/files/${id}/delete`, { method: 'POST' });
+    if (res.ok) location.reload(); else showToast('Could not remove file.', 'error');
+  };
+  document.getElementById('tr-assign-search')?.addEventListener('input', e => {
+    const q = e.target.value.toLowerCase();
+    document.querySelectorAll('#tr-assign-list label').forEach(l => {
+      l.style.display = l.dataset.name.includes(q) ? '' : 'none';
+    });
+  });
+})();
+</script>
+{% endblock %}

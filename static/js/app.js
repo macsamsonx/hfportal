@@ -265,6 +265,7 @@ const _activityIcon = {
 const _statusColor = { 'Todo': 'gray', 'In Progress': 'blue', 'For Review': 'yellow', 'Done': 'green' };
 
 function _buildTimeline(activities, comments, roleByName = {}) {
+  const names = Object.keys(roleByName);
   // Latest first — this is the per-task audit trail.
   const items = [
     ...activities.map(a => ({ ...a, _kind: 'event',   _ts: a.created_at })),
@@ -281,7 +282,7 @@ function _buildTimeline(activities, comments, roleByName = {}) {
             <span class="comment-author">${esc(item.author_name)}${roleTag(roleByName[item.author_name])}</span>
             <span class="comment-time text-xs text-muted">${esc(item._ts)}</span>
           </div>
-          <div class="comment-text">${esc(item.comment_text).replace(/\n/g,'<br>')}</div>
+          <div class="comment-text">${highlightMentions(esc(item.comment_text), names).replace(/\n/g,'<br>')}</div>
         </div>`;
     }
     const icon = _activityIcon[item.activity_type] || '•';
@@ -552,13 +553,15 @@ async function openCardModal(taskId) {
 
       <form id="comment-form" class="flex gap-8 mt-12" style="align-items:flex-start;">
         <textarea id="comment-input" class="form-textarea" rows="2"
-                  placeholder="Add a comment…"
+                  placeholder="Add a comment… (type @ to mention someone)"
                   style="flex:1;min-height:60px;resize:vertical;"></textarea>
         <button type="submit" class="btn btn-primary btn-sm" style="white-space:nowrap;margin-top:2px;">Post</button>
       </form>
     `;
 
     const commentForm = document.getElementById('comment-form');
+    attachMentionAutocomplete(document.getElementById('comment-input'),
+                              (all_employees || []).filter(e => e.id !== user_id).map(e => e.name));
     if (commentForm) {
       commentForm.addEventListener('submit', async e => {
         e.preventDefault();
@@ -583,7 +586,7 @@ async function openCardModal(taskId) {
                   <span class="comment-author">${esc(comment.author_name)}${roleTag(user_role)}</span>
                   <span class="comment-time text-xs text-muted">${esc(comment.timestamp)}</span>
                 </div>
-                <div class="comment-text">${esc(comment.comment_text).replace(/\n/g,'<br>')}</div>
+                <div class="comment-text">${highlightMentions(esc(comment.comment_text), Object.keys(roleByName)).replace(/\n/g,'<br>')}</div>
               </div>`);
             tl.scrollTop = 0;
           }
@@ -727,6 +730,60 @@ function roleTag(role) {
   return e ? `<span class="${e[1]}" title="${esc(role)}">${e[2]}</span>` : '';
 }
 
+// ── @mentions (task comments; chat has its own) ──────────────────────────────
+function highlightMentions(html, names) {
+  if (!names || !names.length) return html;
+  const sorted = [...names].sort((a, b) => b.length - a.length).concat(MENTION_GROUPS)
+    .map(n => esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const re = new RegExp('@(' + sorted.join('|') + ')(?![\\w])', 'gi');
+  return html.replace(re, '<span class="mention">@$1</span>');
+}
+
+const MENTION_GROUPS = ['everyone', 'teamlead', 'admin', 'hr', 'morningshift', 'nightshift'];
+
+function attachMentionAutocomplete(input, names) {
+  if (!input || !names || !names.length) return;
+  names = MENTION_GROUPS.concat(names);
+  const drop = document.createElement('div');
+  drop.className = 'mention-drop';
+  input.parentNode.style.position = 'relative';
+  input.parentNode.appendChild(drop);
+  let start = -1, sel = -1;
+  const close = () => { drop.classList.remove('open'); sel = -1; };
+  const choose = name => {
+    const pos = input.selectionStart;
+    input.value = input.value.slice(0, start) + '@' + name + ' ' + input.value.slice(pos);
+    input.selectionStart = input.selectionEnd = start + name.length + 2;
+    input.focus(); close();
+  };
+  input.addEventListener('input', () => {
+    const before = input.value.slice(0, input.selectionStart);
+    const m = before.match(/(?:^|\s)@([\w.]*(?: [\w.]*)?)$/);
+    if (!m) return close();
+    const q = m[1].toLowerCase();
+    start = input.selectionStart - m[1].length - 1;
+    const matches = names.filter(n => n.toLowerCase().includes(q)).slice(0, 8);
+    if (!matches.length) return close();
+    drop.innerHTML = matches.map(n =>
+      `<div class="mention-opt" data-name="${esc(n)}">${MENTION_GROUPS.includes(n) ? '📢' : '👤'} ${esc(n)}</div>`).join('');
+    drop.querySelectorAll('.mention-opt').forEach(o =>
+      o.addEventListener('mousedown', e => { e.preventDefault(); choose(o.dataset.name); }));
+    drop.classList.add('open'); sel = -1;
+  });
+  input.addEventListener('keydown', e => {
+    if (!drop.classList.contains('open')) return;
+    const opts = drop.querySelectorAll('.mention-opt');
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      sel = (sel + (e.key === 'ArrowDown' ? 1 : -1) + opts.length) % opts.length;
+      opts.forEach((o, i) => o.classList.toggle('sel', i === sel));
+    } else if ((e.key === 'Enter' || e.key === 'Tab') && sel >= 0) {
+      e.preventDefault(); choose(opts[sel].dataset.name);
+    } else if (e.key === 'Escape') { e.stopPropagation(); close(); }
+  });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -764,27 +821,77 @@ function showToast(msg, kind = 'success') {
   setTimeout(() => t.remove(), 3000);
 }
 
-// ── Attendance pill timer ─────────────────────────────────────────────────────
-(function () {
-  const timerEl = document.getElementById('att-timer');
-  if (!timerEl) return;
-  const ci = timerEl.dataset.ci; // "HH:MM" (PHT)
-  if (!ci) return;
-  const [h, m] = ci.split(':').map(Number);
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(h, m, 0, 0);
-  if (start > now) start.setDate(start.getDate() - 1);
-  function tick() {
-    const diff = Math.floor((Date.now() - start) / 1000);
-    const hh = Math.floor(diff / 3600).toString().padStart(2, '0');
-    const mm = Math.floor((diff % 3600) / 60).toString().padStart(2, '0');
-    const ss = (diff % 60).toString().padStart(2, '0');
-    timerEl.textContent = hh + ':' + mm + ':' + ss;
-  }
-  tick();
-  setInterval(tick, 1000);
-})();
+// ── Live shift timers (topbar pill + dashboard) ──────────────────────────────
+// Elements carry data-shift-start (ISO with +08:00), data-break-sec (finished breaks)
+// and data-break-start when on break — worked time then freezes at the break start.
+function _fmtHMS(sec) {
+  sec = Math.max(0, Math.floor(sec));
+  return [Math.floor(sec / 3600), Math.floor((sec % 3600) / 60), sec % 60]
+    .map(n => String(n).padStart(2, '0')).join(':');
+}
+function tickShiftTimers() {
+  document.querySelectorAll('[data-shift-start]').forEach(el => {
+    const start = Date.parse(el.dataset.shiftStart);
+    if (isNaN(start)) return;
+    const breakStart = el.dataset.breakStart ? Date.parse(el.dataset.breakStart) : NaN;
+    const end = isNaN(breakStart) ? Date.now() : breakStart;
+    el.textContent = _fmtHMS((end - start) / 1000 - (parseInt(el.dataset.breakSec) || 0));
+  });
+  document.querySelectorAll('[data-break-since]').forEach(el => {
+    const since = Date.parse(el.dataset.breakSince);
+    if (!isNaN(since)) el.textContent = _fmtHMS((Date.now() - since) / 1000);
+  });
+}
+tickShiftTimers();
+setInterval(tickShiftTimers, 1000);
+
+// ── Shared "add task" form (templates/shared/_task_form.html) ─────────────────
+function taskFormRte(cmd) {
+  document.execCommand(cmd, false, null);
+  document.getElementById('kb-notes-rte')?.focus();
+}
+function initTaskForm() {
+  const form = document.getElementById('add-task-form');
+  if (!form) return;
+  const filePick   = document.getElementById('at-input-file-pick');
+  const fileLabel  = document.getElementById('at-file-label');
+  const fileStatus = document.getElementById('at-file-status');
+  const submitBtn  = document.getElementById('at-submit-btn');
+  filePick?.addEventListener('change', async () => {
+    const file = filePick.files[0];
+    if (!file) return;
+    fileLabel.textContent = '⏫ Uploading…';
+    fileStatus.textContent = '';
+    submitBtn.disabled = true;
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const res  = await apiFetch('/api/chat/upload', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (data.ok) {
+        document.getElementById('at-input-drive-id').value  = data.drive_id;
+        document.getElementById('at-input-file-name').value = data.name;
+        document.getElementById('at-input-file-size').value = file.size;
+        fileLabel.textContent  = '✓ ' + data.name;
+        fileStatus.textContent = file.size > 1048576 ? (file.size / 1048576).toFixed(1) + ' MB' : Math.round(file.size / 1024) + ' KB';
+      } else {
+        fileLabel.textContent = '📎 Choose File';
+        fileStatus.textContent = '✕ Upload failed';
+      }
+    } catch {
+      fileLabel.textContent = '📎 Choose File';
+      fileStatus.textContent = '✕ Error';
+    }
+    submitBtn.disabled = false;
+  });
+  form.addEventListener('submit', () => {
+    const rte = document.getElementById('kb-notes-rte');
+    if (rte) document.getElementById('kb-notes-val').value = rte.innerHTML.trim();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Saving…';
+  });
+}
+document.addEventListener('DOMContentLoaded', initTaskForm);
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initKanban);

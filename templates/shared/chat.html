@@ -164,7 +164,11 @@
 
 {% block content %}
 {% set role_by_id = {user.id: user.role} %}
-{% for c in contacts %}{% set _ = role_by_id.update({c.id: c.role}) %}{% endfor %}
+{% set people_by_id = {user.id: {'name': user.name, 'role': user.role, 'avatar': ('/uploads/' ~ user.profile_pic_path) if user.profile_pic_path else none}} %}
+{% for c in contacts %}
+  {% set _ = role_by_id.update({c.id: c.role}) %}
+  {% set _ = people_by_id.update({c.id: {'name': c.name, 'role': c.role, 'avatar': ('/uploads/' ~ c.profile_pic_path) if c.profile_pic_path else none}}) %}
+{% endfor %}
 <div class="chat-shell">
   <!-- Contacts sidebar -->
   <div class="chat-contacts">
@@ -245,8 +249,8 @@
 
         {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}{{ role_tag(role_by_id.get(m.sender_id)) }}</div>{% endif %}
 
-        <div class="chat-msg-bubble" id="msg-{{ m.id }}">{% if m.attachment_type == 'image' and m.attachment_drive_id %}<a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><img class="chat-attach-img"
-                   src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w320"
+        <div class="chat-msg-bubble" id="msg-{{ m.id }}">{% if m.attachment_type == 'image' and m.attachment_drive_id %}<a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><img class="chat-attach-img" loading="lazy"
+                   src="{% if (m.attachment_name or '').lower().endswith('.gif') %}https://drive.google.com/uc?export=view&id={{ m.attachment_drive_id }}{% else %}https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w480{% endif %}"
                    alt="{{ m.attachment_name or 'Image' }}"
                    onerror="this.style.display='none'"></a>{% elif m.attachment_type == 'video' and m.attachment_drive_id %}<a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><span class="ft-badge" style="background:#0891b2;">MP4</span><span class="ca-fname">{{ m.attachment_name or 'Video' }}</span></a>{% elif m.attachment_type and m.attachment_drive_id %}<a class="chat-attach-card" href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank">{{ ft_badge(m.attachment_name or '') }}<span class="ca-fname">{{ m.attachment_name or 'File' }}</span></a>{% endif %}{% if m.get('is_deleted') %}<span class="deleted">This message was deleted.</span>{% elif m.body %}<span class="msg-body-text">{{ m.body }}</span>{% if m.edited_at %}<span class="msg-edited">(edited)</span>{% endif %}{% endif %}</div>
 
@@ -343,6 +347,22 @@
   const myId  = {{ user.id }};
   const myRole = {{ user.role | tojson }};
   const ROLE_BY_ID = {{ role_by_id | tojson }};
+  const PEOPLE_BY_ID = {{ people_by_id | tojson }};
+
+  // Photo beside every message from someone else (VIP ring for Admin/HR/Lead)
+  function decorateSender(el) {
+    if (!el || el.classList.contains('mine') || el.querySelector(':scope > .chat-msg-avatar')) return;
+    const id = el.dataset.sender;
+    const p = PEOPLE_BY_ID[id] || {};
+    const name = p.name || el.querySelector('.chat-msg-sender')?.textContent || '?';
+    const av = document.createElement(p.avatar ? 'img' : 'div');
+    av.className = 'chat-msg-avatar ' + vipClass(p.role);
+    av.title = name;
+    if (p.avatar) { av.src = p.avatar; av.alt = ''; }
+    else av.textContent = name.trim()[0]?.toUpperCase() || '?';
+    el.classList.add('has-avatar');
+    el.prepend(av);
+  }
   const isDM  = room.startsWith('dm_');
   const messagesEl = document.getElementById('chat-messages');
   const form   = document.getElementById('chat-form');
@@ -350,7 +370,8 @@
   const EMPLOYEE_NAMES = {{ contacts | map(attribute='name') | list | tojson }};
   // Longest-first so multi-word names (e.g. "Sarah Connor") match in full
   // before a shorter name/group could steal the match.
-  const MENTION_TARGETS = [...EMPLOYEE_NAMES].sort((a,b) => b.length - a.length).concat(['Everyone','Admin']);
+  const MENTION_GROUPS = {{ mention_groups | tojson }};
+  const MENTION_TARGETS = [...EMPLOYEE_NAMES].sort((a,b) => b.length - a.length).concat(MENTION_GROUPS);
   const _mentionRegex = new RegExp(
     '@(' + MENTION_TARGETS.map(n => n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|') + ')\\b', 'gi'
   );
@@ -392,8 +413,12 @@
     if (!m.attachment_type || !m.attachment_drive_id) return '';
     const url = `https://drive.google.com/file/d/${m.attachment_drive_id}/view`;
     if (m.attachment_type === 'image') {
+      const isGif = /\.gif$/i.test(m.attachment_name || '');
+      const src = isGif
+        ? `https://drive.google.com/uc?export=view&id=${m.attachment_drive_id}`
+        : `https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w480`;
       return `<a href="${url}" target="_blank">
-        <img class="chat-attach-img" src="https://drive.google.com/thumbnail?id=${m.attachment_drive_id}&sz=w320" alt="${esc(m.attachment_name||'Image')}" onerror="this.style.display='none'">
+        <img class="chat-attach-img" src="${src}" alt="${esc(m.attachment_name||'Image')}" loading="lazy" onerror="this.style.display='none'">
       </a>`;
     }
     const name = m.attachment_name || 'File';
@@ -407,6 +432,13 @@
   function mentionBody(text) {
     return esc(text).replace(_mentionRegex, '<span class="mention">@$1</span>');
   }
+
+  // vipClass() lives in app.js, which loads after this script
+  document.addEventListener('DOMContentLoaded', () =>
+    document.querySelectorAll('#chat-messages .chat-msg').forEach(decorateSender));
+  new MutationObserver(muts => muts.forEach(mu => mu.addedNodes.forEach(n => {
+    if (n.nodeType === 1 && n.classList.contains('chat-msg')) decorateSender(n);
+  }))).observe(document.getElementById('chat-messages'), { childList: true });
 
   // Highlight @mentions in server-rendered bubbles on load
   document.querySelectorAll('.msg-body-text').forEach(el => {
@@ -782,7 +814,7 @@
     if (m) {
       mentionQuery = m[1].toLowerCase();
       mentionStart = pos - m[0].length;
-      const groupMatches = (room === 'group' ? ['Everyone','Admin'] : ['Admin'])
+      const groupMatches = (room === 'group' ? MENTION_GROUPS : [])
         .filter(n => n.toLowerCase().includes(mentionQuery));
       const peopleMatches = EMPLOYEE_NAMES.filter(n => n.toLowerCase().includes(mentionQuery));
       const matches = groupMatches.concat(peopleMatches).slice(0,8);

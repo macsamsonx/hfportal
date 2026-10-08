@@ -118,7 +118,7 @@
               <a href="/clients/{{ c.id }}/dashboard" class="btn btn-primary btn-sm">📊 Dashboard</a>
               <button class="btn btn-outline btn-sm" onclick="openEditClient(this)"
                       data-id="{{ c.id }}" data-name="{{ c.name }}" data-color="{{ c.hex_color }}"
-                      data-shift="{{ c.shift_tag or '' }}"
+                      data-shift="{{ c.shift_tag or '' }}" data-active="{{ c.is_active }}"
                       data-logo="{{ c.logo_url if c.logo_url and c.logo_url.startswith('/') else '' }}"
                       data-logo-broken="{{ '1' if c.logo_url and not c.logo_url.startswith('/') else '' }}">
                 Edit
@@ -154,7 +154,6 @@
         <div class="form-group" style="margin:0;">
           <label class="form-label">Client Name <span style="color:red">*</span></label>
           <input type="text" name="name" class="form-input" required placeholder="e.g. Acme Corp">
-          <div class="text-xs text-muted" style="margin-top:4px;">The name can't be changed later, so double-check the spelling.</div>
         </div>
         <div class="form-group" style="margin:0;">
           <label class="form-label">Logo <span style="font-size:.72rem;color:var(--muted);">(optional — PNG, JPG, GIF or WEBP, max 2 MB)</span></label>
@@ -196,9 +195,9 @@
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
       <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
         <div class="form-group" style="margin:0;">
-          <label class="form-label">Client Name</label>
-          <input type="text" id="edit-client-name" class="form-input" readonly disabled>
-          <div class="text-xs text-muted" style="margin-top:4px;">Client names can't be changed because past tasks are linked by name.</div>
+          <label class="form-label">Client Name <span style="color:red">*</span></label>
+          <input type="text" name="name" id="edit-client-name" class="form-input" required>
+          <div class="text-xs text-muted" style="margin-top:4px;">Renaming also updates the client on all past tasks.</div>
         </div>
         <div class="form-group" style="margin:0;">
           <label class="form-label">Logo <span style="font-size:.72rem;color:var(--muted);">(upload to replace)</span></label>
@@ -215,6 +214,12 @@
           <div id="edit-logo-broken" class="text-xs" style="display:none;margin-top:4px;color:#d97706;">
             The saved logo link couldn't be downloaded. Upload the image or paste a different link.
           </div>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:.86rem;cursor:pointer;">
+            <input type="checkbox" name="is_active" value="1" id="edit-active">
+            <span><strong>Active</strong> <span class="text-xs text-muted">— inactive clients are hidden from task dropdowns</span></span>
+          </label>
         </div>
         <div class="form-group" style="margin:0;">
           <label class="form-label">Shift</label>
@@ -245,6 +250,7 @@ function openEditClient(btn) {
   document.getElementById('edit-client-form').action = '/api/clients/' + d.id + '/update';
   document.getElementById('edit-client-name').value = d.name;
   document.getElementById('edit-hex-color').value = d.color;
+  document.getElementById('edit-active').checked = d.active === '1';
   document.getElementById('edit-shift-morning').checked = d.shift === 'Morning' || d.shift === 'Both';
   document.getElementById('edit-shift-night').checked   = d.shift === 'Night'   || d.shift === 'Both';
   const form = document.getElementById('edit-client-form');

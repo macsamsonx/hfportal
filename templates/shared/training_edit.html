@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if training else 'New' }} Training{% endblock %}
+{% block page_title %}Training{% endblock %}
+
+{% block extra_head %}
+<style>
+  .tr-swatches { display:flex; gap:8px; flex-wrap:wrap; }
+  .tr-swatches label { cursor:pointer; }
+  .tr-swatches input { display:none; }
+  .tr-swatches span { display:block; width:30px; height:30px; border-radius:8px; border:3px solid transparent; }
+  .tr-swatches input:checked + span { border-color: var(--text); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>{{ '✏️ Edit Training' if training else '🎓 New Training' }}</h2>
+    <p>Write the lesson, link the video from Google Drive, then add images or PDFs on the next screen.</p>
+  </div>
+  <a href="{{ '/training/' ~ training.id if training else '/training' }}" class="btn btn-outline btn-sm">← Back</a>
+</div>
+
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">{% if flash.kind == 'error' %}✗{% else %}✓{% endif %} {{ flash.msg }}</div>
+{% endif %}
+
+<div class="card" style="max-width:820px;">
+  <div class="card-body">
+    <form method="post" action="/training/save" id="training-form">
+      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+      <input type="hidden" name="training_id" value="{{ training.id if training else '' }}">
+      <input type="hidden" name="body" id="tr-body-val">
+
+      <div class="form-group">
+        <label class="form-label">Title <span style="color:red">*</span></label>
+        <input type="text" name="title" class="form-input" required maxlength="200"
+               value="{{ training.title if training else '' }}" placeholder="e.g. Writing Facebook ad copy">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">Category</label>
+          <input type="text" name="category" class="form-input" maxlength="60"
+                 value="{{ training.category or '' if training else '' }}" placeholder="e.g. Design, Ads, Tools">
+        </div>
+        <div class="form-group" style="flex:1;">
+          <label class="form-label">Card Color</label>
+          <div class="tr-swatches">
+            {% for c in colors %}
+            <label title="{{ c }}"><input type="radio" name="cover_color" value="{{ c }}"
+              {% if (training and training.cover_color == c) or (not training and loop.first) %}checked{% endif %}><span style="background:{{ c }};"></span></label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Training Video <span class="text-xs text-muted">(Google Drive link)</span></label>
+        <input type="text" name="video_link" class="form-input"
+               value="{{ 'https://drive.google.com/file/d/' ~ training.video_drive_id ~ '/view' if training and training.video_drive_id else '' }}"
+               placeholder="https://drive.google.com/file/d/…/view">
+        <div class="text-xs text-muted" style="margin-top:4px;">
+          In Drive, set sharing to <strong>Anyone with the link → Viewer</strong> so staff can watch it here.
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Lesson</label>
+        <div class="rte-wrap">
+          <div class="rte-toolbar">
+            {% for cmd, label, title in [('bold','<b>B</b>','Bold'),('italic','<i>I</i>','Italic'),('underline','<u>U</u>','Underline'),
+                                         ('insertUnorderedList','•','Bullet list'),('insertOrderedList','1.','Numbered list'),('removeFormat','⌫','Clear formatting')] %}
+            <button type="button" title="{{ title }}" onmousedown="event.preventDefault();document.execCommand('{{ cmd }}');">{{ label | safe }}</button>
+            {% endfor %}
+          </div>
+          <div id="tr-body-rte" class="rte-body" contenteditable="true" style="min-height:220px;max-height:none;"
+               data-placeholder="What should they learn? Steps, tips, links…">{{ (training.body or '') | safe if training else '' }}</div>
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:.88rem;cursor:pointer;margin-bottom:16px;">
+        <input type="checkbox" name="is_published" value="1" {% if not training or training.is_published %}checked{% endif %}>
+        Published <span class="text-xs text-muted">— untick to keep it as a draft only editors can see</span>
+      </label>
+
+      <div class="flex gap-8" style="justify-content:flex-end;">
+        <button type="submit" class="btn btn-primary">💾 Save Training</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('training-form').addEventListener('submit', () => {
+  document.getElementById('tr-body-val').value = document.getElementById('tr-body-rte').innerHTML.trim();
+});
+</script>
+{% endblock %}
