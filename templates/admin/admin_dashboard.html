@@ -8,49 +8,43 @@
 <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:10px;">
   <div>
     <div style="font-size:.78rem; color:var(--muted); font-weight:600; letter-spacing:.05em; text-transform:uppercase;">{{ today_str }}</div>
-    <div style="font-size:1.15rem; font-weight:800; margin-top:2px;">Good day, {{ user.first_name or user.name.split()[0] }} 👋</div>
+    <div style="font-size:1.15rem; font-weight:800; margin-top:2px;">Good day, {{ user.first_name or user.name.split()[0] }}</div>
   </div>
   <div style="display:flex; gap:8px; flex-wrap:wrap;">
-    {% if pending_ot > 0 %}<a href="/hr-ot" class="btn btn-warning btn-sm">⏰ {{ pending_ot }} OT</a>{% endif %}
-    {% if pending_leave > 0 %}<a href="/hr-leave" class="btn btn-warning btn-sm">🌴 {{ pending_leave }} Leave</a>{% endif %}
-    {% if for_review > 0 %}<a href="/kanban" class="btn btn-outline btn-sm">📋 {{ for_review }} Review</a>{% endif %}
-    {% if pending_timesheets > 0 %}<a href="/hr-timesheets" class="btn btn-outline btn-sm">🗓️ {{ pending_timesheets }} Timesheet</a>{% endif %}
+    {% if pending_ot > 0 %}<a href="/hr-ot" class="btn btn-warning btn-sm">{{ pending_ot }} OT</a>{% endif %}
+    {% if pending_leave > 0 %}<a href="/hr-leave" class="btn btn-warning btn-sm">{{ pending_leave }} Leave</a>{% endif %}
+    {% if for_review > 0 %}<a href="/kanban" class="btn btn-outline btn-sm">{{ for_review }} Review</a>{% endif %}
+    {% if pending_timesheets > 0 %}<a href="/hr-timesheets" class="btn btn-outline btn-sm">{{ pending_timesheets }} Timesheet</a>{% endif %}
   </div>
 </div>
 
 {# ── KPI Row 1 ──────────────────────────────────────────────────────────────── #}
-<div style="display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:16px;">
-
-  <div style="background:linear-gradient(135deg,#16a34a,#4ade80); border-radius:var(--radius); padding:16px 18px; color:#fff;">
-    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Active Now</div>
-    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ active_employees }}</div>
-    <div style="font-size:.72rem; opacity:.75;">of {{ total_employees }} employees</div>
+<div class="metric-row">
+  <div class="metric-card metric-card--ok">
+    <div class="metric-kicker">Active Now</div>
+    <div class="metric-value">{{ active_employees }}</div>
+    <div class="metric-note">of {{ total_employees }} employees</div>
   </div>
-
-  <div style="background:linear-gradient(135deg,#2563eb,#60a5fa); border-radius:var(--radius); padding:16px 18px; color:#fff;">
-    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Active Clients</div>
-    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ active_clients }}</div>
-    <div style="font-size:.72rem; opacity:.75;">with tasks this month</div>
+  <div class="metric-card metric-card--info">
+    <div class="metric-kicker">Active Clients</div>
+    <div class="metric-value">{{ active_clients }}</div>
+    <div class="metric-note">with tasks this month</div>
   </div>
-
-  <div style="background:linear-gradient(135deg,#7c3aed,#a78bfa); border-radius:var(--radius); padding:16px 18px; color:#fff;">
-    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Week Labor</div>
-    <div style="font-size:1.5rem; font-weight:800; line-height:1.1; margin:4px 0;">₱{{ "{:,.0f}".format(week_cost) }}</div>
-    <div style="font-size:.72rem; opacity:.75;">estimated gross pay</div>
+  <div class="metric-card metric-card--accent">
+    <div class="metric-kicker">Week Labor</div>
+    <div class="metric-value">₱{{ "{:,.0f}".format(week_cost) }}</div>
+    <div class="metric-note">estimated gross pay</div>
   </div>
-
-  <div style="background:linear-gradient(135deg,#0891b2,#38bdf8); border-radius:var(--radius); padding:16px 18px; color:#fff;">
-    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">Done Today</div>
-    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ tasks_today }}</div>
-    <div style="font-size:.72rem; opacity:.75;">tasks completed</div>
+  <div class="metric-card metric-card--info">
+    <div class="metric-kicker">Done Today</div>
+    <div class="metric-value">{{ tasks_today }}</div>
+    <div class="metric-note">tasks completed</div>
   </div>
-
-  <div style="background:{% if on_leave_today %}linear-gradient(135deg,#d97706,#fbbf24){% else %}linear-gradient(135deg,#64748b,#94a3b8){% endif %}; border-radius:var(--radius); padding:16px 18px; color:#fff;">
-    <div style="font-size:.65rem; font-weight:700; letter-spacing:.1em; text-transform:uppercase; opacity:.8;">On Leave</div>
-    <div style="font-size:2rem; font-weight:800; line-height:1.1; margin:4px 0;">{{ on_leave_today | length }}</div>
-    <div style="font-size:.72rem; opacity:.75;">approved today</div>
+  <div class="metric-card {{ 'metric-card--warn' if on_leave_today else 'metric-card--muted' }}">
+    <div class="metric-kicker">On Leave</div>
+    <div class="metric-value">{{ on_leave_today | length }}</div>
+    <div class="metric-note">approved today</div>
   </div>
-
 </div>
 
 {# ── Main content grid ──────────────────────────────────────────────────────── #}
@@ -90,17 +84,17 @@
       <a href="/kanban" class="btn btn-outline btn-sm">Open Board</a>
     </div>
     <div style="padding:8px 16px 16px;">
-      {% set statuses = [('Todo','gray','📋'),('In Progress','blue','⚡'),('For Review','yellow','🔍'),('Done','green','✅')] %}
+      {% set statuses = [('Todo','gray','list'),('In Progress','blue','bolt'),('For Review','yellow','search'),('Done','green','check')] %}
       {% set total_t = task_status_counts.values() | sum %}
-      {% for st, color, icon in statuses %}
+      {% for st, color, ico in statuses %}
       {% set cnt = task_status_counts.get(st, 0) %}
       {% set pct = [(cnt / total_t * 100) | round(0) | int, 0] | max if total_t else 0 %}
       <div style="display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border);">
-        <span style="font-size:1rem; width:20px; text-align:center;">{{ icon }}</span>
+        <span class="ui-icon" style="width:20px; justify-content:center;">{{ icon(ico) }}</span>
         <span style="font-size:.82rem; font-weight:600; width:90px;">{{ st }}</span>
         <div style="flex:1; height:8px; background:var(--border); border-radius:9999px; overflow:hidden;">
           <div style="width:{{ pct }}%; height:100%; border-radius:9999px;
-               background:{% if color=='green' %}#16a34a{% elif color=='blue' %}#2563eb{% elif color=='yellow' %}#d97706{% else %}#94a3b8{% endif %};"></div>
+               background:{% if color=='green' %}var(--success){% elif color=='blue' %}var(--primary){% elif color=='yellow' %}var(--warning){% else %}var(--muted){% endif %};"></div>
         </div>
         <span class="badge badge-{{ color }}" style="font-size:.7rem; min-width:28px; text-align:center;">{{ cnt }}</span>
       </div>
@@ -175,7 +169,7 @@
   {# Payroll #}
   <div class="card">
     <div class="card-header" style="padding:13px 16px;">
-      <h3 style="font-size:.8rem;">💰 Payroll</h3>
+      <h3 style="font-size:.8rem;"><span class="ui-icon">{{ icon('wallet', 16) }}</span> Payroll</h3>
       <span class="badge badge-blue" style="font-size:.6rem;">3-mo</span>
     </div>
     <div style="padding:14px 16px;">
@@ -196,7 +190,7 @@
   {# Active Employees #}
   <div class="card">
     <div class="card-header" style="padding:13px 16px;">
-      <h3 style="font-size:.8rem;">👥 Active Employees</h3>
+      <h3 style="font-size:.8rem;"><span class="ui-icon">{{ icon('people', 16) }}</span> Active Employees</h3>
       <span class="badge badge-green" style="font-size:.6rem;">3-mo</span>
     </div>
     <div style="padding:14px 16px;">
@@ -217,7 +211,7 @@
   {# Tasks Completed #}
   <div class="card">
     <div class="card-header" style="padding:13px 16px;">
-      <h3 style="font-size:.8rem;">✅ Tasks Completed</h3>
+      <h3 style="font-size:.8rem;"><span class="ui-icon">{{ icon('check', 16) }}</span> Tasks Completed</h3>
       <span class="badge badge-blue" style="font-size:.6rem;">3-mo</span>
     </div>
     <div style="padding:14px 16px;">
@@ -238,7 +232,7 @@
   {# Revisions / Issues #}
   <div class="card">
     <div class="card-header" style="padding:13px 16px;">
-      <h3 style="font-size:.8rem;">↩️ Revisions</h3>
+      <h3 style="font-size:.8rem;"><span class="ui-icon">{{ icon('undo', 16) }}</span> Revisions</h3>
       <span class="badge badge-yellow" style="font-size:.6rem;">3-mo</span>
     </div>
     <div style="padding:14px 16px;">
@@ -269,7 +263,7 @@
     <div style="padding:8px 16px 16px;">
       {% if doc_expiry_alerts %}
       <div style="background:rgba(220,53,69,.08); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
-        <div style="font-size:.78rem; font-weight:700; color:var(--danger); margin-bottom:4px;">📄 Document Expiry</div>
+        <div style="font-size:.78rem; font-weight:700; color:var(--danger); margin-bottom:4px;"><span class="ui-icon" style="color:inherit">{{ icon('document', 14) }}</span> Document Expiry</div>
         {% for a in doc_expiry_alerts %}
         <div style="font-size:.75rem; color:var(--text); padding:2px 0;">{{ a.name }}</div>
         {% endfor %}
@@ -278,7 +272,7 @@
 
       {% if on_leave_today %}
       <div style="background:rgba(217,119,6,.08); border-radius:8px; padding:12px 14px; margin-bottom:8px;">
-        <div style="font-size:.78rem; font-weight:700; color:#d97706; margin-bottom:4px;">🌴 On Leave Today</div>
+        <div style="font-size:.78rem; font-weight:700; color:#d97706; margin-bottom:4px;"><span class="ui-icon" style="color:inherit">{{ icon('branch', 14) }}</span> On Leave Today</div>
         {% for l in on_leave_today %}
         <div style="font-size:.75rem; color:var(--text); padding:2px 0;">{{ l.name }}</div>
         {% endfor %}
@@ -287,7 +281,7 @@
 
       {% if not doc_expiry_alerts and not on_leave_today %}
       <div class="empty-state" style="padding:16px;">
-        <div style="font-size:1.5rem;">✅</div>
+        <div class="ui-icon" style="color:var(--success);">{{ icon('check', 28) }}</div>
         <p style="font-size:.8rem;">No active alerts.</p>
       </div>
       {% endif %}
@@ -309,7 +303,7 @@
         <tbody>
           {% for f in login_flags %}
           <tr>
-            <td class="fw-600" style="color:var(--danger);">⚠️ {{ f.name }}</td>
+            <td class="fw-600" style="color:var(--danger);"><span class="ui-icon" style="color:inherit;">{{ icon('alert', 14) }}</span> {{ f.name }}</td>
             <td><span class="badge badge-red" style="font-size:.65rem;">{{ f.ip_count }} IPs</span></td>
           </tr>
           {% endfor %}
@@ -318,7 +312,7 @@
     </div>
     {% else %}
     <div class="empty-state" style="padding:24px;">
-      <div style="font-size:1.5rem;">🔒</div>
+      <div class="ui-icon">{{ icon('lock', 28) }}</div>
       <p style="font-size:.8rem;">No suspicious login activity today.</p>
     </div>
     {% endif %}
@@ -333,7 +327,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h3>📁 Drive Storage</h3>
+      <h3><span class="ui-icon">{{ icon('drive', 16) }}</span> Drive Storage</h3>
       <div style="display:flex; gap:8px; align-items:center;">
         <span class="badge badge-gray" style="font-size:.7rem;">{{ drive_totals.file_count or 0 }} files · {{ fmt_mb(drive_totals.total_bytes) }}</span>
         <a href="/admin/drive-stats" class="btn btn-outline btn-sm" style="font-size:.7rem;">Full view</a>
@@ -361,7 +355,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h3>💬 Chat Attachments</h3>
+      <h3><span class="ui-icon">{{ icon('chat', 16) }}</span> Chat Attachments</h3>
       <span class="badge badge-blue" style="font-size:.7rem;">{{ chat_attach_count }} sent</span>
     </div>
     <div style="padding:16px;">
@@ -381,7 +375,7 @@
 {% if my_bills_list or my_bills_total %}
 <div class="card" style="margin-top:16px;">
   <div class="card-header" style="justify-content:space-between;">
-    <h3>💳 My Bills Reminder</h3>
+    <h3><span class="ui-icon">{{ icon('card', 16) }}</span> My Bills Reminder</h3>
     <a href="/my-bills" class="btn btn-outline btn-sm" style="font-size:.72rem;">Manage Bills →</a>
   </div>
   <div style="padding:0 0 0 0;">
@@ -409,7 +403,7 @@
       </div>
       {% endfor %}
     {% else %}
-      <div style="padding:20px;text-align:center;color:var(--muted);font-size:.85rem;">No unpaid bills. You're all caught up! 🎉</div>
+      <div style="padding:20px;text-align:center;color:var(--muted);font-size:.85rem;">No unpaid bills. You're all caught up!</div>
     {% endif %}
     <div style="display:flex;border-top:1px solid var(--border);">
       <div style="flex:1;padding:12px 16px;border-right:1px solid var(--border);">
@@ -428,13 +422,13 @@
 {# ── Upcoming Celebrations ──────────────────────────────────────────────────── #}
 <div class="card" style="margin-top:16px;">
   <div class="card-header">
-    <h3>🎉 Upcoming Celebrations <span style="font-size:.75rem;font-weight:400;color:var(--muted);">(next 30 days)</span></h3>
+    <h3><span class="ui-icon">{{ icon('gift', 16) }}</span> Upcoming Celebrations <span style="font-size:.75rem;font-weight:400;color:var(--muted);">(next 30 days)</span></h3>
   </div>
   <div style="padding:8px 16px 16px;">
     {% if upcoming_celebrations %}
       {% for c in upcoming_celebrations %}
       <div style="display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--border);">
-        <span style="font-size:1.2rem;">{% if c.type == 'birthday' %}🎂{% else %}🏆{% endif %}</span>
+        <span class="ui-icon">{{ icon('gift' if c.type == 'birthday' else 'award', 20) }}</span>
         <div style="flex:1;">
           <div style="font-size:.85rem; font-weight:700;">{{ c.name }}</div>
           <div style="font-size:.73rem; color:var(--muted);">

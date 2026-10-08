@@ -256,6 +256,8 @@ def _role_tag(role) -> _Markup:
 
 templates.env.globals["vip_class"] = _vip_class
 templates.env.globals["role_tag"] = _role_tag
+from ui_icons import icon as _ui_icon
+templates.env.globals["icon"] = _ui_icon
 templates.env.globals["mention_groups"] = ["everyone", "teamlead", "admin", "hr", "morningshift", "nightshift"]
 init_db()
 

@@ -22,7 +22,8 @@
   box-shadow: var(--shadow);
   min-height: 100px;
 }
-.dash-stat-icon { font-size: 1.4rem; line-height: 1; }
+.dash-stat-icon { line-height: 1; color: var(--muted); display: inline-flex; }
+.dash-stat.accent .dash-stat-icon { color: inherit; }
 .dash-stat-label { font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); }
 .dash-stat-value { font-size: 1.5rem; font-weight: 900; line-height: 1; color: var(--text); font-variant-numeric: tabular-nums; }
 .dash-stat-sub { font-size: .68rem; color: var(--muted); }
@@ -155,12 +156,12 @@
 {% if birthday_people %}
 <div style="background:linear-gradient(135deg,#fef08a,#fde047);border:1px solid #facc15;border-radius:12px;
             padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-  <div style="font-size:2rem;">🎂</div>
+  <div style="display:inline-flex;color:#92400e;">{{ icon('gift', 30) }}</div>
   <div>
     <div style="font-weight:800;font-size:1rem;color:#713f12;">Happy Birthday!</div>
     <div style="font-size:.88rem;color:#92400e;margin-top:2px;">
       {% for b in birthday_people %}<strong>{{ b.name }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}
-      — wishing you a wonderful day! 🎉
+      — wishing you a wonderful day!
     </div>
   </div>
 </div>
@@ -178,7 +179,7 @@
 
   <!-- Hours this week -->
   <div class="dash-stat">
-    <div class="dash-stat-icon">⏱</div>
+    <div class="dash-stat-icon">{{ icon('clock', 20) }}</div>
     <div class="dash-stat-label">This Week</div>
     <div class="dash-stat-value">{{ week_hours }}h</div>
     {% set ot = [week_hours - 40, 0] | max %}
@@ -187,7 +188,7 @@
 
   <!-- Done today -->
   <div class="dash-stat">
-    <div class="dash-stat-icon">✅</div>
+    <div class="dash-stat-icon">{{ icon('check', 20) }}</div>
     <div class="dash-stat-label">Done Today</div>
     <div class="dash-stat-value">{{ logged_today | selectattr('status','eq','Done') | list | length }}</div>
     <div class="dash-stat-sub">of {{ logged_today | length }} tasks</div>
@@ -197,7 +198,7 @@
   {% set ts_color = {'Approved':'#16a34a','Returned':'#dc2626','Submitted':'#2563eb','Draft':'#d97706'} %}
   <a href="/my-timesheet" style="text-decoration:none;">
     <div class="dash-stat" style="border-color:{{ ts_color.get(timesheet_status,'#94a3b8') }}22;background:{{ ts_color.get(timesheet_status,'#94a3b8') }}10;">
-      <div class="dash-stat-icon">🗓</div>
+      <div class="dash-stat-icon">{{ icon('calendar', 20) }}</div>
       <div class="dash-stat-label">Timesheet</div>
       <div class="dash-stat-value" style="font-size:1rem;color:{{ ts_color.get(timesheet_status,'var(--muted)') }};">{{ timesheet_status or 'No Entry' }}</div>
       <div class="dash-stat-sub">this week</div>
@@ -208,7 +209,7 @@
   {% set total_pending = (pending_ot_mine or 0) + (pending_leave_mine or 0) %}
   {% if total_pending > 0 or for_review_mine > 0 %}
   <div class="dash-stat" style="border-color:#f59e0b44;background:#f59e0b0a;">
-    <div class="dash-stat-icon">⏳</div>
+    <div class="dash-stat-icon">{{ icon('clock', 20) }}</div>
     <div class="dash-stat-label">Pending</div>
     <div class="dash-stat-value" style="color:#d97706;">{{ total_pending + for_review_mine }}</div>
     <div class="dash-stat-sub">
@@ -277,7 +278,7 @@
         <div style="display:flex;gap:6px;align-items:center;flex-shrink:0;">
           <form method="post" action="/api/break/start">
             <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
-            <button type="submit" class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;font-weight:600;padding:5px 12px;border-radius:7px;">⏸ Break</button>
+            <button type="submit" class="btn btn-sm" style="background:#f59e0b;color:#fff;border:none;font-weight:600;padding:5px 12px;border-radius:7px;display:inline-flex;align-items:center;gap:4px;">{{ icon('pause', 14) }} Break</button>
           </form>
           <form method="post" action="/api/clock-out" style="display:flex;gap:4px;align-items:center;">
             <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
@@ -316,7 +317,7 @@
 {% if my_cards %}
 <div class="dash-section">
   <div class="dash-section-header">
-    <span>📌 My Assigned Cards <span class="badge badge-blue" style="font-weight:700;font-size:.7rem;margin-left:6px;">{{ my_cards | length }}</span></span>
+    <span><span class="ui-icon">{{ icon('pin', 16) }}</span> My Assigned Cards <span class="badge badge-blue" style="font-weight:700;font-size:.7rem;margin-left:6px;">{{ my_cards | length }}</span></span>
     <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.72rem;">View Board</a>
   </div>
   <div class="card-grid">
@@ -329,7 +330,7 @@
         <span class="badge badge-{{ sc.get(card.status,'gray') }}" style="font-size:.62rem;">{{ card.status }}</span>
         {% if card.due_date %}<span style="font-size:.62rem;color:var(--muted);">Due {{ card.due_date }}</span>{% endif %}
       </div>
-      {% if card.reviewer_name %}<div style="font-size:.65rem;color:var(--muted);">👤 Reviewer: {{ card.reviewer_name }}</div>{% endif %}
+      {% if card.reviewer_name %}<div style="font-size:.65rem;color:var(--muted);">Reviewer: {{ card.reviewer_name }}</div>{% endif %}
       <div class="task-card-actions">
         <button class="btn-transfer" onclick="openTransfer({{ card.id }}, '{{ card.task_title | e }}')">↗ Transfer</button>
         <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.7rem;padding:3px 9px;">Open</a>
@@ -344,7 +345,7 @@
 {% if reviewer_cards %}
 <div class="dash-section">
   <div class="dash-section-header">
-    <span>👤 Cards I'm Reviewing <span class="badge badge-yellow" style="font-size:.7rem;margin-left:6px;">{{ reviewer_cards | length }}</span></span>
+    <span><span class="ui-icon">{{ icon('search', 16) }}</span> Cards I'm Reviewing <span class="badge badge-yellow" style="font-size:.7rem;margin-left:6px;">{{ reviewer_cards | length }}</span></span>
     <a href="/kanban" class="btn btn-outline btn-sm" style="font-size:.72rem;">View Board</a>
   </div>
   <div class="card-grid">
@@ -415,7 +416,7 @@
             <td class="fw-600" style="max-width:160px;">
               <div class="truncate"><a href="#" class="task-open-link" data-task-id="{{ task.id }}" style="color:inherit;">{{ task.task_title }}</a></div>
               {% if task.notes %}<div class="text-xs text-muted mt-2 truncate">{{ task.notes | striptags }}</div>{% endif %}
-              {% if task.reviewer_name %}<div class="text-xs mt-2" style="color:var(--primary);">👤 {{ task.reviewer_name }}</div>{% endif %}
+              {% if task.reviewer_name %}<div class="text-xs mt-2" style="color:var(--primary);">Reviewer: {{ task.reviewer_name }}</div>{% endif %}
             </td>
             <td><span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:.65rem;font-weight:700;background:{{ client_hex }}22;color:{{ client_hex }};">{{ task.client or '—' }}</span></td>
             <td>
@@ -454,7 +455,7 @@
       </table>
     </div>
     {% else %}
-    <div class="empty-state"><div class="emoji">📭</div><p>No tasks this month.</p></div>
+    <div class="empty-state"><div class="emoji">{{ icon('inbox', 32) }}</div><p>No tasks this month.</p></div>
     {% endif %}
 
     <div id="period-summary" style="padding:10px 16px;border-top:1px solid var(--border);font-size:.78rem;color:var(--muted);display:flex;gap:16px;"></div>
@@ -540,7 +541,7 @@
       <button class="modal-close" onclick="closeModal('card-modal')">×</button>
     </div>
     <div class="modal-body" id="card-modal-body">
-      <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
+      <div class="empty-state"><div class="emoji">{{ icon('clock', 32) }}</div><p>Loading…</p></div>
     </div>
   </div>
 </div>

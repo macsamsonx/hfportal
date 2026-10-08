@@ -6,8 +6,8 @@
   <title>{% block title %}HF Hub{% endblock %} — Hundredfold Digital Marketing</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=3">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css?v=4">
   <meta name="csrf-token" content="{{ csrf_token or '' }}">
   {% block extra_head %}{% endblock %}
   <script>
@@ -54,110 +54,119 @@
 
       {# ── EMPLOYEE ───────────────────────────────────────────── #}
       {% if user.role == 'Employee' %}
-        <div class="nav-section">Workspace</div>
+        <div class="nav-section">Today</div>
         <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
-          <span class="icon">📊</span> Dashboard
+          <span class="icon">{{ icon('dashboard') }}</span> Dashboard
         </a>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Kanban Board
+          <span class="icon">{{ icon('list') }}</span> Kanban Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
+        <a href="/my-timesheet" class="nav-link {% if request.url.path == '/my-timesheet' %}active{% endif %}">
+          <span class="icon">{{ icon('calendar') }}</span> Timesheet
+        </a>
+        <a href="/my-schedule" class="nav-link {% if request.url.path == '/my-schedule' %}active{% endif %}">
+          <span class="icon">{{ icon('schedule') }}</span> Schedule
+        </a>
+        <a href="/my-leave" class="nav-link {% if request.url.path == '/my-leave' %}active{% endif %}">
+          <span class="icon">{{ icon('branch') }}</span> Leave
+        </a>
 
-        <div class="nav-section">Requests</div>
-        <a href="/my-incidents" class="nav-link {% if request.url.path.startswith('/my-incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; NTEs
-        </a>
-        <a href="/my-surveys" class="nav-link {% if request.url.path == '/my-surveys' or request.url.path.startswith('/my-surveys/') %}active{% endif %}">
-          <span class="icon">📝</span> Surveys
-        </a>
-
-        <div class="nav-section">Time &amp; Records</div>
-        <a href="/my-timesheet" class="nav-link {% if request.url.path in ('/my-timesheet','/my-review','/my-schedule') %}active{% endif %}">
-          <span class="icon">🗓️</span> Timesheet
-        </a>
+        <div class="nav-section">Required</div>
         <a href="/compliance" class="nav-link {% if request.url.path.startswith('/compliance') %}active{% endif %}">
-          <span class="icon">📄</span> Compliance Docs
+          <span class="icon">{{ icon('document') }}</span> Compliance Docs
           {% if pending_compliance_count and pending_compliance_count > 0 %}
-            <span class="nav-badge" style="background:#ef4444;">{{ pending_compliance_count }}</span>
+            <span class="nav-badge nav-badge-alert">{{ pending_compliance_count }}</span>
           {% endif %}
         </a>
         <a href="/training" class="nav-link {% if request.url.path.startswith('/training') or request.url.path.startswith('/onboarding') %}active{% endif %}">
-          <span class="icon">🎓</span> Training
+          <span class="icon">{{ icon('cap') }}</span> Training
         </a>
 
         <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
-          <span class="icon">💬</span> Chat
+          <span class="icon">{{ icon('chat') }}</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
         </a>
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
-          <span class="icon">📅</span> Team Calendar
+          <span class="icon">{{ icon('calendar') }}</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
-          <span class="icon">📢</span> Announcements
+          <span class="icon">{{ icon('megaphone') }}</span> Announcements
         </a>
         <a href="/profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">
-          <span class="icon">👤</span> My Profile
+          <span class="icon">{{ icon('person') }}</span> My Profile
+        </a>
+
+        <div class="nav-section">More</div>
+        <a href="/my-incidents" class="nav-link {% if request.url.path.startswith('/my-incidents') %}active{% endif %}">
+          <span class="icon">{{ icon('scale') }}</span> Incidents &amp; NTEs
+        </a>
+        <a href="/my-surveys" class="nav-link {% if request.url.path == '/my-surveys' or request.url.path.startswith('/my-surveys/') %}active{% endif %}">
+          <span class="icon">{{ icon('clipboard') }}</span> Surveys
+        </a>
+        <a href="/my-review" class="nav-link {% if request.url.path == '/my-review' %}active{% endif %}">
+          <span class="icon">{{ icon('star') }}</span> My Review
         </a>
 
       {# ── TEAM MANAGER ───────────────────────────────────────── #}
       {% elif user.role == 'Team Manager' %}
         <div class="nav-section">Workspace</div>
         <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
-          <span class="icon">📊</span> Dashboard
+          <span class="icon">{{ icon('dashboard') }}</span> Dashboard
         </a>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Operations Board
+          <span class="icon">{{ icon('list') }}</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
         <a href="/clients" class="nav-link {% if request.url.path.startswith('/clients') %}active{% endif %}">
-          <span class="icon">🏢</span> Clients
+          <span class="icon">{{ icon('building') }}</span> Clients
         </a>
 
         <div class="nav-section">Team</div>
         <a href="/team" class="nav-link {% if request.url.path == '/team' or '/reassign-tasks' in request.url.path %}active{% endif %}">
-          <span class="icon">👥</span> Team
+          <span class="icon">{{ icon('people') }}</span> Team
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
-          <span class="icon">🕒</span> Attendance
+          <span class="icon">{{ icon('clock') }}</span> Attendance
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> Schedule
+          <span class="icon">{{ icon('schedule') }}</span> Schedule
         </a>
         <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
-          <span class="icon">📝</span> Registrations
+          <span class="icon">{{ icon('user-plus') }}</span> Registrations
           {% if pending_reg_count and pending_reg_count > 0 %}
             <span class="nav-badge">{{ pending_reg_count }}</span>
           {% endif %}
         </a>
         <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; Discipline
+          <span class="icon">{{ icon('scale') }}</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
-          <span class="icon">📝</span> Surveys
+          <span class="icon">{{ icon('clipboard') }}</span> Surveys
         </a>
         <a href="/training" class="nav-link {% if request.url.path.startswith('/training') or request.url.path.startswith('/onboarding') %}active{% endif %}">
-          <span class="icon">🎓</span> Training
+          <span class="icon">{{ icon('cap') }}</span> Training
         </a>
 
         <div class="nav-section">My Records</div>
         <a href="/my-timesheet" class="nav-link {% if request.url.path in ('/my-timesheet','/my-review','/my-schedule') %}active{% endif %}">
-          <span class="icon">🗓️</span> Timesheet
+          <span class="icon">{{ icon('calendar') }}</span> Timesheet
         </a>
         <a href="/my-surveys" class="nav-link {% if request.url.path.startswith('/my-surveys') %}active{% endif %}">
-          <span class="icon">🗳️</span> My Surveys
+          <span class="icon">{{ icon('clipboard') }}</span> My Surveys
         </a>
         <a href="/my-incidents" class="nav-link {% if request.url.path.startswith('/my-incidents') %}active{% endif %}">
-          <span class="icon">📁</span> My Incidents
+          <span class="icon">{{ icon('folder') }}</span> My Incidents
         </a>
         <a href="/compliance" class="nav-link {% if request.url.path.startswith('/compliance') %}active{% endif %}">
-          <span class="icon">📄</span> Compliance Docs
+          <span class="icon">{{ icon('document') }}</span> Compliance Docs
           {% if pending_compliance_count and pending_compliance_count > 0 %}
             <span class="nav-badge" style="background:#ef4444;">{{ pending_compliance_count }}</span>
           {% endif %}
@@ -165,245 +174,245 @@
 
         <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
-          <span class="icon">💬</span> Chat
+          <span class="icon">{{ icon('chat') }}</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
         </a>
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
-          <span class="icon">📅</span> Team Calendar
+          <span class="icon">{{ icon('calendar') }}</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
-          <span class="icon">📢</span> Announcements
+          <span class="icon">{{ icon('megaphone') }}</span> Announcements
         </a>
         <a href="/profile" class="nav-link {% if request.url.path == '/profile' %}active{% endif %}">
-          <span class="icon">👤</span> My Profile
+          <span class="icon">{{ icon('person') }}</span> My Profile
         </a>
 
       {# ── HR MANAGER ─────────────────────────────────────────── #}
       {% elif user.role == 'HR Manager' %}
         <div class="nav-section">Boards</div>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Operations Board
+          <span class="icon">{{ icon('list') }}</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
         <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
-          <span class="icon">🔒</span> HR Board
+          <span class="icon">{{ icon('lock') }}</span> HR Board
         </a>
 
         <div class="nav-section">People &amp; Records</div>
         <a href="/directory" class="nav-link {% if request.url.path in ('/directory','/roster','/employees') or request.url.path.startswith('/employees/') %}active{% endif %}">
-          <span class="icon">👥</span> Team
+          <span class="icon">{{ icon('people') }}</span> Team
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
-          <span class="icon">🕒</span> Attendance
+          <span class="icon">{{ icon('clock') }}</span> Attendance
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> Schedule
+          <span class="icon">{{ icon('schedule') }}</span> Schedule
         </a>
 
         <div class="nav-section">Requests</div>
         <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
-          <span class="icon">⏰</span> OT Requests
+          <span class="icon">{{ icon('clock') }}</span> OT Requests
           {% if pending_ot_count and pending_ot_count > 0 %}
             <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}
         </a>
         <a href="/hr-leave" class="nav-link {% if request.url.path == '/hr-leave' %}active{% endif %}">
-          <span class="icon">🌴</span> Leave Requests
+          <span class="icon">{{ icon('branch') }}</span> Leave Requests
           {% if pending_leave_count and pending_leave_count > 0 %}
             <span class="nav-badge">{{ pending_leave_count }}</span>
           {% endif %}
         </a>
         <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; Discipline
+          <span class="icon">{{ icon('scale') }}</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
-          <span class="icon">📝</span> Surveys
+          <span class="icon">{{ icon('clipboard') }}</span> Surveys
         </a>
 
         <div class="nav-section">HR &amp; Compliance</div>
         <a href="/training" class="nav-link {% if request.url.path.startswith('/training') or '/onboarding' in request.url.path %}active{% endif %}">
-          <span class="icon">🎓</span> Training
+          <span class="icon">{{ icon('cap') }}</span> Training
         </a>
         <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
-          <span class="icon">📄</span> Compliance Docs
+          <span class="icon">{{ icon('document') }}</span> Compliance Docs
         </a>
         <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
-          <span class="icon">⭐</span> Reviews
+          <span class="icon">{{ icon('star') }}</span> Reviews
         </a>
         <a href="/review-templates" class="nav-link {% if request.url.path.startswith('/review-templates') or request.url.path.startswith('/review-assignments') %}active{% endif %}">
-          <span class="icon">📋</span> Review Templates
+          <span class="icon">{{ icon('list') }}</span> Review Templates
         </a>
 
         <div class="nav-section">Finance</div>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
-          <span class="icon">💰</span> Payroll &amp; Timesheets
+          <span class="icon">{{ icon('wallet') }}</span> Payroll &amp; Timesheets
         </a>
         <a href="/loans" class="nav-link {% if request.url.path.startswith('/loans') %}active{% endif %}">
-          <span class="icon">🏦</span> Loans &amp; Advances
+          <span class="icon">{{ icon('bank') }}</span> Loans &amp; Advances
         </a>
         <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
-          <span class="icon">📊</span> Reports
+          <span class="icon">{{ icon('chart') }}</span> Reports
         </a>
 
         <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
-          <span class="icon">💬</span> Chat
+          <span class="icon">{{ icon('chat') }}</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
         </a>
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
-          <span class="icon">📅</span> Team Calendar
+          <span class="icon">{{ icon('calendar') }}</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
-          <span class="icon">📢</span> Announcements
+          <span class="icon">{{ icon('megaphone') }}</span> Announcements
         </a>
 
         <div class="nav-section">Admin</div>
         <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
-          <span class="icon">📝</span> Registrations
+          <span class="icon">{{ icon('user-plus') }}</span> Registrations
           {% if pending_reg_count and pending_reg_count > 0 %}
             <span class="nav-badge">{{ pending_reg_count }}</span>
           {% endif %}
         </a>
         <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
-          <span class="icon">🏢</span> Clients
+          <span class="icon">{{ icon('building') }}</span> Clients
         </a>
         <a href="/admin/company-settings" class="nav-link {% if '/company-settings' in request.url.path %}active{% endif %}">
-          <span class="icon">⚙️</span> Company Settings
+          <span class="icon">{{ icon('gear') }}</span> Company Settings
         </a>
 
       {# ── ADMIN ──────────────────────────────────────────────── #}
       {% elif user.role == 'Admin' %}
         <div class="nav-section">Operations</div>
         <a href="/dashboard" class="nav-link {% if request.url.path == '/dashboard' %}active{% endif %}">
-          <span class="icon">🏠</span> My Dashboard
+          <span class="icon">{{ icon('home') }}</span> My Dashboard
         </a>
         <a href="/admin-dashboard" class="nav-link {% if request.url.path == '/admin-dashboard' %}active{% endif %}">
-          <span class="icon">📈</span> Executive View
+          <span class="icon">{{ icon('trend') }}</span> Executive View
         </a>
         <a href="/kanban" class="nav-link {% if request.url.path == '/kanban' %}active{% endif %}">
-          <span class="icon">📋</span> Operations Board
+          <span class="icon">{{ icon('list') }}</span> Operations Board
           {% if for_review_count and for_review_count > 0 %}
             <span class="nav-badge">{{ for_review_count }}</span>
           {% endif %}
         </a>
         <a href="/hr-kanban" class="nav-link {% if request.url.path == '/hr-kanban' %}active{% endif %}">
-          <span class="icon">🔒</span> HR Board
+          <span class="icon">{{ icon('lock') }}</span> HR Board
         </a>
 
         <div class="nav-section">People &amp; Records</div>
         <a href="/directory" class="nav-link {% if request.url.path in ('/directory','/roster','/employees') or request.url.path.startswith('/employees/') %}active{% endif %}">
-          <span class="icon">👥</span> Team
+          <span class="icon">{{ icon('people') }}</span> Team
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
-          <span class="icon">🕒</span> Attendance
+          <span class="icon">{{ icon('clock') }}</span> Attendance
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
-          <span class="icon">📅</span> Schedule
+          <span class="icon">{{ icon('schedule') }}</span> Schedule
         </a>
 
         <div class="nav-section">Requests</div>
         <a href="/hr-ot" class="nav-link {% if request.url.path == '/hr-ot' %}active{% endif %}">
-          <span class="icon">⏰</span> OT Requests
+          <span class="icon">{{ icon('clock') }}</span> OT Requests
           {% if pending_ot_count and pending_ot_count > 0 %}
             <span class="nav-badge">{{ pending_ot_count }}</span>
           {% endif %}
         </a>
         <a href="/hr-leave" class="nav-link {% if request.url.path == '/hr-leave' %}active{% endif %}">
-          <span class="icon">🌴</span> Leave Requests
+          <span class="icon">{{ icon('branch') }}</span> Leave Requests
           {% if pending_leave_count and pending_leave_count > 0 %}
             <span class="nav-badge">{{ pending_leave_count }}</span>
           {% endif %}
         </a>
         <a href="/incidents" class="nav-link {% if request.url.path.startswith('/incidents') %}active{% endif %}">
-          <span class="icon">⚖️</span> Incidents &amp; Discipline
+          <span class="icon">{{ icon('scale') }}</span> Incidents &amp; Discipline
         </a>
         <a href="/hr/surveys" class="nav-link {% if '/hr/surveys' in request.url.path %}active{% endif %}">
-          <span class="icon">📝</span> Surveys
+          <span class="icon">{{ icon('clipboard') }}</span> Surveys
         </a>
 
         <div class="nav-section">HR &amp; Compliance</div>
         <a href="/training" class="nav-link {% if request.url.path.startswith('/training') or '/onboarding' in request.url.path %}active{% endif %}">
-          <span class="icon">🎓</span> Training
+          <span class="icon">{{ icon('cap') }}</span> Training
         </a>
         <a href="/hr/compliance" class="nav-link {% if request.url.path.startswith('/hr/compliance') %}active{% endif %}">
-          <span class="icon">📄</span> Compliance Docs
+          <span class="icon">{{ icon('document') }}</span> Compliance Docs
         </a>
         <a href="/hr-reviews" class="nav-link {% if request.url.path == '/hr-reviews' %}active{% endif %}">
-          <span class="icon">⭐</span> Reviews
+          <span class="icon">{{ icon('star') }}</span> Reviews
         </a>
         <a href="/review-templates" class="nav-link {% if request.url.path.startswith('/review-templates') or request.url.path.startswith('/review-assignments') %}active{% endif %}">
-          <span class="icon">📋</span> Review Templates
+          <span class="icon">{{ icon('list') }}</span> Review Templates
         </a>
 
         <div class="nav-section">Finance</div>
         <a href="/payroll" class="nav-link {% if request.url.path == '/payroll' %}active{% endif %}">
-          <span class="icon">💰</span> Payroll &amp; Timesheets
+          <span class="icon">{{ icon('wallet') }}</span> Payroll &amp; Timesheets
         </a>
         <a href="/loans" class="nav-link {% if request.url.path.startswith('/loans') %}active{% endif %}">
-          <span class="icon">🏦</span> Loans &amp; Advances
+          <span class="icon">{{ icon('bank') }}</span> Loans &amp; Advances
         </a>
         <a href="/my-bills" class="nav-link {% if request.url.path.startswith('/my-bills') %}active{% endif %}">
-          <span class="icon">💳</span> My Bills
+          <span class="icon">{{ icon('card') }}</span> My Bills
         </a>
         <a href="/reports" class="nav-link {% if '/reports' in request.url.path %}active{% endif %}">
-          <span class="icon">📊</span> Reports
+          <span class="icon">{{ icon('chart') }}</span> Reports
         </a>
 
         <div class="nav-section">Connect</div>
         <a href="/chat" class="nav-link {% if request.url.path == '/chat' %}active{% endif %}">
-          <span class="icon">💬</span> Chat
+          <span class="icon">{{ icon('chat') }}</span> Chat
           {% if chat_unread_count and chat_unread_count > 0 %}
             <span class="nav-badge chat-nav-badge">{{ chat_unread_count }}</span>
           {% endif %}
         </a>
         <a href="/calendar" class="nav-link {% if request.url.path == '/calendar' %}active{% endif %}">
-          <span class="icon">📅</span> Team Calendar
+          <span class="icon">{{ icon('calendar') }}</span> Team Calendar
         </a>
         <a href="/announcements" class="nav-link {% if request.url.path == '/announcements' %}active{% endif %}">
-          <span class="icon">📢</span> Announcements
+          <span class="icon">{{ icon('megaphone') }}</span> Announcements
         </a>
 
         <div class="nav-section">Admin</div>
         <a href="/hr-registrations" class="nav-link {% if request.url.path == '/hr-registrations' %}active{% endif %}">
-          <span class="icon">📝</span> Registrations
+          <span class="icon">{{ icon('user-plus') }}</span> Registrations
           {% if pending_reg_count and pending_reg_count > 0 %}
             <span class="nav-badge">{{ pending_reg_count }}</span>
           {% endif %}
         </a>
         <a href="/clients" class="nav-link {% if request.url.path == '/clients' %}active{% endif %}">
-          <span class="icon">🏢</span> Clients
+          <span class="icon">{{ icon('building') }}</span> Clients
         </a>
         <a href="/tv-manage" class="nav-link {% if request.url.path == '/tv-manage' %}active{% endif %}">
-          <span class="icon">📺</span> TV Posters
+          <span class="icon">{{ icon('monitor') }}</span> TV Posters
         </a>
         <a href="/admin/company-settings" class="nav-link {% if '/company-settings' in request.url.path %}active{% endif %}">
-          <span class="icon">⚙️</span> Company Settings
+          <span class="icon">{{ icon('gear') }}</span> Company Settings
         </a>
         <a href="/admin/audit-log" class="nav-link {% if '/audit-log' in request.url.path %}active{% endif %}">
-          <span class="icon">📜</span> Audit Log
+          <span class="icon">{{ icon('list') }}</span> Audit Log
         </a>
         <a href="/admin/clear-database" class="nav-link {% if '/clear-database' in request.url.path %}active{% endif %}" style="color:var(--danger);">
-          <span class="icon">🗑️</span> Clear Database
+          <span class="icon">{{ icon('trash') }}</span> Clear Database
         </a>
       {% endif %}
 
       {% if user.role != 'Employee' %}
       <div class="nav-section" style="margin-top:8px;">System</div>
       <a href="/tv" target="_blank" class="nav-link">
-        <span class="icon">📺</span> TV Display
+        <span class="icon">{{ icon('monitor') }}</span> TV Display
       </a>
       {% endif %}
     </nav>
 
     <div class="sidebar-footer">
       <a href="/logout">
-        <span>🚪</span> Sign Out
+        <span class="icon">{{ icon('logout') }}</span> Sign Out
       </a>
     </div>
   </aside>
@@ -420,7 +429,7 @@
         <span style="flex-shrink:0;">{% block page_title %}Dashboard{% endblock %}</span>
         {% if verse %}
         <span class="topbar-verse" title="&quot;{{ verse.verse }}&quot; — {{ verse.ref }}">
-          <span style="opacity:.7;">✝</span> "{{ verse.verse }}" <span style="opacity:.6;">— {{ verse.ref }}</span>
+          <span style="opacity:.7;display:inline-flex;vertical-align:-3px;">{{ icon('book', 14) }}</span> "{{ verse.verse }}" <span style="opacity:.6;">— {{ verse.ref }}</span>
         </span>
         {% endif %}
       </div>
@@ -440,7 +449,7 @@
           <span style="width:7px;height:7px;border-radius:50%;background:#fbbf24;display:inline-block;animation:pulse-dot 1.5s infinite;"></span>
           <span>BREAK <span id="att-timer" data-break-since="{{ shift_break_start_iso or '' }}"></span></span>
         {% elif att_status == 'clocked_out' %}
-          <span>🏁</span>
+          <span style="display:inline-flex;">{{ icon('flag', 14) }}</span>
           <span>{{ att_clock_in }} – {{ att_clock_out }}</span>
         {% else %}
           <span>–– not clocked in</span>
@@ -450,12 +459,12 @@
 
       <div style="display:flex; align-items:center; gap:10px;">
         <!-- Dark mode toggle -->
-        <button id="theme-toggle" title="Toggle dark mode" onclick="toggleTheme()">🌙</button>
+        <button id="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode" onclick="toggleTheme()"><span class="theme-icon-moon">{{ icon('moon') }}</span><span class="theme-icon-sun">{{ icon('sun') }}</span></button>
 
         <!-- Notification bell -->
         <div class="notif-bell" id="notif-bell-wrap">
-          <button class="notif-btn" onclick="toggleNotifPanel()" title="Notifications">
-            🔔
+          <button class="notif-btn" onclick="toggleNotifPanel()" title="Notifications" aria-label="Notifications">
+            {{ icon('bell', 20) }}
             {% if notif_count and notif_count > 0 %}
               <span class="notif-dot">{{ notif_count }}</span>
             {% endif %}
@@ -510,16 +519,16 @@
             </div>
             <a href="/profile" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text);font-size:.82rem;"
                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-              <span>👤</span> View Profile
+              <span style="display:inline-flex;">{{ icon('person', 16) }}</span> View Profile
             </a>
             <a href="/profile#edit" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--text);font-size:.82rem;"
                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-              <span>✏️</span> Edit Profile
+              <span style="display:inline-flex;">{{ icon('pencil', 16) }}</span> Edit Profile
             </a>
             <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
             <a href="/logout" style="display:flex;align-items:center;gap:10px;padding:9px 14px;text-decoration:none;color:var(--danger);font-size:.82rem;"
                onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
-              <span>🚪</span> Sign Out
+              <span style="display:inline-flex;">{{ icon('logout', 16) }}</span> Sign Out
             </a>
           </div>
         </div>
@@ -549,7 +558,7 @@
           <div id="msg-messages" style="flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:6px;"></div>
           {# Attach preview bar #}
           <div id="msg-attach-bar" style="display:none;padding:5px 10px;font-size:.72rem;color:var(--muted);background:var(--surface-2,#fafafa);border-top:1px solid var(--border,#e2e8f0);flex-shrink:0;align-items:center;gap:6px;">
-            📎 <span id="msg-attach-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+            <span style="display:inline-flex;">{{ icon('paperclip', 14) }}</span> <span id="msg-attach-name" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
             <button onclick="clearMsgAttach()" style="border:none;background:none;cursor:pointer;color:#ef4444;font-size:.85rem;flex-shrink:0;padding:0 2px;">✕</button>
           </div>
           {# Emoji picker #}
@@ -559,9 +568,9 @@
             {% endfor %}
           </div>
           <div style="padding:8px 10px;border-top:1px solid var(--border,#e2e8f0);display:flex;gap:4px;flex-shrink:0;align-items:flex-end;">
-            <label for="msg-file-input" title="Attach file" style="cursor:pointer;font-size:1.05rem;padding:5px 4px;color:var(--muted);flex-shrink:0;line-height:1;">📎</label>
+            <label for="msg-file-input" title="Attach file" style="cursor:pointer;font-size:1.05rem;padding:5px 4px;color:var(--muted);flex-shrink:0;line-height:1;display:inline-flex;">{{ icon('paperclip') }}</label>
             <input type="file" id="msg-file-input" style="display:none;" onchange="handleMsgFile(this)">
-            <button onclick="toggleMsgEmoji()" title="Emoji" style="background:none;border:none;cursor:pointer;font-size:1.05rem;padding:5px 4px;color:var(--muted);flex-shrink:0;line-height:1;">😊</button>
+            <button onclick="toggleMsgEmoji()" title="Emoji" style="background:none;border:none;cursor:pointer;font-size:1.05rem;padding:5px 4px;color:var(--muted);flex-shrink:0;line-height:1;display:inline-flex;">{{ icon('smile') }}</button>
             <textarea id="msg-input" rows="1"
                    placeholder="Message…"
                    style="flex:1;padding:7px 10px;border:1px solid var(--border,#e2e8f0);border-radius:12px;font-size:.82rem;outline:none;background:var(--surface-2,#fafafa);resize:none;line-height:1.45;max-height:90px;overflow-y:auto;font-family:inherit;color:var(--text);"
@@ -577,7 +586,7 @@
          style="width:54px;height:54px;border-radius:50%;background:var(--primary);border:none;
                 display:flex;align-items:center;justify-content:center;cursor:pointer;
                 box-shadow:0 4px 20px rgba(0,0,0,.3);position:relative;flex-shrink:0;">
-        <span style="font-size:1.35rem;">💬</span>
+        <span style="display:inline-flex;color:#fff;">{{ icon('chat', 24) }}</span>
         <span id="chat-unread-badge" style="position:absolute;top:-3px;right:-3px;background:#ef4444;color:#fff;
                border-radius:50%;min-width:20px;height:20px;font-size:.68rem;font-weight:800;
                display:{% if chat_unread_count and chat_unread_count > 0 %}flex{% else %}none{% endif %};
@@ -621,7 +630,7 @@
         if (!data.contacts || !data.contacts.length) { el.innerHTML = '<div style="text-align:center;color:var(--muted);font-size:.8rem;padding:20px;">No contacts yet.</div>'; return; }
         el.innerHTML = data.contacts.map(c => {
           const avatarHtml = c.is_group
-            ? `<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#0ea5e9);color:#fff;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;">💬</div>`
+            ? `<div style="width:38px;height:38px;border-radius:50%;background:linear-gradient(135deg,#1d4ed8,#0ea5e9);color:#fff;display:flex;align-items:center;justify-content:center;flex-shrink:0;">{{ icon('chat') }}</div>`
             : _msgAvatar({avatar: c.avatar, name: c.name, role: c.role}, 38);
           return `<div class="msg-contact-row" data-room="${_e(c.room)}" data-name="${_e(c.name)}" data-id="${Number(c.id)||0}"
                style="display:flex;align-items:center;gap:10px;padding:9px 14px;cursor:pointer;transition:background .1s;${c.is_group ? 'border-bottom:1px solid var(--border);' : ''}"
@@ -878,20 +887,12 @@ function toggleTheme() {
   if (isDark) {
     document.documentElement.removeAttribute('data-theme');
     localStorage.setItem('theme', 'light');
-    document.getElementById('theme-toggle').textContent = '🌙';
   } else {
     document.documentElement.setAttribute('data-theme', 'dark');
     localStorage.setItem('theme', 'dark');
-    document.getElementById('theme-toggle').textContent = '☀️';
   }
 }
-// Sync button icon on load
-(function() {
-  if (document.documentElement.getAttribute('data-theme') === 'dark') {
-    const btn = document.getElementById('theme-toggle');
-    if (btn) btn.textContent = '☀️';
-  }
-})();
+// Theme button shows moon/sun via CSS on [data-theme]
 
 // Sidebar mobile
 function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebar-overlay').classList.add('open'); }
