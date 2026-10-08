@@ -8,7 +8,7 @@
     <h2>📋 Reassign Open Tasks</h2>
     <p>{{ emp.name }} · <span class="badge badge-red">{{ emp.emp_status }}</span> · {{ open_tasks | length }} open task(s) need reassignment</p>
   </div>
-  <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline">← Back to Profile</a>
+  <a href="{{ '/team' if user.role == 'Team Manager' else '/employees/' ~ emp.id ~ '/profile' }}" class="btn btn-outline">← Back to Profile</a>
 </div>
 
 {% if not open_tasks %}
@@ -16,7 +16,7 @@
   <div class="card-body" style="text-align:center; padding:48px;">
     <div style="font-size:2rem;">✅</div>
     <p style="margin-top:10px; color:var(--muted);">No open tasks to reassign.</p>
-    <a href="/employees/{{ emp.id }}/profile" class="btn btn-primary" style="margin-top:16px;">Back to Profile</a>
+    <a href="{{ '/team' if user.role == 'Team Manager' else '/employees/' ~ emp.id ~ '/profile' }}" class="btn btn-primary" style="margin-top:16px;">Back to Profile</a>
   </div>
 </div>
 {% else %}
@@ -63,7 +63,7 @@
     </div>
     <div style="padding:16px 22px; display:flex; gap:12px; border-top:1px solid var(--border); background:var(--surface-2);">
       <button type="submit" class="btn btn-primary">💾 Save Reassignments</button>
-      <a href="/employees/{{ emp.id }}/profile" class="btn btn-outline">Skip for Now</a>
+      <a href="{{ '/team' if user.role == 'Team Manager' else '/employees/' ~ emp.id ~ '/profile' }}" class="btn btn-outline">Skip for Now</a>
     </div>
   </div>
 </form>

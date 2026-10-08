@@ -163,6 +163,8 @@
 {% macro ft_badge(name) %}{% set ext = (name or '').rsplit('.',1)[-1].lower() if '.' in (name or '') else '' %}{% set _c = {'pdf':'#ef4444','doc':'#2563eb','docx':'#2563eb','xls':'#16a34a','xlsx':'#16a34a','csv':'#16a34a','ppt':'#f59e0b','pptx':'#f59e0b','html':'#7c3aed','htm':'#7c3aed','zip':'#64748b','rar':'#64748b'} %}{% set _l = {'doc':'DOC','docx':'DOC','xls':'XLS','xlsx':'XLS','csv':'CSV','ppt':'PPT','pptx':'PPT','html':'HTML','htm':'HTML','zip':'ZIP','rar':'ZIP'} %}<span class="ft-badge" style="background:{{ _c.get(ext,'#64748b') }};">{{ _l.get(ext, ext.upper()[:4] if ext else 'FILE') }}</span>{% endmacro %}
 
 {% block content %}
+{% set role_by_id = {user.id: user.role} %}
+{% for c in contacts %}{% set _ = role_by_id.update({c.id: c.role}) %}{% endfor %}
 <div class="chat-shell">
   <!-- Contacts sidebar -->
   <div class="chat-contacts">
@@ -177,12 +179,12 @@
     {% for c in contacts %}
     <a href="/chat?room={{ c.room }}" class="chat-contact {% if room == c.room %}active{% endif %}">
       {% if c.profile_pic_path %}
-        <img src="/uploads/{{ c.profile_pic_path }}" class="chat-contact-avatar" alt="{{ c.name }}">
+        <img src="/uploads/{{ c.profile_pic_path }}" class="chat-contact-avatar {{ vip_class(c.role) }}" alt="{{ c.name }}">
       {% else %}
-        <div class="chat-contact-avatar">{{ c.name[0] }}</div>
+        <div class="chat-contact-avatar {{ vip_class(c.role) }}">{{ c.name[0] }}</div>
       {% endif %}
       <div class="chat-contact-info">
-        <div class="chat-contact-name">{{ c.name }}</div>
+        <div class="chat-contact-name">{{ c.name }}{{ role_tag(c.role) }}</div>
         <div class="chat-contact-sub">{{ c.role }}</div>
       </div>
       {% if c.unread > 0 %}
@@ -203,12 +205,12 @@
         </div>
       {% elif other_user %}
         {% if other_user.profile_pic_path %}
-          <img src="/uploads/{{ other_user.profile_pic_path }}" class="chat-contact-avatar" alt="{{ other_user.name }}">
+          <img src="/uploads/{{ other_user.profile_pic_path }}" class="chat-contact-avatar {{ vip_class(other_user.role) }}" alt="{{ other_user.name }}">
         {% else %}
-          <div class="chat-contact-avatar">{{ other_user.name[0] }}</div>
+          <div class="chat-contact-avatar {{ vip_class(other_user.role) }}">{{ other_user.name[0] }}</div>
         {% endif %}
         <div>
-          <div class="chat-contact-name">{{ other_user.name }}</div>
+          <div class="chat-contact-name">{{ other_user.name }}{{ role_tag(other_user.role) }}</div>
           <div class="chat-contact-sub">{{ other_user.role }}</div>
         </div>
       {% endif %}
@@ -241,7 +243,7 @@
         </div>
         {% endif %}
 
-        {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}</div>{% endif %}
+        {% if m.sender_id != user.id %}<div class="chat-msg-sender">{{ m.sender_name }}{{ role_tag(role_by_id.get(m.sender_id)) }}</div>{% endif %}
 
         <div class="chat-msg-bubble" id="msg-{{ m.id }}">{% if m.attachment_type == 'image' and m.attachment_drive_id %}<a href="https://drive.google.com/file/d/{{ m.attachment_drive_id }}/view" target="_blank"><img class="chat-attach-img"
                    src="https://drive.google.com/thumbnail?id={{ m.attachment_drive_id }}&sz=w320"
@@ -340,6 +342,7 @@
   const room  = {{ room | tojson }};
   const myId  = {{ user.id }};
   const myRole = {{ user.role | tojson }};
+  const ROLE_BY_ID = {{ role_by_id | tojson }};
   const isDM  = room.startsWith('dm_');
   const messagesEl = document.getElementById('chat-messages');
   const form   = document.getElementById('chat-form');
@@ -488,7 +491,7 @@
 
     if (!isMine) {
       const senderEl = div.querySelector('.chat-msg-sender');
-      if (senderEl) senderEl.textContent = m.sender_name;
+      if (senderEl) senderEl.innerHTML = esc(m.sender_name || '') + roleTag(ROLE_BY_ID[m.sender_id]);
     }
     return div;
   }

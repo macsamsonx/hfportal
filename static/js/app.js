@@ -62,7 +62,7 @@ function initKanban() {
   cards.forEach(card => {
     const isOwn = card.dataset.own === 'true';
     const role  = card.dataset.role;
-    const canDrag = role === 'HR Manager' || role === 'Admin' || isOwn;
+    const canDrag = BOARD_MANAGER_ROLES.includes(role) || isOwn;
 
     card.setAttribute('draggable', canDrag ? 'true' : 'false');
 
@@ -101,23 +101,90 @@ function initKanban() {
       const taskId = e.dataTransfer.getData('text/plain');
       if (!taskId) return;
       const newStatus = col.dataset.status;
-
-      try {
-        const res = await apiFetch(`/api/tasks/${taskId}/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status: newStatus }),
-        });
-        if (res.ok) {
-          location.reload();
-        } else {
-          showToast('Could not move card — please try again.', 'error');
-        }
-      } catch {
-        showToast('Network error — please refresh.', 'error');
-      }
+      const cardEl = document.querySelector(`.kanban-card[data-task-id="${taskId}"]`);
+      if (cardEl && cardEl.dataset.status === newStatus) return;
+      moveCard(taskId, newStatus, cardEl ? {
+        own: cardEl.dataset.own === 'true',
+        person: cardEl.dataset.personName,
+        estimate: cardEl.dataset.est,
+      } : {});
     });
   });
+}
+
+const BOARD_MANAGER_ROLES = ['HR Manager', 'Admin', 'Team Manager'];
+
+// ── Hours prompt (shown before a card moves to For Review / Done) ─────────────
+function askHours({ title, message, value, hint }) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay open';
+    overlay.style.zIndex = '1000';
+    overlay.innerHTML = `
+      <div class="modal" style="max-width:360px;" role="dialog" aria-modal="true">
+        <div class="modal-header"><span class="modal-title">${esc(title)}</span></div>
+        <form class="modal-body" style="display:flex;flex-direction:column;gap:10px;">
+          <label class="form-label" for="ask-hours-input" style="margin:0;">${esc(message)}</label>
+          <input id="ask-hours-input" type="number" class="form-input" min="0.25" max="200" step="0.25"
+                 required value="${value > 0 ? value : ''}" placeholder="e.g. 1.5">
+          ${hint ? `<div class="text-xs text-muted">${esc(hint)}</div>` : ''}
+          <div class="flex gap-8" style="justify-content:flex-end;margin-top:4px;">
+            <button type="button" class="btn btn-outline btn-sm" data-cancel>Cancel</button>
+            <button type="submit" class="btn btn-primary btn-sm">Continue</button>
+          </div>
+        </form>
+      </div>`;
+    const done = val => { overlay.remove(); document.removeEventListener('keydown', onKey, true); resolve(val); };
+    const onKey = e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } };
+    document.addEventListener('keydown', onKey, true);
+    overlay.addEventListener('click', e => { if (e.target === overlay) done(null); });
+    overlay.querySelector('[data-cancel]').addEventListener('click', () => done(null));
+    overlay.querySelector('form').addEventListener('submit', e => {
+      e.preventDefault();
+      const h = parseFloat(overlay.querySelector('input').value);
+      if (h > 0) done(Math.round(h * 100) / 100);
+    });
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('input');
+    input.focus(); input.select();
+  });
+}
+
+// Moves a card; when the server needs hours for this hand-off, asks for them and retries.
+async function moveCard(taskId, status, ctx = {}) {
+  const payload = { status };
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await apiFetch(`/api/tasks/${taskId}/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) { location.reload(); return; }
+      let err = {};
+      try { err = await res.json(); } catch {}
+      if (err.error === 'hours_required') {
+        const review = err.kind === 'review';
+        const who = ctx.own || !ctx.person ? 'you' : ctx.person;
+        const h = await askHours(review ? {
+          title: 'Review time',
+          message: 'How many hours did you spend reviewing this task?',
+        } : {
+          title: status === 'Done' ? 'Hours worked' : 'Submit for review',
+          message: `How many hours did ${who} work on this task?`,
+          value: err.current_hours,
+          hint: ctx.estimate ? `Estimated: ${ctx.estimate}h` : '',
+        });
+        if (h === null) return;
+        payload[review ? 'review_hours' : 'hours'] = h;
+        continue;
+      }
+      showToast(res.status === 403 ? 'You can only move your own cards.' : 'Could not move card — please try again.', 'error');
+      return;
+    }
+  } catch {
+    showToast('Network error — please refresh.', 'error');
+  }
 }
 
 // ── Drive file helpers ────────────────────────────────────────────────────────
@@ -190,10 +257,14 @@ const _activityIcon = {
   unarchived:     '📤',
   hours_updated:  '⏱️',
   commented:      '💬',
+  review_hours:   '⏱️',
+  estimate_set:   '🎯',
+  client_changed: '🏢',
+  notes_updated:  '📝',
 };
 const _statusColor = { 'Todo': 'gray', 'In Progress': 'blue', 'For Review': 'yellow', 'Done': 'green' };
 
-function _buildTimeline(activities, comments) {
+function _buildTimeline(activities, comments, roleByName = {}) {
   // Latest first — this is the per-task audit trail.
   const items = [
     ...activities.map(a => ({ ...a, _kind: 'event',   _ts: a.created_at })),
@@ -207,7 +278,7 @@ function _buildTimeline(activities, comments) {
       return `
         <div class="comment">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-            <span class="comment-author">${esc(item.author_name)}</span>
+            <span class="comment-author">${esc(item.author_name)}${roleTag(roleByName[item.author_name])}</span>
             <span class="comment-time text-xs text-muted">${esc(item._ts)}</span>
           </div>
           <div class="comment-text">${esc(item.comment_text).replace(/\n/g,'<br>')}</div>
@@ -218,7 +289,7 @@ function _buildTimeline(activities, comments) {
       <div class="activity-event">
         <span class="activity-icon">${icon}</span>
         <span class="activity-body">
-          <strong>${esc(item.actor_name)}</strong>
+          <strong>${esc(item.actor_name)}</strong>${roleTag(roleByName[item.actor_name])}
           ${item.detail ? esc(item.detail) : item.activity_type.replace('_', ' ')}
         </span>
         <span class="activity-time text-xs text-muted">${esc(item._ts)}</span>
@@ -257,10 +328,11 @@ async function openCardModal(taskId) {
   try {
     const res = await fetch(`/api/tasks/${taskId}/detail`);
     if (!res.ok) { body.innerHTML = '<p class="text-danger" style="padding:16px">Error loading card.</p>'; return; }
-    const { card, comments, activities, statuses, user_role, user_name, user_id, all_employees, input_files, output_files } = await res.json();
+    const { card, comments, activities, statuses, user_role, user_name, user_id, all_employees,
+            input_files, output_files, clients, can_edit } = await res.json();
 
     const isOwnCard     = card.emp_id === user_id;
-    const canReview     = user_role === 'HR Manager' || user_role === 'Admin';
+    const canReview     = BOARD_MANAGER_ROLES.includes(user_role);
     const canApprove    = user_role === 'Admin';
     const canPeerReview = user_role === 'Employee' && !isOwnCard && card.status === 'For Review';
     const canMove       = canReview || isOwnCard;
@@ -275,7 +347,8 @@ async function openCardModal(taskId) {
       .map(e => `<option value="${esc(e.name)}"${card.reviewer_name === e.name ? ' selected' : ''}>${esc(e.name)}</option>`)
       .join('');
 
-    const timelineHtml = _buildTimeline(activities || [], comments || []);
+    const roleByName = Object.fromEntries((all_employees || []).map(e => [e.name, e.role]));
+    const timelineHtml = _buildTimeline(activities || [], comments || [], roleByName);
 
     // Update panel title + crumb
     const titleEl  = document.getElementById('card-panel-title') || document.getElementById('card-modal-title');
@@ -285,6 +358,13 @@ async function openCardModal(taskId) {
 
     const uc = {'Low':'#64748b','Normal':'#94a3b8','High':'#f59e0b','Critical':'#ef4444'};
     const urgColor = uc[card.urgency || 'Normal'] || '#94a3b8';
+    const clientInfo = (clients || []).find(c => c.name === card.client);
+    const hoursWorked = card.hours_worked || 0;
+    const overEstimate = card.estimated_hours && hoursWorked > card.estimated_hours;
+    const clientOptions = [`<option value="">— No client —</option>`]
+      .concat((clients || []).map(c => `<option value="${esc(c.name)}"${c.name === card.client ? ' selected' : ''}>${esc(c.name)}</option>`))
+      .concat(card.client && !clientInfo ? [`<option value="${esc(card.client)}" selected>${esc(card.client)} (inactive)</option>`] : [])
+      .join('');
 
     body.innerHTML = `
       <style>
@@ -312,7 +392,7 @@ async function openCardModal(taskId) {
       <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;flex-wrap:wrap;">
         <span class="badge badge-${_statusColor[card.status] || 'gray'}">${esc(card.status)}</span>
         ${card.urgency && card.urgency !== 'Normal' ? `<span style="font-size:.7rem;font-weight:700;padding:2px 8px;border-radius:99px;background:${urgColor}22;color:${urgColor};">${esc(card.urgency)}</span>` : ''}
-        ${card.client ? `<span style="font-size:.72rem;font-weight:700;color:#64748b;">· ${esc(card.client)}</span>` : ''}
+        ${card.client ? _clientChip(card.client, clientInfo) : ''}
         ${card.is_archived ? '<span class="badge badge-gray">🗄️ Archived</span>' : ''}
       </div>
 
@@ -320,12 +400,30 @@ async function openCardModal(taskId) {
       <div class="cp-grid">
         <div class="cp-prop">
           <span class="cp-prop-label">Assignee</span>
-          <span class="cp-prop-val fw-600">${esc(card.emp_name)}</span>
+          <span class="cp-prop-val fw-600">${esc(card.emp_name)}${roleTag(card.emp_role)}</span>
           ${card.created_by_name ? `<span style="font-size:.72rem;color:var(--muted);">by ${esc(card.created_by_name)}</span>` : ''}
         </div>
         <div class="cp-prop">
-          <span class="cp-prop-label">Hours Logged</span>
-          <span class="cp-prop-val fw-600">${card.hours_worked}h</span>
+          <span class="cp-prop-label">Hours Worked</span>
+          <span class="cp-prop-val fw-600" ${overEstimate ? 'style="color:#d97706;" title="Over the estimate"' : ''}>
+            ${hoursWorked}h${card.estimated_hours ? ` <span style="font-weight:500;color:var(--muted);">/ ${card.estimated_hours}h est.</span>` : ''}
+          </span>
+          ${card.review_hours ? `<span style="font-size:.72rem;color:var(--muted);">+ ${card.review_hours}h review</span>` : ''}
+        </div>
+        <div class="cp-prop">
+          <span class="cp-prop-label">Estimated Time</span>
+          ${can_edit ? `<div style="display:flex;align-items:center;gap:6px;">
+            <input type="number" id="estimate-input" min="0.25" max="200" step="0.25" value="${card.estimated_hours || ''}"
+                   placeholder="hours" class="form-input" style="width:90px;height:26px;font-size:.78rem;padding:2px 6px;">
+            <button class="btn btn-outline btn-sm" style="height:26px;font-size:.72rem;padding:0 8px;" onclick="saveEstimate(${card.id})">Save</button>
+          </div>` : `<span class="cp-prop-val">${card.estimated_hours ? card.estimated_hours + 'h' : '—'}</span>`}
+        </div>
+        <div class="cp-prop">
+          <span class="cp-prop-label">Client</span>
+          ${can_edit ? `<div style="display:flex;align-items:center;gap:6px;">
+            <select id="client-select" class="form-select" style="height:28px;font-size:.78rem;padding:2px 6px;max-width:160px;">${clientOptions}</select>
+            <button class="btn btn-outline btn-sm" style="height:26px;font-size:.72rem;padding:0 8px;" onclick="saveClient(${card.id})">Save</button>
+          </div>` : `<span class="cp-prop-val">${card.client ? _clientChip(card.client, clientInfo) : '—'}</span>`}
         </div>
         <div class="cp-prop">
           <span class="cp-prop-label">Due Date</span>
@@ -352,10 +450,23 @@ async function openCardModal(taskId) {
         </div>
       </div>
 
-      ${card.notes ? `
+      ${can_edit ? `
       <div class="mb-12">
         <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">NOTES</div>
-        <div class="text-sm kn-notes-body" style="padding:10px;border-radius:6px;line-height:1.65;">${card.notes.includes('<') ? card.notes : esc(card.notes).replace(/\n/g,'<br>')}</div>
+        <div class="rte-wrap">
+          <div class="rte-toolbar">
+            ${_RTE_BUTTONS.map(b => `<button type="button" title="${b.title}" onmousedown="event.preventDefault();cardRte('${b.cmd}')">${b.label}</button>`).join('')}
+          </div>
+          <div id="card-notes-rte" class="text-sm kn-notes-body rte-body" contenteditable="true"
+               data-placeholder="Add notes, steps or context…">${card.notes || ''}</div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:6px;">
+          <button class="btn btn-outline btn-sm" onclick="saveNotes(${card.id})">Save Notes</button>
+        </div>
+      </div>` : card.notes ? `
+      <div class="mb-12">
+        <div class="text-xs text-muted fw-600 mb-4" style="letter-spacing:.06em;">NOTES</div>
+        <div class="text-sm kn-notes-body" style="padding:10px;border-radius:6px;line-height:1.65;">${card.notes}</div>
       </div>` : ''}
 
       <!-- ── Drive Files ─────────────────────────────────────────────── -->
@@ -402,15 +513,18 @@ async function openCardModal(taskId) {
 
       ${canMove ? `
       <div class="section-divider">Move Card</div>
-      <form method="post" action="/api/tasks/${card.id}/move-form" class="flex gap-8 mb-16 flex-wrap" style="align-items:center;">
+      <form method="post" action="/api/tasks/${card.id}/move-form" class="flex gap-8 mb-16 flex-wrap" style="align-items:center;"
+            data-own="${isOwnCard}" data-person="${esc(card.emp_name)}" data-est="${card.estimated_hours || ''}">
         <select name="status" class="form-select" style="width:auto;font-size:.82rem;">${statusOptions}</select>
         <button class="btn btn-primary btn-sm" type="submit">Move</button>
       </form>` : ''}
 
       ${(canReview || canPeerReview) && card.status === 'For Review' ? `
       <div class="flex gap-8 flex-wrap mb-16" style="border-top:1px solid var(--border);padding-top:14px;">
-        <form method="post" action="/api/tasks/${card.id}/review">
+        <form method="post" action="/api/tasks/${card.id}/review" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <input type="hidden" name="_csrf" value="${document.querySelector('meta[name=csrf-token]')?.content || ''}">
+          <input type="number" name="review_hours" required min="0.25" max="200" step="0.25" placeholder="Review hrs"
+                 title="How many hours did you spend reviewing?" class="form-input" style="width:100px;height:30px;font-size:.8rem;">
           <button class="btn btn-success btn-sm">✓ ${canReview ? 'Mark Reviewed → Done' : 'Peer Review → Done'}</button>
         </form>
         <form method="post" action="/api/tasks/${card.id}/return" id="return-form-${card.id}" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
@@ -466,7 +580,7 @@ async function openCardModal(taskId) {
             tl.insertAdjacentHTML('afterbegin', `
               <div class="comment">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                  <span class="comment-author">${esc(comment.author_name)}</span>
+                  <span class="comment-author">${esc(comment.author_name)}${roleTag(user_role)}</span>
                   <span class="comment-time text-xs text-muted">${esc(comment.timestamp)}</span>
                 </div>
                 <div class="comment-text">${esc(comment.comment_text).replace(/\n/g,'<br>')}</div>
@@ -480,6 +594,60 @@ async function openCardModal(taskId) {
   } catch (err) {
     body.innerHTML = `<p class="text-danger" style="padding:16px">Failed to load card: ${err.message}</p>`;
   }
+}
+
+function _clientChip(name, info) {
+  const color = (info && info.hex_color) || '#64748b';
+  const logo = info && info.logo_url
+    ? `<img src="${esc(info.logo_url)}" alt="" style="width:16px;height:16px;object-fit:contain;border-radius:3px;background:#fff;">`
+    : `<span style="width:8px;height:8px;border-radius:50%;background:${esc(color)};display:inline-block;"></span>`;
+  return `<span style="display:inline-flex;align-items:center;gap:5px;font-size:.74rem;font-weight:700;color:${esc(color)};">${logo}${esc(name)}</span>`;
+}
+
+const _RTE_BUTTONS = [
+  { cmd: 'bold', label: '<b>B</b>', title: 'Bold' },
+  { cmd: 'italic', label: '<i>I</i>', title: 'Italic' },
+  { cmd: 'underline', label: '<u>U</u>', title: 'Underline' },
+  { cmd: 'strikeThrough', label: '<s>S</s>', title: 'Strikethrough' },
+  { cmd: 'insertUnorderedList', label: '•', title: 'Bullet list' },
+  { cmd: 'insertOrderedList', label: '1.', title: 'Numbered list' },
+  { cmd: 'removeFormat', label: '⌫', title: 'Clear formatting' },
+];
+function cardRte(cmd) {
+  document.execCommand(cmd, false, null);
+  document.getElementById('card-notes-rte')?.focus();
+}
+
+async function _postJson(url, body, okMsg) {
+  const res = await apiFetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (res.ok) showToast(okMsg, 'success');
+  else showToast(res.status === 403 ? 'Not allowed.' : 'Could not save — please try again.', 'error');
+  return res;
+}
+
+async function saveNotes(taskId) {
+  const rte = document.getElementById('card-notes-rte');
+  if (!rte) return;
+  const res = await _postJson(`/api/tasks/${taskId}/set-notes`, { notes: rte.innerHTML.trim() }, 'Notes saved.');
+  if (res.ok) { const data = await res.json(); rte.innerHTML = data.notes; }
+}
+
+async function saveClient(taskId) {
+  const sel = document.getElementById('client-select');
+  if (!sel) return;
+  const res = await _postJson(`/api/tasks/${taskId}/set-client`, { client: sel.value }, 'Client updated.');
+  if (res.ok) setTimeout(() => location.reload(), 700);
+}
+
+async function saveEstimate(taskId) {
+  const input = document.getElementById('estimate-input');
+  if (!input) return;
+  const res = await _postJson(`/api/tasks/${taskId}/set-estimate`, { estimated_hours: input.value }, 'Estimate saved.');
+  if (res.ok) setTimeout(() => location.reload(), 700);
 }
 
 async function toggleArchive(taskId, currentlyArchived) {
@@ -547,6 +715,18 @@ async function saveAssignee(taskId) {
   }
 }
 
+// Role emblems — mirrors vip_class()/role_tag() in app.py
+const _ROLE_EMBLEMS = {
+  'Admin':        ['vip vip-admin', 'role-tag role-tag-admin', '★ Admin'],
+  'HR Manager':   ['vip vip-hr',    'role-tag role-tag-hr',    'HR'],
+  'Team Manager': ['vip vip-lead',  'role-tag role-tag-lead',  'Lead'],
+};
+function vipClass(role) { return (_ROLE_EMBLEMS[role] || [''])[0]; }
+function roleTag(role) {
+  const e = _ROLE_EMBLEMS[role];
+  return e ? `<span class="${e[1]}" title="${esc(role)}">${e[2]}</span>` : '';
+}
+
 function esc(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -561,14 +741,9 @@ document.addEventListener('submit', async e => {
   const form = e.target.closest('form[action$="/move-form"]');
   if (!form) return;
   e.preventDefault();
-  const action = form.action.replace('/move-form', '/move');
+  const taskId = form.action.match(/\/api\/tasks\/(\d+)\/move-form/)[1];
   const status = form.querySelector('select[name="status"]').value;
-  const res = await apiFetch(action, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ status }),
-  });
-  if (res.ok) location.reload();
+  moveCard(taskId, status, { own: form.dataset.own === 'true', person: form.dataset.person, estimate: form.dataset.est });
 });
 
 // ── Confirm dangerous actions ─────────────────────────────────────────────────

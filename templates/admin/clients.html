@@ -2,6 +2,48 @@
 {% block title %}Clients{% endblock %}
 {% block page_title %}Client Management{% endblock %}
 
+{% set preset_colors = [
+  '#dc2626','#ef4444','#f87171','#e11d48','#be185d','#db2777','#ec4899','#c026d3',
+  '#9333ea','#7c3aed','#6d28d9','#4f46e5','#4338ca','#1e40af','#2563eb','#3b82f6',
+  '#0284c7','#0ea5e9','#0891b2','#0e7490','#0d9488','#14b8a6','#059669','#16a34a',
+  '#22c55e','#65a30d','#84cc16','#ca8a04','#eab308','#d97706','#f59e0b','#ea580c',
+  '#f97316','#b45309','#92400e','#78350f','#64748b','#475569','#334155','#0f172a'
+] %}
+{% set shift_badges = {'Morning': ('☀️ Morning', 'badge-yellow'), 'Night': ('🌙 Night', 'badge-blue'), 'Both': ('☀️🌙 Both', 'badge-green')} %}
+
+{% macro client_logo(c, size=32) -%}
+  {# Only locally-uploaded logos render; old external URLs are blocked by the CSP #}
+  {% if c.logo_url and c.logo_url.startswith('/') %}
+    <img src="{{ c.logo_url }}" alt="" style="width:{{ size }}px;height:{{ size }}px;object-fit:contain;border-radius:4px;border:1px solid var(--border);background:#fff;">
+  {% else %}
+    <div {% if c.logo_url %}title="The saved logo link couldn't be downloaded — edit the client to upload the image or paste another link."{% endif %}
+         style="width:{{ size }}px;height:{{ size }}px;border-radius:4px;background:{{ c.hex_color }};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.8rem;border:1px solid rgba(0,0,0,.1);">
+      {{ c.name[0] | upper }}
+    </div>
+  {% endif %}
+{%- endmacro %}
+
+{% macro color_swatches(target) -%}
+  <div class="swatch-grid">
+    {% for col in preset_colors %}
+      <button type="button" class="color-swatch" style="background:{{ col }};" title="{{ col }}"
+              data-color="{{ col }}" onclick="pickColor(this,'{{ target }}')"></button>
+    {% endfor %}
+  </div>
+{%- endmacro %}
+
+{% block extra_head %}
+<style>
+  .swatch-grid { display:grid; grid-template-columns:repeat(10, 22px); gap:6px; margin-bottom:8px; }
+  .color-swatch { width:22px; height:22px; border-radius:4px; border:2px solid transparent; cursor:pointer; padding:0; }
+  .color-swatch.selected { border-color: var(--text); box-shadow: 0 0 0 1px var(--surface) inset; }
+  .client-toolbar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .client-toolbar .form-select { width:auto; height:32px; font-size:.8rem; padding-top:0; padding-bottom:0; }
+  .shift-checks { display:flex; gap:16px; }
+  .shift-checks label { display:flex; align-items:center; gap:6px; font-size:.86rem; cursor:pointer; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="page-header">
   <div>
@@ -19,7 +61,23 @@
 {% endif %}
 
 <div class="card">
-  <div class="card-header"><h3>All Clients ({{ clients | length }})</h3></div>
+  <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+    <h3>{% if shift %}{{ shift }} Clients{% else %}All Clients{% endif %} ({{ clients | length }})</h3>
+    <form method="get" class="client-toolbar">
+      <select name="shift" class="form-select" onchange="this.form.submit()" aria-label="Filter by shift">
+        <option value="" {% if not shift %}selected{% endif %}>All shifts</option>
+        <option value="Morning" {% if shift == 'Morning' %}selected{% endif %}>☀️ Morning</option>
+        <option value="Night" {% if shift == 'Night' %}selected{% endif %}>🌙 Night</option>
+        <option value="Untagged" {% if shift == 'Untagged' %}selected{% endif %}>No shift tag</option>
+      </select>
+      <select name="sort" class="form-select" onchange="this.form.submit()" aria-label="Sort clients">
+        <option value="az" {% if sort == 'az' %}selected{% endif %}>Name A–Z</option>
+        <option value="za" {% if sort == 'za' %}selected{% endif %}>Name Z–A</option>
+        <option value="newest" {% if sort == 'newest' %}selected{% endif %}>Newest first</option>
+        <option value="oldest" {% if sort == 'oldest' %}selected{% endif %}>Oldest first</option>
+      </select>
+    </form>
+  </div>
   <div class="table-wrapper">
     <table>
       <thead>
@@ -27,6 +85,7 @@
           <th style="width:44px">Logo</th>
           <th style="width:28px">Color</th>
           <th>Name</th>
+          <th>Shift</th>
           <th>Status</th>
           <th>Actions</th>
         </tr>
@@ -34,20 +93,19 @@
       <tbody>
         {% for c in clients %}
         <tr>
-          <td>
-            {% if c.logo_url %}
-              <img src="{{ c.logo_url }}" alt="" style="width:32px;height:32px;object-fit:contain;border-radius:4px;border:1px solid var(--border);">
-            {% else %}
-              <div style="width:32px;height:32px;border-radius:4px;background:{{ c.hex_color }};display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.8rem;border:1px solid rgba(0,0,0,.1);">
-                {{ c.name[0] | upper }}
-              </div>
-            {% endif %}
-          </td>
+          <td>{{ client_logo(c) }}</td>
           <td>
             <span style="display:inline-block;width:18px;height:18px;border-radius:4px;
                          background:{{ c.hex_color }};border:1px solid rgba(0,0,0,.12);"></span>
           </td>
           <td class="fw-600">{{ c.name }}</td>
+          <td>
+            {% if c.shift_tag in shift_badges %}
+              <span class="badge {{ shift_badges[c.shift_tag][1] }}">{{ shift_badges[c.shift_tag][0] }}</span>
+            {% else %}
+              <span class="text-xs text-muted">—</span>
+            {% endif %}
+          </td>
           <td>
             {% if c.is_active %}
               <span class="badge badge-green">Active</span>
@@ -58,8 +116,11 @@
           <td>
             <div class="flex gap-8">
               <a href="/clients/{{ c.id }}/dashboard" class="btn btn-primary btn-sm">📊 Dashboard</a>
-              <button class="btn btn-outline btn-sm"
-                      onclick="openEditClient({{ c.id }}, '{{ c.name | e }}', '{{ c.hex_color }}', '{{ (c.logo_url or '') | e }}')">
+              <button class="btn btn-outline btn-sm" onclick="openEditClient(this)"
+                      data-id="{{ c.id }}" data-name="{{ c.name }}" data-color="{{ c.hex_color }}"
+                      data-shift="{{ c.shift_tag or '' }}"
+                      data-logo="{{ c.logo_url if c.logo_url and c.logo_url.startswith('/') else '' }}"
+                      data-logo-broken="{{ '1' if c.logo_url and not c.logo_url.startswith('/') else '' }}">
                 Edit
               </button>
               {% if user.role == 'Admin' %}
@@ -73,7 +134,7 @@
           </td>
         </tr>
         {% else %}
-        <tr><td colspan="5" class="text-center text-muted">No clients yet.</td></tr>
+        <tr><td colspan="6" class="text-center text-muted">No clients{% if shift %} for this shift{% endif %}.</td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -82,35 +143,37 @@
 
 <!-- Add Client Modal -->
 <div class="modal-overlay" id="add-client-modal">
-  <div class="modal" style="max-width:400px;">
+  <div class="modal" style="max-width:420px;">
     <div class="modal-header">
       <span class="modal-title">Add Client</span>
       <button class="modal-close" onclick="closeModal('add-client-modal')">×</button>
     </div>
-    <form method="post" action="/api/clients">
+    <form method="post" action="/api/clients" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
       <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
         <div class="form-group" style="margin:0;">
           <label class="form-label">Client Name <span style="color:red">*</span></label>
           <input type="text" name="name" class="form-input" required placeholder="e.g. Acme Corp">
+          <div class="text-xs text-muted" style="margin-top:4px;">The name can't be changed later, so double-check the spelling.</div>
         </div>
         <div class="form-group" style="margin:0;">
-          <label class="form-label">Logo URL <span style="font-size:.72rem;color:var(--muted);">(optional — paste image URL)</span></label>
-          <input type="url" name="logo_url" id="add-logo-url" class="form-input" placeholder="https://…/logo.png"
-                 oninput="previewLogo(this.value,'add-logo-preview')">
-          <img id="add-logo-preview" src="" alt="" style="display:none;width:40px;height:40px;object-fit:contain;margin-top:6px;border-radius:6px;border:1px solid var(--border);">
+          <label class="form-label">Logo <span style="font-size:.72rem;color:var(--muted);">(optional — PNG, JPG, GIF or WEBP, max 2 MB)</span></label>
+          <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif,.webp" class="form-input"
+                 onchange="previewLogo(this,'add-logo-preview')">
+          <input type="url" name="logo_link" class="form-input" style="margin-top:6px;"
+                 placeholder="…or paste an image link: https://…/logo.png">
+          <img id="add-logo-preview" src="" alt="" style="display:none;width:48px;height:48px;object-fit:contain;margin-top:6px;border-radius:6px;border:1px solid var(--border);background:#fff;">
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Shift</label>
+          <div class="shift-checks">
+            <label><input type="checkbox" name="shift_morning" value="1"> ☀️ Morning</label>
+            <label><input type="checkbox" name="shift_night" value="1"> 🌙 Night</label>
+          </div>
         </div>
         <div class="form-group" style="margin:0;">
           <label class="form-label">Brand Color</label>
-          <div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:8px;" id="color-swatches-add">
-            {% set preset_colors = ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669','#0f172a','#1e40af','#4f46e5','#be185d','#0e7490'] %}
-            {% for col in preset_colors %}
-              <button type="button" class="color-swatch"
-                      style="width:22px;height:22px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
-                      data-color="{{ col }}" data-target="add-hex-color"
-                      onclick="pickColor(this,'add-hex-color')"></button>
-            {% endfor %}
-          </div>
+          {{ color_swatches('add-hex-color') }}
           <input type="color" name="hex_color" id="add-hex-color" value="#3b82f6" class="form-input" style="height:36px; padding:2px 4px;">
         </div>
       </div>
@@ -124,34 +187,45 @@
 
 <!-- Edit Client Modal -->
 <div class="modal-overlay" id="edit-client-modal">
-  <div class="modal" style="max-width:400px;">
+  <div class="modal" style="max-width:420px;">
     <div class="modal-header">
       <span class="modal-title">Edit Client</span>
       <button class="modal-close" onclick="closeModal('edit-client-modal')">×</button>
     </div>
-    <form method="post" id="edit-client-form">
+    <form method="post" id="edit-client-form" enctype="multipart/form-data">
       <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
       <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;">
         <div class="form-group" style="margin:0;">
-          <label class="form-label">Client Name <span style="color:red">*</span></label>
-          <input type="text" name="name" id="edit-client-name" class="form-input" required>
+          <label class="form-label">Client Name</label>
+          <input type="text" id="edit-client-name" class="form-input" readonly disabled>
+          <div class="text-xs text-muted" style="margin-top:4px;">Client names can't be changed because past tasks are linked by name.</div>
         </div>
         <div class="form-group" style="margin:0;">
-          <label class="form-label">Logo URL <span style="font-size:.72rem;color:var(--muted);">(optional)</span></label>
-          <input type="url" name="logo_url" id="edit-logo-url" class="form-input" placeholder="https://…/logo.png"
-                 oninput="previewLogo(this.value,'edit-logo-preview')">
-          <img id="edit-logo-preview" src="" alt="" style="display:none;width:40px;height:40px;object-fit:contain;margin-top:6px;border-radius:6px;border:1px solid var(--border);">
+          <label class="form-label">Logo <span style="font-size:.72rem;color:var(--muted);">(upload to replace)</span></label>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <img id="edit-logo-preview" src="" alt="" style="display:none;width:48px;height:48px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fff;">
+            <label id="edit-remove-logo-wrap" style="display:none;align-items:center;gap:6px;font-size:.8rem;cursor:pointer;">
+              <input type="checkbox" name="remove_logo" value="1"> Remove logo
+            </label>
+          </div>
+          <input type="file" name="logo" accept=".png,.jpg,.jpeg,.gif,.webp" class="form-input"
+                 onchange="previewLogo(this,'edit-logo-preview')">
+          <input type="url" name="logo_link" class="form-input" style="margin-top:6px;"
+                 placeholder="…or paste an image link: https://…/logo.png">
+          <div id="edit-logo-broken" class="text-xs" style="display:none;margin-top:4px;color:#d97706;">
+            The saved logo link couldn't be downloaded. Upload the image or paste a different link.
+          </div>
+        </div>
+        <div class="form-group" style="margin:0;">
+          <label class="form-label">Shift</label>
+          <div class="shift-checks">
+            <label><input type="checkbox" name="shift_morning" value="1" id="edit-shift-morning"> ☀️ Morning</label>
+            <label><input type="checkbox" name="shift_night" value="1" id="edit-shift-night"> 🌙 Night</label>
+          </div>
         </div>
         <div class="form-group" style="margin:0;">
           <label class="form-label">Brand Color</label>
-          <div style="display:flex; gap:7px; flex-wrap:wrap; margin-bottom:8px;">
-            {% for col in ['#2563eb','#7c3aed','#ea580c','#0891b2','#db2777','#16a34a','#64748b','#ca8a04','#dc2626','#059669','#0f172a','#1e40af','#4f46e5','#be185d','#0e7490'] %}
-              <button type="button" class="color-swatch"
-                      style="width:22px;height:22px;border-radius:4px;background:{{ col }};border:2px solid transparent;cursor:pointer;"
-                      data-color="{{ col }}" data-target="edit-hex-color"
-                      onclick="pickColor(this,'edit-hex-color')"></button>
-            {% endfor %}
-          </div>
+          {{ color_swatches('edit-hex-color') }}
           <input type="color" name="hex_color" id="edit-hex-color" value="#3b82f6" class="form-input" style="height:36px; padding:2px 4px;">
         </div>
       </div>
@@ -166,35 +240,49 @@
 
 {% block extra_js %}
 <script>
-function openEditClient(id, name, color, logoUrl) {
-  document.getElementById('edit-client-form').action = '/api/clients/' + id + '/update';
-  document.getElementById('edit-client-name').value = name;
-  document.getElementById('edit-hex-color').value = color;
-  const logoInput = document.getElementById('edit-logo-url');
-  logoInput.value = logoUrl || '';
-  previewLogo(logoUrl || '', 'edit-logo-preview');
+function openEditClient(btn) {
+  const d = btn.dataset;
+  document.getElementById('edit-client-form').action = '/api/clients/' + d.id + '/update';
+  document.getElementById('edit-client-name').value = d.name;
+  document.getElementById('edit-hex-color').value = d.color;
+  document.getElementById('edit-shift-morning').checked = d.shift === 'Morning' || d.shift === 'Both';
+  document.getElementById('edit-shift-night').checked   = d.shift === 'Night'   || d.shift === 'Both';
+  const form = document.getElementById('edit-client-form');
+  form.querySelector('input[type=file]').value = '';
+  form.querySelector('input[name=logo_link]').value = '';
+  document.getElementById('edit-logo-broken').style.display = d.logoBroken ? 'block' : 'none';
+  form.querySelector('input[name=remove_logo]').checked = false;
+  const img = document.getElementById('edit-logo-preview');
+  img.src = d.logo || '';
+  img.style.display = d.logo ? 'block' : 'none';
+  document.getElementById('edit-remove-logo-wrap').style.display = d.logo ? 'flex' : 'none';
+  highlightSwatch('edit-hex-color');
   openModal('edit-client-modal');
 }
 
 function pickColor(btn, targetId) {
   document.getElementById(targetId).value = btn.dataset.color;
-  btn.closest('[style*="flex-wrap"]').querySelectorAll('.color-swatch').forEach(b => {
-    b.style.border = '2px solid transparent';
-  });
-  btn.style.border = '2px solid #000';
+  highlightSwatch(targetId);
 }
 
-function previewLogo(url, previewId) {
+function highlightSwatch(targetId) {
+  const input = document.getElementById(targetId);
+  const val = input.value.toLowerCase();
+  input.closest('.form-group').querySelectorAll('.color-swatch').forEach(b => {
+    b.classList.toggle('selected', b.dataset.color.toLowerCase() === val);
+  });
+}
+['add-hex-color', 'edit-hex-color'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => highlightSwatch(id));
+});
+
+function previewLogo(input, previewId) {
   const img = document.getElementById(previewId);
-  if (url && url.startsWith('http')) {
-    img.src = url;
-    img.style.display = 'block';
-    img.onerror = () => { img.style.display = 'none'; };
-    img.onload = () => { img.style.display = 'block'; };
-  } else {
-    img.style.display = 'none';
-    img.src = '';
-  }
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { img.src = e.target.result; img.style.display = 'block'; };
+  reader.readAsDataURL(file);
 }
 </script>
 {% endblock %}

@@ -180,8 +180,13 @@
             <label class="form-label">Role</label>
             <select name="role" class="form-input">
               <option value="Employee" selected>Employee</option>
+              {% if user.role in ('HR Manager', 'Admin') %}
+              <option value="Team Manager">Team Manager</option>
               <option value="HR Manager">HR Manager</option>
+              {% endif %}
+              {% if user.role == 'Admin' %}
               <option value="Admin">Admin</option>
+              {% endif %}
             </select>
           </div>
           <div class="form-group">
@@ -193,11 +198,13 @@
               <option value="Custom">Custom / Flexible</option>
             </select>
           </div>
+          {% if user.role in ('HR Manager', 'Admin') %}
           <div class="form-group">
             <label class="form-label">Hourly Rate (₱)</label>
             <input name="hourly_rate" type="number" step="0.01" min="0" class="form-input"
                    placeholder="0.00">
           </div>
+          {% endif %}
           <div class="form-group">
             <label class="form-label">Employment Type</label>
             <select name="employment_type" class="form-input">

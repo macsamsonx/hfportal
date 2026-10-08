@@ -433,7 +433,7 @@
             <td class="text-xs nowrap" style="color:var(--muted);">{{ task.date_logged[5:] }}{% if is_today %}<div style="color:var(--success);font-weight:700;font-size:.6rem;">TODAY</div>{% endif %}</td>
             <td class="fw-600" style="max-width:160px;">
               <div class="truncate">{{ task.task_title }}</div>
-              {% if task.notes %}<div class="text-xs text-muted mt-2 truncate">{{ task.notes }}</div>{% endif %}
+              {% if task.notes %}<div class="text-xs text-muted mt-2 truncate">{{ task.notes | striptags }}</div>{% endif %}
               {% if task.reviewer_name %}<div class="text-xs mt-2" style="color:var(--primary);">👤 {{ task.reviewer_name }}</div>{% endif %}
             </td>
             <td><span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:99px;font-size:.65rem;font-weight:700;background:{{ client_hex }}22;color:{{ client_hex }};">{{ task.client or '—' }}</span></td>

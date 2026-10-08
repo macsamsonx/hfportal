@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  {# The browser suggests the <title> as the PDF file name #}
+  <title>{{ client.name }} Work Report — {{ range_label }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; font-size: 10pt; color: #111; background: #fff; padding: 28px 34px; }
+    .header { display: flex; align-items: center; justify-content: space-between; gap: 20px;
+              border-bottom: 2.5px solid {{ client.hex_color }}; padding-bottom: 14px; margin-bottom: 18px; }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand img { height: 48px; max-width: 120px; object-fit: contain; }
+    .brand .name { font-size: 16pt; font-weight: 800; color: #111; }
+    .brand .sub { font-size: 9pt; color: #555; margin-top: 3px; }
+    .meta { text-align: right; font-size: 9pt; color: #444; line-height: 1.5; }
+    .meta h1 { font-size: 13pt; color: #111; }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+    th { background: #f1f5f9; text-align: left; padding: 7px 9px; border: 1px solid #cbd5e1; font-size: 9pt; }
+    td { padding: 6px 9px; border: 1px solid #e2e8f0; vertical-align: top; }
+    tr { page-break-inside: avoid; }
+    td.date { white-space: nowrap; font-weight: 700; width: 105px; }
+    td.hours, th.hours { text-align: right; width: 90px; }
+    ul { padding-left: 16px; }
+    li { margin: 1px 0; line-height: 1.4; }
+    tfoot td { font-weight: 800; background: #f1f5f9; border-top: 2px solid #94a3b8; }
+    .empty { padding: 30px; text-align: center; color: #666; border: 1px dashed #cbd5e1; }
+    .footer { margin-top: 16px; font-size: 8pt; color: #888; }
+    .toolbar { margin-bottom: 16px; display: flex; gap: 8px; }
+    .toolbar button { padding: 7px 14px; font-size: 10pt; border-radius: 6px; border: 1px solid #cbd5e1; background: #fff; cursor: pointer; }
+    .toolbar button.primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+    @media print { .toolbar { display: none; } body { padding: 0; } @page { margin: 14mm; } }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <button class="primary" onclick="window.print()">⬇ Save as PDF / Print</button>
+    <button onclick="window.close()">Close</button>
+  </div>
+
+  <div class="header">
+    <div class="brand">
+      {% if client.logo_url and client.logo_url.startswith('/') %}
+        <img src="{{ client.logo_url }}" alt="">
+      {% endif %}
+      <div>
+        <div class="name">{{ client.name }}</div>
+        <div class="sub">Prepared by {{ company.name or 'our team' }}</div>
+      </div>
+    </div>
+    <div class="meta">
+      <h1>Work Report</h1>
+      <div>{{ range_label }}</div>
+      <div>Total: <strong>{{ "%.2f"|format(total_hours) }} hours</strong></div>
+    </div>
+  </div>
+
+  {% if report_days %}
+  <table>
+    <thead><tr><th>Date</th><th>Tasks</th><th class="hours">Total Hours</th></tr></thead>
+    <tbody>
+      {% for d in report_days %}
+      <tr>
+        <td class="date">{{ d.date }}</td>
+        <td><ul>{% for title in d.tasks %}<li>{{ title }}</li>{% endfor %}</ul></td>
+        <td class="hours">{{ "%.2f"|format(d.hours) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+    <tfoot><tr><td>Total</td><td></td><td class="hours">{{ "%.2f"|format(total_hours) }}</td></tr></tfoot>
+  </table>
+  {% else %}
+    <div class="empty">No tasks logged for {{ client.name }} in {{ range_label }}.</div>
+  {% endif %}
+
+  <div class="footer">Generated {{ generated_at }}</div>
+
+  <script>window.addEventListener('load', () => setTimeout(() => window.print(), 300));</script>
+</body>
+</html>

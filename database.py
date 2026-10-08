@@ -1105,6 +1105,9 @@ def init_db():
             conn.execute("ALTER TABLE clients ADD COLUMN monthly_retainer REAL DEFAULT 0")
         if "logo_url" not in _clcols:
             conn.execute("ALTER TABLE clients ADD COLUMN logo_url TEXT DEFAULT ''")
+        if "shift_tag" not in _clcols:
+            # '', 'Morning', 'Night' or 'Both'
+            conn.execute("ALTER TABLE clients ADD COLUMN shift_tag TEXT DEFAULT ''")
 
         # ── Column migrations — registration_requests ─────────────────────────────
         _regcols = {r[1] for r in conn.execute("PRAGMA table_info(registration_requests)").fetchall()}
@@ -1139,6 +1142,8 @@ def init_db():
         for col, typ in [
             ("is_recurring",  "INTEGER DEFAULT 0"),
             ("recur_freq",    "TEXT"),
+            ("estimated_hours", "REAL"),
+            ("review_hours",    "REAL DEFAULT 0"),
         ]:
             if col not in _wcols2:
                 conn.execute(f"ALTER TABLE work_logs ADD COLUMN {col} {typ}")
@@ -1644,7 +1649,7 @@ def get_break_minutes(att_id: int) -> float:
 def get_clients():
     with get_db() as conn:
         return [dict(r) for r in conn.execute(
-            "SELECT * FROM clients WHERE is_active=1 ORDER BY sort_order, name"
+            "SELECT * FROM clients WHERE is_active=1 ORDER BY name COLLATE NOCASE"
         ).fetchall()]
 
 

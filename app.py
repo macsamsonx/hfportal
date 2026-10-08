@@ -8,6 +8,7 @@ import io
 import secrets
 import urllib.request
 import urllib.parse
+import httpx
 from collections import defaultdict
 from time import time as _time
 from datetime import datetime, date, timedelta
@@ -117,6 +118,8 @@ _SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-only-insecure-secret")
 # ── CSRF middleware ────────────────────────────────────────────────────────────
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as _StarletteResponse
+from xlsx_export import build_xlsx
+from html_sanitize import sanitize_rich_text
 
 class _CSRFMiddleware(BaseHTTPMiddleware):
     _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -229,6 +232,29 @@ templates = Jinja2Templates(directory="templates")
 # leftover template-source whitespace as visible blank lines.
 templates.env.trim_blocks = True
 templates.env.lstrip_blocks = True
+
+# ── Role emblems: Admin / HR / Team Manager stand out wherever people are shown ──
+from markupsafe import Markup as _Markup
+_ROLE_EMBLEMS = {
+    "Admin":        ("vip vip-admin", "role-tag role-tag-admin", "★ Admin"),
+    "HR Manager":   ("vip vip-hr",    "role-tag role-tag-hr",    "HR"),
+    "Team Manager": ("vip vip-lead",  "role-tag role-tag-lead",  "Lead"),
+}
+
+
+def _vip_class(role) -> str:
+    return _ROLE_EMBLEMS.get(role, ("",))[0]
+
+
+def _role_tag(role) -> _Markup:
+    if role not in _ROLE_EMBLEMS:
+        return _Markup("")
+    _, cls, label = _ROLE_EMBLEMS[role]
+    return _Markup(f'<span class="{cls}" title="{role}">{label}</span>')
+
+
+templates.env.globals["vip_class"] = _vip_class
+templates.env.globals["role_tag"] = _role_tag
 init_db()
 
 # Ensure upload directories are writable by the app process at every startup.
@@ -312,6 +338,12 @@ def require_user(request: Request) -> dict:
     return user
 
 
+# Shift staff: clock in, log tasks, get scheduled and paid. Team Managers are staff too.
+STAFF_ROLES = ("Employee", "Team Manager")
+STAFF_ROLES_SQL = "('Employee','Team Manager')"
+ALL_ROLES = ("Employee", "Team Manager", "HR Manager", "Admin")
+
+
 def require_role(request: Request, *roles: str) -> dict:
     user = require_user(request)
     if user["role"] not in roles:
@@ -358,7 +390,11 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
             ctx["pending_reg_count"] = conn.execute(
                 "SELECT COUNT(*) FROM registration_requests WHERE status='Pending'"
             ).fetchone()[0]
-        elif role == "Employee":
+        elif role in STAFF_ROLES:
+            if role == "Team Manager":
+                ctx["pending_reg_count"] = conn.execute(
+                    "SELECT COUNT(*) FROM registration_requests WHERE status='Pending'"
+                ).fetchone()[0]
             ctx["pending_ot_count"] = conn.execute(
                 "SELECT COUNT(*) FROM overtime_requests WHERE emp_id=? AND status='Pending'",
                 (uid,)
@@ -470,7 +506,7 @@ async def login_post(
             if pending_docs > 0:
                 flash(request, f"Please review and sign {pending_docs} required document(s) before continuing.", "warning")
                 return RedirectResponse("/compliance", status_code=302)
-            dest = "/dashboard" if emp["role"] == "Employee" else "/kanban"
+            dest = "/dashboard" if emp["role"] in STAFF_ROLES else "/kanban"
             return RedirectResponse(dest, status_code=302)
         _record_login_fail(ip)
         if emp:
@@ -725,7 +761,7 @@ async def clear_database(request: Request, confirm_code: str = Form(...)):
 # ── HR: Registration Queue ────────────────────────────────────────────────────
 @app.get("/hr-registrations", response_class=HTMLResponse)
 async def hr_registrations(request: Request, status_filter: str = "Pending"):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         if status_filter == "All":
             regs = conn.execute(
@@ -763,7 +799,18 @@ async def approve_registration(
     department: str = Form(""),
     capabilities: str = Form(""),
 ):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
+    # Approvers can't grant a role above their own reach
+    assignable = {
+        "Admin": ALL_ROLES,
+        "HR Manager": ("Employee", "Team Manager", "HR Manager"),
+        "Team Manager": ("Employee",),
+    }[user["role"]]
+    if role not in assignable:
+        flash(request, f"You can't approve an account as {role}.", "error")
+        return RedirectResponse("/hr-registrations", status_code=302)
+    if user["role"] == "Team Manager":
+        hourly_rate = 0.0   # pay rates are set by HR
     with get_db() as conn:
         reg = conn.execute(
             "SELECT * FROM registration_requests WHERE id=?", (reg_id,)
@@ -809,7 +856,7 @@ async def reject_registration(
     reg_id: int,
     rejection_reason: str = Form(""),
 ):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         reg = conn.execute(
             "SELECT * FROM registration_requests WHERE id=?", (reg_id,)
@@ -1131,6 +1178,22 @@ async def break_end(request: Request):
 
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────
+# Roles that manage every card on the production board (move, review, re-assign…)
+TASK_MANAGER_ROLES = ("HR Manager", "Admin", "Team Manager")
+_MAX_TASK_HOURS = 200
+
+
+def _parse_task_hours(value, allow_blank: bool = False) -> Optional[float]:
+    """Positive hours rounded to 2 dp, or None when missing/invalid."""
+    if value is None or str(value).strip() == "":
+        return None
+    try:
+        h = round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+    return h if 0 < h <= _MAX_TASK_HOURS else None
+
+
 @app.post("/api/tasks")
 async def start_task(
     request: Request,
@@ -1146,9 +1209,12 @@ async def start_task(
     input_file_size: str = Form("0"),
     is_recurring: str = Form(""),
     recur_freq: str = Form(""),
+    estimated_hours: str = Form(""),
 ):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
+    notes = sanitize_rich_text(notes)
+    est = _parse_task_hours(estimated_hours)
     with get_db() as conn:
         # Anyone can assign to a teammate; fall back to self if not specified
         if assigned_emp_id.strip().isdigit():
@@ -1162,16 +1228,19 @@ async def start_task(
             """INSERT INTO work_logs
                (emp_id, client, task_title, hours_worked, notes, output_files,
                 status, date_logged, started_at, is_running,
-                created_by_name, assigned_emp_id, due_date, urgency, is_recurring, recur_freq)
-               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?, ?, ?)""",
+                created_by_name, assigned_emp_id, due_date, urgency, is_recurring, recur_freq,
+                estimated_hours)
+               VALUES (?, ?, ?, 0, ?, ?, 'Todo', ?, NULL, 0, ?, ?, ?, ?, ?, ?, ?)""",
             (emp_id, client, task_title, notes, output_files or None, today,
-             user["name"], emp_id, due_date or None, urgency, recur, freq),
+             user["name"], emp_id, due_date or None, urgency, recur, freq, est),
         )
         task_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_card_activity(conn, task_id, user["name"], "created",
                           client if client else None)
         if due_date:
             log_card_activity(conn, task_id, user["name"], "due_date_set", due_date)
+        if est:
+            log_card_activity(conn, task_id, user["name"], "estimate_set", f"Estimated {est}h")
         if input_drive_id.strip():
             fsize = int(input_file_size) if input_file_size.strip().isdigit() else 0
             conn.execute(
@@ -1182,7 +1251,7 @@ async def start_task(
             )
             log_card_activity(conn, task_id, user["name"], "file_uploaded", f"Input: {input_file_name or 'file'}")
     flash(request, "Task created.")
-    redirect = "/kanban" if user["role"] in ("HR Manager", "Admin") else "/dashboard"
+    redirect = "/kanban" if user["role"] in TASK_MANAGER_ROLES else "/dashboard"
     return RedirectResponse(redirect, status_code=302)
 
 
@@ -1228,7 +1297,7 @@ async def edit_task(
         old_hours = task["hours_worked"] or 0
         conn.execute(
             "UPDATE work_logs SET client=?, task_title=?, hours_worked=?, notes=?, output_files=? WHERE id=?",
-            (client, task_title, hours_worked, notes, output_files or None, task_id),
+            (client, task_title, hours_worked, sanitize_rich_text(notes), output_files or None, task_id),
         )
         if round(old_hours, 2) != round(hours_worked, 2):
             log_card_activity(conn, task_id, user["name"], "hours_updated",
@@ -1469,7 +1538,7 @@ async def kanban_page(request: Request):
     user = require_user(request)
     with get_db() as conn:
         cards = conn.execute(
-            """SELECT w.*, e.name as emp_name, e.profile_pic_path
+            """SELECT w.*, e.name as emp_name, e.role as emp_role, e.profile_pic_path
                FROM work_logs w JOIN employees e ON w.emp_id=e.id
                WHERE COALESCE(w.is_archived,0)=0
                ORDER BY w.timestamp DESC"""
@@ -1506,17 +1575,36 @@ async def move_task(request: Request, task_id: int):
     if new_status not in all_statuses:
         return JSONResponse({"error": "Invalid status"}, status_code=400)
     with get_db() as conn:
-        task = conn.execute("SELECT status, emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
+        task = conn.execute(
+            "SELECT status, emp_id, task_title, hours_worked FROM work_logs WHERE id=?", (task_id,)
+        ).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
+        if user["role"] not in TASK_MANAGER_ROLES and task["emp_id"] != user["id"]:
+            return JSONResponse({"error": "Not authorized"}, status_code=403)
         old_status = task["status"]
-        if user["role"] in ("HR Manager", "Admin"):
-            conn.execute("UPDATE work_logs SET status=? WHERE id=?", (new_status, task_id))
-        else:
-            conn.execute(
-                "UPDATE work_logs SET status=? WHERE id=? AND emp_id=?",
-                (new_status, task_id, user["id"]),
-            )
+        # Hours are captured at hand-off points: the worker's hours when the card goes
+        # to review (or straight to Done), the reviewer's time when review finishes.
+        needs_work_hours = old_status != new_status and (
+            new_status == "For Review" or (new_status == "Done" and old_status != "For Review"))
+        needs_review_hours = old_status == "For Review" and new_status == "Done"
+        if needs_work_hours:
+            hours = _parse_task_hours(data.get("hours"))
+            if hours is None:
+                return JSONResponse({"error": "hours_required", "kind": "work",
+                                     "current_hours": task["hours_worked"] or 0}, status_code=400)
+            conn.execute("UPDATE work_logs SET hours_worked=?, is_running=0 WHERE id=?", (hours, task_id))
+            if round(task["hours_worked"] or 0, 2) != hours:
+                log_card_activity(conn, task_id, user["name"], "hours_updated",
+                                  f"{task['hours_worked'] or 0}h → {hours}h")
+        if needs_review_hours:
+            review_hours = _parse_task_hours(data.get("review_hours"))
+            if review_hours is None:
+                return JSONResponse({"error": "hours_required", "kind": "review"}, status_code=400)
+            conn.execute("UPDATE work_logs SET review_hours=COALESCE(review_hours,0)+? WHERE id=?",
+                         (review_hours, task_id))
+            log_card_activity(conn, task_id, user["name"], "review_hours", f"Reviewed for {review_hours}h")
+        conn.execute("UPDATE work_logs SET status=? WHERE id=?", (new_status, task_id))
         if old_status != new_status:
             log_card_activity(conn, task_id, user["name"], "status_changed",
                               f"{old_status} → {new_status}")
@@ -1528,21 +1616,30 @@ async def move_task(request: Request, task_id: int):
 
 
 @app.post("/api/tasks/{task_id}/review")
-async def review_task(request: Request, task_id: int):
+async def review_task(request: Request, task_id: int, review_hours: str = Form("")):
     user = require_user(request)
+    hours = _parse_task_hours(review_hours)
+    if hours is None:
+        flash(request, "Enter how many hours you spent reviewing.", "error")
+        return RedirectResponse("/kanban", status_code=302)
     with get_db() as conn:
         task = conn.execute("SELECT task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
-        if user["role"] in ("HR Manager", "Admin"):
-            conn.execute(
-                "UPDATE work_logs SET status='Done', hr_reviewed_by=? WHERE id=? AND status='For Review'",
-                (user["name"], task_id),
+        if user["role"] in TASK_MANAGER_ROLES:
+            cur = conn.execute(
+                """UPDATE work_logs SET status='Done', hr_reviewed_by=?, review_hours=COALESCE(review_hours,0)+?
+                   WHERE id=? AND status='For Review'""",
+                (user["name"], hours, task_id),
             )
         else:
-            conn.execute(
-                "UPDATE work_logs SET status='Done', hr_reviewed_by=? WHERE id=? AND status='For Review' AND emp_id != ?",
-                (user["name"], task_id, user["id"]),
+            cur = conn.execute(
+                """UPDATE work_logs SET status='Done', hr_reviewed_by=?, review_hours=COALESCE(review_hours,0)+?
+                   WHERE id=? AND status='For Review' AND emp_id != ?""",
+                (user["name"], hours, task_id, user["id"]),
             )
-        log_card_activity(conn, task_id, user["name"], "reviewed", "Marked Done via review")
+        if cur.rowcount == 0:
+            flash(request, "This card is no longer waiting for review.", "error")
+            return RedirectResponse("/kanban", status_code=302)
+        log_card_activity(conn, task_id, user["name"], "reviewed", f"Marked Done via review ({hours}h review)")
         if task:
             title_short = (task["task_title"] or "")[:50]
             notify_task_stakeholders(conn, task_id, user["id"], user["name"],
@@ -1631,7 +1728,7 @@ async def task_file_upload(
         card = conn.execute("SELECT emp_id, task_title FROM work_logs WHERE id=?", (task_id,)).fetchone()
     if not card:
         return JSONResponse({"ok": False, "error": "Task not found"}, status_code=404)
-    is_admin = user["role"] in ("HR Manager", "Admin")
+    is_admin = user["role"] in TASK_MANAGER_ROLES
     is_owner = card["emp_id"] == user["id"]
     if file_type == "input" and not is_admin:
         return JSONResponse({"ok": False, "error": "Only Admin/HR can upload input files"}, status_code=403)
@@ -1677,7 +1774,7 @@ async def task_file_upload(
 
 @app.post("/api/task-files/{file_id}/delete")
 async def delete_task_file(request: Request, file_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     is_xhr = request.headers.get("X-Requested-With") == "fetch"
     with get_db() as conn:
         row = conn.execute("SELECT drive_id, file_name, task_id FROM task_files WHERE id=?", (file_id,)).fetchone()
@@ -1702,7 +1799,7 @@ async def task_detail(request: Request, task_id: int):
     user = require_user(request)
     with get_db() as conn:
         card = conn.execute(
-            "SELECT w.*, e.name as emp_name FROM work_logs w JOIN employees e ON w.emp_id=e.id WHERE w.id=?",
+            "SELECT w.*, e.name as emp_name, e.role as emp_role FROM work_logs w JOIN employees e ON w.emp_id=e.id WHERE w.id=?",
             (task_id,),
         ).fetchone()
         comments = conn.execute(
@@ -1714,7 +1811,7 @@ async def task_detail(request: Request, task_id: int):
             (task_id,),
         ).fetchall()
         all_employees = conn.execute(
-            "SELECT id, name FROM employees WHERE is_active=1 ORDER BY name"
+            "SELECT id, name, role FROM employees WHERE is_active=1 ORDER BY name"
         ).fetchall()
         task_files = conn.execute(
             "SELECT * FROM task_files WHERE task_id=? ORDER BY uploaded_at ASC",
@@ -1723,8 +1820,16 @@ async def task_detail(request: Request, task_id: int):
     if not card:
         return JSONResponse({"error": "Not found"}, status_code=404)
     files_list = [dict(f) for f in task_files]
+    card = dict(card)
+    card["notes"] = sanitize_rich_text(card.get("notes") or "")
+    can_edit = user["role"] in TASK_MANAGER_ROLES or card["emp_id"] == user["id"]
     return JSONResponse({
-        "card":          dict(card),
+        "card":          card,
+        "can_edit":      can_edit,
+        "can_manage":    user["role"] in TASK_MANAGER_ROLES,
+        "clients":       [{"name": c["name"], "hex_color": c["hex_color"],
+                           "logo_url": c["logo_url"] if (c.get("logo_url") or "").startswith("/") else ""}
+                          for c in get_clients()],
         "comments":      [dict(c) for c in comments],
         "activities":    [dict(a) for a in activities],
         "statuses":      KANBAN_STATUSES,
@@ -1743,7 +1848,7 @@ async def assign_task(request: Request, task_id: int):
     data = await request.json()
     target_emp_id = data.get("emp_id")
     with get_db() as conn:
-        if user["role"] in ("HR Manager", "Admin") and target_emp_id:
+        if user["role"] in TASK_MANAGER_ROLES and target_emp_id:
             emp = conn.execute("SELECT name FROM employees WHERE id=?", (target_emp_id,)).fetchone()
             emp_name = emp["name"] if emp else "Unknown"
             conn.execute(
@@ -1832,6 +1937,72 @@ async def set_due_date(request: Request, task_id: int):
     return JSONResponse({"ok": True})
 
 
+def _load_editable_task(conn, task_id: int, user: dict):
+    """(task, error_response) — card owners and board managers may edit card details."""
+    task = conn.execute("SELECT * FROM work_logs WHERE id=?", (task_id,)).fetchone()
+    if not task:
+        return None, JSONResponse({"error": "Not found"}, status_code=404)
+    if user["role"] not in TASK_MANAGER_ROLES and task["emp_id"] != user["id"]:
+        return None, JSONResponse({"error": "Not authorized"}, status_code=403)
+    return task, None
+
+
+@app.post("/api/tasks/{task_id}/set-client")
+async def set_task_client(request: Request, task_id: int):
+    user = require_user(request)
+    data = await request.json()
+    new_client = (data.get("client") or "").strip()
+    with get_db() as conn:
+        task, err = _load_editable_task(conn, task_id, user)
+        if err:
+            return err
+        if new_client and not conn.execute("SELECT 1 FROM clients WHERE name=?", (new_client,)).fetchone():
+            return JSONResponse({"error": "Unknown client"}, status_code=400)
+        old_client = task["client"] or ""
+        if old_client != new_client:
+            conn.execute("UPDATE work_logs SET client=? WHERE id=?", (new_client or None, task_id))
+            detail = f"{old_client or 'none'} → {new_client or 'none'}"
+            log_card_activity(conn, task_id, user["name"], "client_changed", detail)
+            notify_task_stakeholders(conn, task_id, user["id"], user["name"],
+                "🏢 Client Changed",
+                f'{user["name"]} changed the client of "{(task["task_title"] or "")[:50]}": {detail}.')
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/tasks/{task_id}/set-notes")
+async def set_task_notes(request: Request, task_id: int):
+    user = require_user(request)
+    data = await request.json()
+    notes = sanitize_rich_text(data.get("notes") or "")
+    with get_db() as conn:
+        task, err = _load_editable_task(conn, task_id, user)
+        if err:
+            return err
+        conn.execute("UPDATE work_logs SET notes=? WHERE id=?", (notes or None, task_id))
+        log_card_activity(conn, task_id, user["name"], "notes_updated", "Updated notes")
+    return JSONResponse({"ok": True, "notes": notes})
+
+
+@app.post("/api/tasks/{task_id}/set-estimate")
+async def set_task_estimate(request: Request, task_id: int):
+    user = require_user(request)
+    data = await request.json()
+    raw = data.get("estimated_hours")
+    est = _parse_task_hours(raw)
+    if est is None and str(raw or "").strip() != "":
+        return JSONResponse({"error": "Invalid hours"}, status_code=400)
+    with get_db() as conn:
+        task, err = _load_editable_task(conn, task_id, user)
+        if err:
+            return err
+        old = task["estimated_hours"]
+        if old != est:
+            conn.execute("UPDATE work_logs SET estimated_hours=? WHERE id=?", (est, task_id))
+            log_card_activity(conn, task_id, user["name"], "estimate_set",
+                              f"Estimate {old or 'none'}{'h' if old else ''} → {est or 'none'}{'h' if est else ''}")
+    return JSONResponse({"ok": True})
+
+
 @app.post("/api/tasks/{task_id}/archive")
 async def archive_task(request: Request, task_id: int):
     user = require_user(request)
@@ -1841,7 +2012,7 @@ async def archive_task(request: Request, task_id: int):
         ).fetchone()
         if not task:
             return JSONResponse({"error": "Not found"}, status_code=404)
-        if user["role"] not in ("HR Manager", "Admin") and task["emp_id"] != user["id"]:
+        if user["role"] not in TASK_MANAGER_ROLES and task["emp_id"] != user["id"]:
             return JSONResponse({"error": "Not authorized"}, status_code=403)
         new_archived = 0 if task["is_archived"] else 1
         conn.execute("UPDATE work_logs SET is_archived=? WHERE id=?", (new_archived, task_id))
@@ -1929,7 +2100,7 @@ async def delete_hr_task(request: Request, task_id: int):
 async def kanban_archive(request: Request):
     user = require_user(request)
     with get_db() as conn:
-        if user["role"] in ("HR Manager", "Admin"):
+        if user["role"] in TASK_MANAGER_ROLES:
             cards = conn.execute(
                 """SELECT w.*, e.name as emp_name, e.profile_pic_path
                    FROM work_logs w JOIN employees e ON w.emp_id=e.id
@@ -1954,26 +2125,177 @@ async def kanban_archive(request: Request):
 
 
 # ── Client Management ──────────────────────────────────────────────────────────
+CLIENT_ROLES = ("HR Manager", "Admin", "Team Manager")
+CLIENT_SHIFT_TAGS = ("Morning", "Night", "Both")
+CLIENT_LOGO_DIR = os.path.join("static", "uploads", "client_logos")
+_CLIENT_LOGO_MAX_BYTES = 2 * 1024 * 1024
+_LOGO_FORMAT_ERROR = "Logo must be a PNG, JPG, GIF or WEBP image."
+
+
+def _logo_ext(content: bytes) -> Optional[str]:
+    """File extension from the image's magic bytes (no SVG: it can carry script)."""
+    if content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if content.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if content[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _store_client_logo(content: bytes, client_id: int) -> tuple[Optional[str], Optional[str]]:
+    ext = _logo_ext(content)
+    if not ext:
+        return None, _LOGO_FORMAT_ERROR
+    if len(content) > _CLIENT_LOGO_MAX_BYTES:
+        return None, "Logo must be 2 MB or smaller."
+    os.makedirs(CLIENT_LOGO_DIR, mode=0o777, exist_ok=True)
+    # Unique name per upload so browsers never show a cached old logo
+    fname = f"client_{client_id}_{uuid.uuid4().hex[:8]}{ext}"
+    with open(os.path.join(CLIENT_LOGO_DIR, fname), "wb") as f:
+        f.write(content)
+    return f"/static/uploads/client_logos/{fname}", None
+
+
+def _is_public_host(host: str) -> bool:
+    import ipaddress, socket
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except (socket.gaierror, UnicodeError):
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0].split("%")[0])
+        if not ip.is_global:
+            return False
+    return bool(infos)
+
+
+async def _fetch_client_logo(url: str) -> tuple[Optional[bytes], Optional[str]]:
+    """Download a logo link. Only public http(s) hosts — every redirect hop is re-checked."""
+    for _ in range(4):
+        parsed = urllib.parse.urlparse(url)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None, "Logo link must start with http:// or https://."
+        if not await asyncio.to_thread(_is_public_host, parsed.hostname):
+            return None, "Logo link must point to a public website."
+        try:
+            async with httpx.AsyncClient(timeout=10, follow_redirects=False,
+                                         headers={"User-Agent": "Mozilla/5.0 (logo fetch)"}) as hc:
+                async with hc.stream("GET", url) as resp:
+                    if resp.is_redirect and resp.headers.get("location"):
+                        url = urllib.parse.urljoin(url, resp.headers["location"])
+                        continue
+                    if resp.status_code != 200:
+                        return None, f"Couldn't download the logo (HTTP {resp.status_code})."
+                    data = b""
+                    async for chunk in resp.aiter_bytes():
+                        data += chunk
+                        if len(data) > _CLIENT_LOGO_MAX_BYTES:
+                            return None, "Logo must be 2 MB or smaller."
+                    return data, None
+        except httpx.HTTPError:
+            return None, "Couldn't download the logo from that link."
+    return None, "Logo link redirects too many times."
+
+
+def _client_shift_from_form(form) -> str:
+    morning, night = bool(form.get("shift_morning")), bool(form.get("shift_night"))
+    if morning and night:
+        return "Both"
+    return "Morning" if morning else ("Night" if night else "")
+
+
+async def _save_client_logo(form, client_id: int) -> tuple[Optional[str], Optional[str]]:
+    """Uploaded file, else pasted link → (logo_path, error). (None, None) means neither given."""
+    logo_file = form.get("logo")
+    if logo_file and hasattr(logo_file, "filename") and logo_file.filename:
+        return _store_client_logo(await logo_file.read(), client_id)
+    link = (form.get("logo_link") or "").strip()
+    if link:
+        content, err = await _fetch_client_logo(link)
+        if err:
+            return None, err
+        return _store_client_logo(content, client_id)
+    return None, None
+
+
+async def _import_external_client_logos():
+    """Clients saved with a logo link (before uploads existed): download and keep a local copy."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT id, name, logo_url FROM clients WHERE logo_url LIKE 'http%'"
+        ).fetchall()
+    for row in rows:
+        content, err = await _fetch_client_logo(row["logo_url"])
+        path = None
+        if content:
+            path, err = _store_client_logo(content, row["id"])
+        if err:
+            print(f"[client logos] {row['name']}: {err}")
+            continue
+        with get_db() as conn:
+            # Another worker may have imported it first — keep theirs, drop ours
+            cur = conn.execute("UPDATE clients SET logo_url=? WHERE id=? AND logo_url=?",
+                               (path, row["id"], row["logo_url"]))
+        if cur.rowcount == 0:
+            _remove_client_logo_file(path)
+
+
+@app.on_event("startup")
+async def _start_client_logo_import():
+    asyncio.create_task(_import_external_client_logos())
+
+
+def _remove_client_logo_file(logo_url: str):
+    prefix = "/static/uploads/client_logos/"
+    if logo_url and logo_url.startswith(prefix):
+        try:
+            os.remove(os.path.join(CLIENT_LOGO_DIR, os.path.basename(logo_url)))
+        except OSError:
+            pass
+
+
 @app.get("/clients", response_class=HTMLResponse)
 async def clients_page(request: Request):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, *CLIENT_ROLES)
+    sort = request.query_params.get("sort", "az")
+    shift = request.query_params.get("shift", "")
+    order_by = {
+        "az":     "name COLLATE NOCASE ASC",
+        "za":     "name COLLATE NOCASE DESC",
+        "newest": "id DESC",
+        "oldest": "id ASC",
+    }.get(sort)
+    if not order_by:
+        sort, order_by = "az", "name COLLATE NOCASE ASC"
+    where, params = "", ()
+    if shift in ("Morning", "Night"):
+        # A "Both" client belongs to either shift
+        where, params = "WHERE shift_tag IN (?, 'Both')", (shift,)
+    elif shift == "Untagged":
+        where = "WHERE COALESCE(shift_tag,'')=''"
+    else:
+        shift = ""
     with get_db() as conn:
         clients = [dict(r) for r in conn.execute(
-            "SELECT * FROM clients ORDER BY sort_order, name"
+            f"SELECT * FROM clients {where} ORDER BY {order_by}", params
         ).fetchall()]
     return templates.TemplateResponse(request, "admin/clients.html", {
-        "user": user, "clients": clients, "flash": get_flash(request),
+        "user": user, "clients": clients, "sort": sort, "shift": shift,
+        "flash": get_flash(request),
         **shared_ctx(user, request),
     })
 
 
 @app.post("/api/clients")
 async def add_client(request: Request):
-    require_role(request, "HR Manager", "Admin")
+    user = require_role(request, *CLIENT_ROLES)
     form = await request.form()
     name = (form.get("name") or "").strip()
     hex_color = form.get("hex_color") or "#3b82f6"
-    logo_url = (form.get("logo_url") or "").strip()
+    shift_tag = _client_shift_from_form(form)
     if not name:
         flash(request, "Client name is required.", "error")
         return RedirectResponse("/clients", status_code=302)
@@ -1983,26 +2305,45 @@ async def add_client(request: Request):
             flash(request, f'A client named "{name}" already exists.', "error")
             return RedirectResponse("/clients", status_code=302)
         max_order = conn.execute("SELECT COALESCE(MAX(sort_order),0) FROM clients").fetchone()[0]
-        conn.execute(
-            "INSERT INTO clients (name, hex_color, logo_url, sort_order) VALUES (?, ?, ?, ?)",
-            (name, hex_color, logo_url, max_order + 1))
-    flash(request, f'Client "{name}" added.')
+        cur = conn.execute(
+            "INSERT INTO clients (name, hex_color, logo_url, shift_tag, sort_order) VALUES (?, ?, '', ?, ?)",
+            (name, hex_color, shift_tag, max_order + 1))
+        client_id = cur.lastrowid
+        audit(conn, user["id"], user["name"], "client_added", "clients", client_id, new_value=name)
+    logo_path, err = await _save_client_logo(form, client_id)
+    if logo_path:
+        with get_db() as conn:
+            conn.execute("UPDATE clients SET logo_url=? WHERE id=?", (logo_path, client_id))
+    if err:
+        flash(request, f'Client "{name}" added, but the logo was not saved: {err}', "error")
+    else:
+        flash(request, f'Client "{name}" added.')
     return RedirectResponse("/clients", status_code=302)
 
 
 @app.post("/api/clients/{client_id}/update")
 async def update_client(request: Request, client_id: int):
-    require_role(request, "HR Manager", "Admin")
+    # Client names are permanent: tasks reference clients by name.
+    require_role(request, *CLIENT_ROLES)
     form = await request.form()
-    name = (form.get("name") or "").strip()
     hex_color = form.get("hex_color") or "#3b82f6"
-    logo_url = (form.get("logo_url") or "").strip()
-    if not name:
-        flash(request, "Client name is required.", "error")
-        return RedirectResponse("/clients", status_code=302)
+    shift_tag = _client_shift_from_form(form)
     with get_db() as conn:
-        conn.execute("UPDATE clients SET name=?, hex_color=?, logo_url=? WHERE id=?",
-                     (name, hex_color, logo_url, client_id))
+        client = conn.execute("SELECT logo_url FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client:
+        flash(request, "Client not found.", "error")
+        return RedirectResponse("/clients", status_code=302)
+    logo_url = client["logo_url"] or ""
+    logo_path, err = await _save_client_logo(form, client_id)
+    if err:
+        flash(request, err, "error")
+        return RedirectResponse("/clients", status_code=302)
+    if logo_path or form.get("remove_logo"):
+        _remove_client_logo_file(logo_url)
+        logo_url = logo_path or ""
+    with get_db() as conn:
+        conn.execute("UPDATE clients SET hex_color=?, logo_url=?, shift_tag=? WHERE id=?",
+                     (hex_color, logo_url, shift_tag, client_id))
     flash(request, "Client updated.")
     return RedirectResponse("/clients", status_code=302)
 
@@ -2011,60 +2352,190 @@ async def update_client(request: Request, client_id: int):
 async def delete_client(request: Request, client_id: int):
     require_role(request, "Admin")
     with get_db() as conn:
+        row = conn.execute("SELECT logo_url FROM clients WHERE id=?", (client_id,)).fetchone()
         conn.execute("DELETE FROM clients WHERE id=?", (client_id,))
+    if row:
+        _remove_client_logo_file(row["logo_url"])
     flash(request, "Client removed.")
     return RedirectResponse("/clients", status_code=302)
 
 
 # ── Client Dashboard ────────────────────────────────────────────────────────────
+_CLIENT_RANGE_PRESETS = {
+    "today": "Today", "week": "This Week", "last_week": "Last Week",
+    "month": "This Month", "last_month": "Last Month", "all": "All Time", "custom": "Custom",
+}
+
+
+def _client_date_range(request: Request) -> tuple[str, str, str]:
+    """(start, end, preset) from ?range=… or ?start=…&end=…; defaults to this month."""
+    qp = request.query_params
+    preset = qp.get("range", "month")
+    today = get_pht_now().date()
+    if preset == "custom":
+        try:
+            start = date.fromisoformat(qp.get("start", ""))
+            end = date.fromisoformat(qp.get("end", ""))
+            if start > end:
+                start, end = end, start
+            return start.isoformat(), end.isoformat(), "custom"
+        except ValueError:
+            preset = "month"
+    if preset == "today":
+        return today.isoformat(), today.isoformat(), preset
+    if preset == "week":
+        ws, we = get_week_range(today)
+        return ws, we, preset
+    if preset == "last_week":
+        ws, we = get_week_range(today - timedelta(days=7))
+        return ws, we, preset
+    if preset == "last_month":
+        last_month_end = today.replace(day=1) - timedelta(days=1)
+        return last_month_end.replace(day=1).isoformat(), last_month_end.isoformat(), preset
+    if preset == "all":
+        return "0000-01-01", "9999-12-31", preset
+    month_start = today.replace(day=1)
+    next_month = (month_start + timedelta(days=32)).replace(day=1)
+    return month_start.isoformat(), (next_month - timedelta(days=1)).isoformat(), "month"
+
+
+def _client_range_label(start: str, end: str, preset: str) -> str:
+    if preset == "all":
+        return "All Time"
+    if start == end:
+        return start
+    return f"{start} to {end}"
+
+
+def _client_report_days(tasks: list) -> list[dict]:
+    """Group tasks by date (oldest first): unique task titles + summed hours per day."""
+    days: dict = {}
+    for t in sorted(tasks, key=lambda t: (t["date_logged"] or "", t.get("timestamp") or "")):
+        if not t["date_logged"]:
+            continue
+        d = days.setdefault(t["date_logged"], {"date": t["date_logged"], "tasks": [], "_seen": set(), "hours": 0.0})
+        title = (t["task_title"] or "").strip()
+        if title and title.lower() not in d["_seen"]:
+            d["_seen"].add(title.lower())
+            d["tasks"].append(title)
+        d["hours"] += t["hours_worked"] or 0
+    out = []
+    for d in days.values():
+        d.pop("_seen")
+        d["hours"] = round(d["hours"], 2)
+        out.append(d)
+    return out
+
+
+def _load_client_with_tasks(conn, client_id: int, start: str, end: str):
+    client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+    if not client:
+        return None, []
+    tasks = conn.execute(
+        """SELECT w.*, e.name as emp_name FROM work_logs w
+           JOIN employees e ON w.emp_id=e.id
+           WHERE w.client=? AND w.date_logged BETWEEN ? AND ?
+           ORDER BY w.date_logged DESC, w.timestamp DESC""",
+        (client["name"], start, end),
+    ).fetchall()
+    return dict(client), [dict(t) for t in tasks]
+
+
 @app.get("/clients/{client_id}/dashboard", response_class=HTMLResponse)
 async def client_dashboard(request: Request, client_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, *CLIENT_ROLES)
+    start, end, preset = _client_date_range(request)
     with get_db() as conn:
-        client = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
+        client, tasks = _load_client_with_tasks(conn, client_id, start, end)
         if not client:
             return RedirectResponse("/clients", status_code=302)
-        client = dict(client)
-
-        tasks = conn.execute(
-            """SELECT w.*, e.name as emp_name FROM work_logs w
-               JOIN employees e ON w.emp_id=e.id
-               WHERE w.client=? ORDER BY w.date_logged DESC, w.timestamp DESC""",
-            (client["name"],),
-        ).fetchall()
-
+        all_time_hours = conn.execute(
+            "SELECT COALESCE(SUM(hours_worked),0) FROM work_logs WHERE client=?", (client["name"],)
+        ).fetchone()[0]
+        week_start, week_end = get_week_range()
+        week_hours = conn.execute(
+            "SELECT COALESCE(SUM(hours_worked),0) FROM work_logs WHERE client=? AND date_logged BETWEEN ? AND ?",
+            (client["name"], week_start, week_end),
+        ).fetchone()[0]
         notes = conn.execute(
             "SELECT * FROM client_notes WHERE client_id=? ORDER BY created_at DESC",
             (client_id,),
         ).fetchall()
 
-    tasks = [dict(t) for t in tasks]
-    today = date.today().strftime("%Y-%m-%d")
-    week_start, week_end = get_week_range()
-    month_start = date.today().replace(day=1).strftime("%Y-%m-%d")
-
-    total_hours = sum(t["hours_worked"] or 0 for t in tasks)
-    week_hours  = sum(t["hours_worked"] or 0 for t in tasks if week_start <= (t["date_logged"] or "") <= week_end)
-    month_hours = sum(t["hours_worked"] or 0 for t in tasks if (t["date_logged"] or "") >= month_start)
-    today_hours = sum(t["hours_worked"] or 0 for t in tasks if t["date_logged"] == today)
-
-    from collections import defaultdict
-    day_map = defaultdict(float)
-    for t in tasks:
-        if t["date_logged"]:
-            day_map[t["date_logged"]] += t["hours_worked"] or 0
-    hours_by_day = sorted(day_map.items(), reverse=True)[:30]
+    report_days = _client_report_days(tasks)
+    range_hours = round(sum(d["hours"] for d in report_days), 2)
+    hours_by_day = [(d["date"], d["hours"]) for d in reversed(report_days)]
 
     return templates.TemplateResponse(request, "admin/client_dashboard.html", {
         "user": user, "client": client, "tasks": tasks, "notes": [dict(n) for n in notes],
-        "total_hours": round(total_hours, 2),
-        "week_hours":  round(week_hours, 2),
-        "month_hours": round(month_hours, 2),
-        "today_hours": round(today_hours, 2),
+        "range_start": start if preset != "all" else "",
+        "range_end": end if preset != "all" else "",
+        "range_preset": preset,
+        "range_presets": _CLIENT_RANGE_PRESETS,
+        "range_label": _client_range_label(start, end, preset),
+        "range_query": urllib.parse.urlencode(
+            {"range": preset, **({"start": start, "end": end} if preset == "custom" else {})}),
+        "range_hours": range_hours,
+        "all_time_hours": round(all_time_hours, 2),
+        "week_hours": round(week_hours, 2),
         "hours_by_day": hours_by_day,
+        "report_days": report_days,
         "flash": get_flash(request),
         **shared_ctx(user, request),
     })
+
+
+@app.get("/clients/{client_id}/report/print", response_class=HTMLResponse)
+async def client_report_print(request: Request, client_id: int):
+    require_role(request, *CLIENT_ROLES)
+    start, end, preset = _client_date_range(request)
+    with get_db() as conn:
+        client, tasks = _load_client_with_tasks(conn, client_id, start, end)
+    if not client:
+        return RedirectResponse("/clients", status_code=302)
+    report_days = _client_report_days(tasks)
+    return templates.TemplateResponse(request, "print/client_report.html", {
+        "client": client,
+        "company": get_company_settings(),
+        "report_days": report_days,
+        "total_hours": round(sum(d["hours"] for d in report_days), 2),
+        "range_label": _client_range_label(start, end, preset),
+        "generated_at": get_pht_now().strftime("%Y-%m-%d %H:%M"),
+    })
+
+
+@app.get("/clients/{client_id}/report.xlsx")
+async def client_report_xlsx(request: Request, client_id: int):
+    require_role(request, *CLIENT_ROLES)
+    start, end, preset = _client_date_range(request)
+    with get_db() as conn:
+        client, tasks = _load_client_with_tasks(conn, client_id, start, end)
+    if not client:
+        return RedirectResponse("/clients", status_code=302)
+    report_days = _client_report_days(tasks)
+    label = _client_range_label(start, end, preset)
+    rows = [
+        [(f"{client['name']} — Work Report", "title")],
+        [f"Period: {label}"],
+        [],
+        [("Date", "header"), ("Tasks", "header"), ("Total Hours", "header")],
+    ]
+    for d in report_days:
+        rows.append([
+            (d["date"], "bold"),
+            ("\n".join(f"• {t}" for t in d["tasks"]), "wrap"),
+            (d["hours"], "hours"),
+        ])
+    rows.append([("Total", "bold"), ("", "bold"),
+                 (round(sum(d["hours"] for d in report_days), 2), "bold_hours")])
+    data = build_xlsx("Report", rows, [14, 70, 13])
+    safe_client = "".join(ch if ch.isalnum() else "_" for ch in client["name"]).strip("_") or "client"
+    period = "all-time" if preset == "all" else f"{start}_to_{end}"
+    return _StarletteResponse(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{safe_client}_report_{period}.xlsx"'},
+    )
 
 
 @app.post("/api/clients/{client_id}/notes")
@@ -2072,7 +2543,7 @@ async def add_client_note(
     request: Request, client_id: int,
     title: str = Form(...), content: str = Form(...),
 ):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, *CLIENT_ROLES)
     with get_db() as conn:
         conn.execute(
             "INSERT INTO client_notes (client_id, title, content, author_name) VALUES (?, ?, ?, ?)",
@@ -2084,7 +2555,7 @@ async def add_client_note(
 
 @app.post("/api/clients/{client_id}/notes/{note_id}/delete")
 async def delete_client_note(request: Request, client_id: int, note_id: int):
-    require_role(request, "HR Manager", "Admin")
+    require_role(request, *CLIENT_ROLES)
     with get_db() as conn:
         conn.execute("DELETE FROM client_notes WHERE id=? AND client_id=?", (note_id, client_id))
     flash(request, "Note deleted.")
@@ -2099,7 +2570,7 @@ async def roster_page(request: Request):
 
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE role='Employee' ORDER BY name"
+            "SELECT * FROM employees WHERE role IN ('Employee','Team Manager') ORDER BY name"
         ).fetchall()
 
     roster = []
@@ -2205,7 +2676,7 @@ async def payroll_page(request: Request, start: str = None, end: str = None):
 
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT * FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
         existing_run = conn.execute(
             "SELECT * FROM payroll_runs WHERE week_start=? LIMIT 1", (week_start,)
@@ -2297,7 +2768,7 @@ async def generate_payroll(request: Request, week_start: str = Form(...), week_e
         week_end = (datetime.strptime(week_start, "%Y-%m-%d").date() + timedelta(days=5)).strftime("%Y-%m-%d")
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT * FROM employees WHERE role='Employee' AND is_active=1"
+            "SELECT * FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
         ).fetchall()
         conn.execute("DELETE FROM payroll_runs WHERE week_start=?", (week_start,))
         conn.execute("DELETE FROM payslip_logs WHERE week_start=?", (week_start,))
@@ -2610,7 +3081,7 @@ async def loans_page(request: Request):
             ).fetchall()
             loan["payments"] = [dict(p) for p in payments]
         employees = conn.execute(
-            "SELECT id, name FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT id, name FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
 
     active_total = round(sum(l["balance_remaining"] for l in loans if l["status"] == "Active"), 2)
@@ -2862,6 +3333,9 @@ async def create_employee(
     weekly_hours_limit: str = Form(""),
 ):
     require_role(request, "Admin")
+    if role not in ALL_ROLES:
+        flash(request, "Invalid role.", "error")
+        return RedirectResponse("/employees", status_code=302)
     whl = float(weekly_hours_limit) if weekly_hours_limit.strip() else None
     with get_db() as conn:
         try:
@@ -2897,6 +3371,9 @@ async def update_employee(
     weekly_hours_limit: str = Form(""),
 ):
     require_role(request, "Admin")
+    if role not in ALL_ROLES:
+        flash(request, "Invalid role.", "error")
+        return RedirectResponse("/employees", status_code=302)
     whl = float(weekly_hours_limit) if weekly_hours_limit.strip() else None
     with get_db() as conn:
         if new_password:
@@ -2939,12 +3416,15 @@ async def set_employee_status(
     emp_status: str = Form(...),
     status_note: str = Form(""),
 ):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     valid_statuses = ("Active", "Inactive", "Terminated", "Resigned", "Suspended")
     if emp_status not in valid_statuses:
         flash(request, "Invalid status.", "error")
         return RedirectResponse("/employees", status_code=302)
     is_active = 1 if emp_status == "Active" else 0
+    if user["role"] == "Team Manager" and not _is_employee_account(emp_id):
+        flash(request, "Team Managers can only change the status of Employee accounts.", "error")
+        return RedirectResponse("/team", status_code=302)
     with get_db() as conn:
         conn.execute(
             "UPDATE employees SET emp_status=?, is_active=?, status_note=? WHERE id=?",
@@ -2961,12 +3441,45 @@ async def set_employee_status(
         flash(request, f"Status changed to {emp_status}. This employee has {open_tasks} open task(s) that need reassignment.", "warning")
         return RedirectResponse(f"/admin/employees/{emp_id}/reassign-tasks", status_code=302)
     flash(request, f"Employee status changed to {emp_status}.")
+    if user["role"] == "Team Manager":
+        return RedirectResponse("/team", status_code=302)
     return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+
+
+def _is_employee_account(emp_id: int) -> bool:
+    with get_db() as conn:
+        row = conn.execute("SELECT role FROM employees WHERE id=?", (emp_id,)).fetchone()
+    return bool(row) and row["role"] == "Employee"
+
+
+@app.get("/team", response_class=HTMLResponse)
+async def team_page(request: Request):
+    """Team Manager view of Employee accounts — status and password resets, no pay data."""
+    user = require_role(request, "Team Manager")
+    today = get_pht_now().strftime("%Y-%m-%d")
+    with get_db() as conn:
+        members = conn.execute(
+            """SELECT e.id, e.name, e.username, e.shift_type, e.department, e.profile_pic_path,
+                      COALESCE(e.emp_status, CASE WHEN e.is_active=1 THEN 'Active' ELSE 'Inactive' END) AS emp_status,
+                      e.status_note, a.clock_in, a.clock_out
+               FROM employees e
+               LEFT JOIN attendance a ON a.emp_id=e.id AND a.date_logged=?
+               WHERE e.role='Employee'
+               ORDER BY CASE WHEN COALESCE(e.emp_status,'Active')='Active' THEN 0 ELSE 1 END,
+                        e.name COLLATE NOCASE""",
+            (today,),
+        ).fetchall()
+    return templates.TemplateResponse(request, "shared/team_manage.html", {
+        "user": user,
+        "members": [dict(m) for m in members],
+        "flash": get_flash(request),
+        **shared_ctx(user, request),
+    })
 
 
 @app.get("/admin/employees/{emp_id}/reassign-tasks", response_class=HTMLResponse)
 async def reassign_tasks_page(request: Request, emp_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         emp = conn.execute("SELECT id, name, emp_status FROM employees WHERE id=?", (emp_id,)).fetchone()
         if not emp:
@@ -2994,7 +3507,7 @@ async def reassign_tasks_page(request: Request, emp_id: int):
 
 @app.post("/admin/employees/{emp_id}/reassign-tasks")
 async def do_reassign_tasks(request: Request, emp_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     reassigned = 0
     with get_db() as conn:
@@ -3013,7 +3526,8 @@ async def do_reassign_tasks(request: Request, emp_id: int):
                               f"Task reassigned to new employee (ID {new_emp_id})")
             reassigned += 1
     flash(request, f"{reassigned} task(s) reassigned successfully.")
-    return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+    return RedirectResponse("/team" if user["role"] == "Team Manager" else f"/employees/{emp_id}/profile",
+                            status_code=302)
 
 
 @app.post("/api/profile/bank")
@@ -3066,7 +3580,7 @@ async def tv_dashboard(request: Request):
 async def tv_data(request: Request):
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT id, name, shift_type, profile_pic_path FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT id, name, shift_type, profile_pic_path FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
         cards = conn.execute(
             """SELECT w.*, e.name as emp_name, e.profile_pic_path as emp_pic
@@ -3115,7 +3629,7 @@ async def tv_data(request: Request):
 # ── Attendance report (admin) ──────────────────────────────────────────────────
 @app.get("/attendance", response_class=HTMLResponse)
 async def attendance_report(request: Request, start: str = None, end: str = None):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     week_start, week_end = get_week_range()
     start = start or week_start
     end = end or week_end
@@ -3145,7 +3659,7 @@ async def attendance_report(request: Request, start: str = None, end: str = None
 
 @app.get("/my-ot", response_class=HTMLResponse)
 async def my_ot_page(request: Request):
-    user = require_role(request, "Employee", "HR Manager", "Admin")
+    user = require_role(request, "Employee", "Team Manager", "HR Manager", "Admin")
     with get_db() as conn:
         requests_list = conn.execute(
             "SELECT * FROM overtime_requests WHERE emp_id=? ORDER BY filed_at DESC",
@@ -3488,7 +4002,7 @@ async def change_leave_status(
 async def announcements_page(request: Request):
     user = require_user(request)
     # Build audience filter based on role
-    if user["role"] == "Employee":
+    if user["role"] in STAFF_ROLES:
         aud_filter = "audience IN ('All', 'Employee')"
     elif user["role"] == "HR Manager":
         aud_filter = "audience IN ('All', 'Employee', 'HR')"
@@ -3526,9 +4040,9 @@ async def post_announcement(
         )
         # Notify only the relevant audience
         if audience == "All":
-            role_filter = "role IN ('Employee','HR Manager','Admin')"
+            role_filter = "role IN ('Employee','Team Manager','HR Manager','Admin')"
         elif audience == "Employee":
-            role_filter = "role='Employee'"
+            role_filter = "role IN ('Employee','Team Manager')"
         elif audience == "HR":
             role_filter = "role IN ('HR Manager','Admin')"
         else:  # Admin
@@ -4341,7 +4855,7 @@ async def hr_timesheets(request: Request, status: str = "Submitted", week: str =
         if status == "Not Submitted":
             # Employees who have no submission for the selected week
             all_emps = conn.execute(
-                "SELECT id, name, profile_pic_path, shift_type FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+                "SELECT id, name, profile_pic_path, shift_type FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
             ).fetchall()
             submitted_ids = {
                 r[0] for r in conn.execute(
@@ -4382,7 +4896,7 @@ async def hr_timesheets(request: Request, status: str = "Submitted", week: str =
             ).fetchone()[0]
 
         total_employees = conn.execute(
-            "SELECT COUNT(*) FROM employees WHERE role='Employee' AND is_active=1"
+            "SELECT COUNT(*) FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
         ).fetchone()[0]
         submitted_this_week = conn.execute(
             "SELECT COUNT(*) FROM timesheet_submissions WHERE week_start=?", (week,)
@@ -4581,19 +5095,23 @@ async def reset_employee_password(
     new_password: str = Form(...),
     confirm_password: str = Form(...),
 ):
-    user = require_role(request, "Admin")
+    user = require_role(request, "Admin", "Team Manager")
+    back = "/team" if user["role"] == "Team Manager" else f"/employees/{emp_id}/profile"
+    if user["role"] == "Team Manager" and not _is_employee_account(emp_id):
+        flash(request, "Team Managers can only reset passwords for Employee accounts.", "error")
+        return RedirectResponse(back, status_code=302)
     if new_password != confirm_password:
         flash(request, "Passwords do not match.", "error")
-        return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+        return RedirectResponse(back, status_code=302)
     if len(new_password) < 6:
         flash(request, "Password must be at least 6 characters.", "error")
-        return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+        return RedirectResponse(back, status_code=302)
     with get_db() as conn:
         conn.execute("UPDATE employees SET password=? WHERE id=?",
                      (hash_password(new_password), emp_id))
         audit(conn, user["id"], user["name"], "reset_password", "employees", emp_id)
     flash(request, "Password reset successfully.")
-    return RedirectResponse(f"/employees/{emp_id}/profile", status_code=302)
+    return RedirectResponse(back, status_code=302)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -4883,7 +5401,7 @@ async def print_leave_report(request: Request, year: str = ""):
 
 @app.get("/print/attendance", response_class=HTMLResponse)
 async def print_attendance_report(request: Request, date_from: str = "", date_to: str = ""):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     now_pht = get_pht_now()
     if not date_from:
         date_from = now_pht.replace(day=1).strftime("%Y-%m-%d")
@@ -4891,17 +5409,20 @@ async def print_attendance_report(request: Request, date_from: str = "", date_to
         date_to = now_pht.strftime("%Y-%m-%d")
     with get_db() as conn:
         rows = conn.execute(
-            """SELECT a.*, e.name as emp_name, e.shift_type,
-                      ROUND(
-                        (JULIANDAY(COALESCE(a.clock_out, datetime('now','+8 hours'))) - JULIANDAY(a.date || ' ' || a.clock_in)) * 24
-                        - COALESCE((SELECT SUM(ROUND((JULIANDAY(clock_out) - JULIANDAY(clock_in))*24*60)/60.0) FROM break_logs bl WHERE bl.att_id=a.id AND bl.clock_out IS NOT NULL), 0)
-                      , 2) as hours
+            """SELECT a.*, a.date_logged as date, e.name as emp_name, e.shift_type
                FROM attendance a JOIN employees e ON e.id=a.emp_id
-               WHERE a.date >= ? AND a.date <= ? AND a.clock_in IS NOT NULL
-               ORDER BY e.name, a.date""",
+               WHERE a.date_logged BETWEEN ? AND ? AND a.clock_in IS NOT NULL
+               ORDER BY e.name, a.date_logged""",
             (date_from, date_to)
         ).fetchall()
-    records = [dict(r) for r in rows]
+    records = []
+    for r in rows:
+        r = dict(r)
+        # Open shifts count up to now; completed breaks are deducted
+        clock_out = r["clock_out"] or (now_pht.strftime("%H:%M:%S") if r["date"] == now_pht.strftime("%Y-%m-%d") else None)
+        worked = calculate_hours(r["clock_in"], clock_out) - get_break_minutes(r["id"]) / 60
+        r["hours"] = round(max(worked, 0), 2)
+        records.append(r)
     total_hours = sum(r.get("hours") or 0 for r in records)
     avg_hours = total_hours / len(records) if records else 0
     return templates.TemplateResponse(request, "print/attendance_report.html", {
@@ -5018,7 +5539,7 @@ async def report_employees(request: Request):
     user = require_role(request, "HR Manager", "Admin")
     with get_db() as conn:
         employees = conn.execute(
-            """SELECT * FROM employees WHERE is_active=1 AND role='Employee' ORDER BY name"""
+            """SELECT * FROM employees WHERE is_active=1 AND role IN ('Employee','Team Manager') ORDER BY name"""
         ).fetchall()
     return templates.TemplateResponse(request, "shared/report_employees.html", {
         "user": user,
@@ -5030,7 +5551,7 @@ async def report_employees(request: Request):
 
 @app.get("/reports/attendance", response_class=HTMLResponse)
 async def report_attendance(request: Request, date_from: str = "", date_to: str = ""):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     today = get_pht_now().strftime("%Y-%m-%d")
     d_from = date_from or (get_pht_now().replace(day=1).strftime("%Y-%m-%d"))
     d_to   = date_to or today
@@ -5038,7 +5559,7 @@ async def report_attendance(request: Request, date_from: str = "", date_to: str 
         records = conn.execute(
             """SELECT a.*, e.name as emp_name
                FROM attendance a JOIN employees e ON a.emp_id=e.id
-               WHERE e.role='Employee' AND a.date_logged BETWEEN ? AND ?
+               WHERE e.role IN ('Employee','Team Manager') AND a.date_logged BETWEEN ? AND ?
                ORDER BY a.date_logged DESC, e.name""",
             (d_from, d_to)
         ).fetchall()
@@ -5104,7 +5625,7 @@ async def report_leave(request: Request, date_from: str = "", date_to: str = "")
 import csv as _csv
 import io as _io
 
-def _csv_response(rows: list, headers: list, filename: str):
+def _report_csv_response(rows: list, headers: list, filename: str):
     buf = _io.StringIO()
     w = _csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
     w.writeheader()
@@ -5119,7 +5640,7 @@ def _csv_response(rows: list, headers: list, filename: str):
 
 @app.get("/reports/attendance/csv")
 async def export_attendance_csv(request: Request, date_from: str = "", date_to: str = ""):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     today = get_pht_now().strftime("%Y-%m-%d")
     d_from = date_from or get_pht_now().replace(day=1).strftime("%Y-%m-%d")
     d_to   = date_to or today
@@ -5130,11 +5651,11 @@ async def export_attendance_csv(request: Request, date_from: str = "", date_to: 
                       CASE a.late_flag WHEN 1 THEN 'Yes' ELSE 'No' END as Late,
                       a.ip_address as IP
                FROM attendance a JOIN employees e ON a.emp_id=e.id
-               WHERE e.role='Employee' AND a.date_logged BETWEEN ? AND ?
+               WHERE e.role IN ('Employee','Team Manager') AND a.date_logged BETWEEN ? AND ?
                ORDER BY a.date_logged DESC, e.name""",
             (d_from, d_to)
         ).fetchall()
-    return _csv_response([dict(r) for r in rows],
+    return _report_csv_response([dict(r) for r in rows],
         ["Employee","Date","Clock In","Clock Out","Late","IP"],
         f"attendance_{d_from}_{d_to}.csv")
 
@@ -5155,7 +5676,7 @@ async def export_ot_csv(request: Request, date_from: str = "", date_to: str = ""
                ORDER BY o.ot_date DESC""",
             (d_from, d_to)
         ).fetchall()
-    return _csv_response([dict(r) for r in rows],
+    return _report_csv_response([dict(r) for r in rows],
         ["Employee","Date","Start","End","Type","Hours","Status","Reason"],
         f"overtime_{d_from}_{d_to}.csv")
 
@@ -5176,7 +5697,7 @@ async def export_leave_csv(request: Request, date_from: str = "", date_to: str =
                ORDER BY l.start_date DESC""",
             (d_from, d_to)
         ).fetchall()
-    return _csv_response([dict(r) for r in rows],
+    return _report_csv_response([dict(r) for r in rows],
         ["Employee","Type","Start","End","Days","Status","Reason"],
         f"leave_{d_from}_{d_to}.csv")
 
@@ -5193,7 +5714,7 @@ async def export_employees_csv(request: Request):
                       phone as Phone
                FROM employees WHERE is_active=1 ORDER BY name"""
         ).fetchall()
-    return _csv_response([dict(r) for r in rows],
+    return _report_csv_response([dict(r) for r in rows],
         ["Name","Email","Role","Type","Department","Shift","Rate","Hire Date","Birthday","Phone"],
         "employees.csv")
 
@@ -5215,12 +5736,12 @@ async def admin_dashboard(request: Request):
         active_employees = conn.execute(
             """SELECT COUNT(DISTINCT a.emp_id) FROM attendance a
                JOIN employees e ON a.emp_id=e.id
-               WHERE e.role='Employee' AND a.date_logged=? AND a.clock_in IS NOT NULL AND a.clock_out IS NULL""",
+               WHERE e.role IN ('Employee','Team Manager') AND a.date_logged=? AND a.clock_in IS NOT NULL AND a.clock_out IS NULL""",
             (today_str,)
         ).fetchone()[0]
 
         total_employees = conn.execute(
-            "SELECT COUNT(*) FROM employees WHERE role='Employee' AND is_active=1"
+            "SELECT COUNT(*) FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
         ).fetchone()[0]
 
         # Pending approvals
@@ -5230,7 +5751,7 @@ async def admin_dashboard(request: Request):
 
         # This week payroll preview
         emp_list = conn.execute(
-            "SELECT id, name, hourly_rate FROM employees WHERE role='Employee' AND is_active=1"
+            "SELECT id, name, hourly_rate FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
         ).fetchall()
 
         # Hours per client this month
@@ -5267,7 +5788,7 @@ async def admin_dashboard(request: Request):
             """SELECT name,
                 doc_nbi_expiry, doc_sss_expiry, doc_tin_expiry,
                 doc_philhealth_expiry, doc_pagibig_expiry
-               FROM employees WHERE is_active=1 AND role='Employee'
+               FROM employees WHERE is_active=1 AND role IN ('Employee','Team Manager')
                AND (
                  (doc_nbi_expiry IS NOT NULL AND doc_nbi_expiry <= ?)
                  OR (doc_sss_expiry IS NOT NULL AND doc_sss_expiry <= ?)
@@ -5317,7 +5838,7 @@ async def admin_dashboard(request: Request):
         clocked_in_now = conn.execute(
             """SELECT e.name, a.clock_in, e.profile_pic_path
                FROM attendance a JOIN employees e ON a.emp_id=e.id
-               WHERE e.role='Employee' AND a.date_logged=? AND a.clock_in IS NOT NULL AND a.clock_out IS NULL
+               WHERE e.role IN ('Employee','Team Manager') AND a.date_logged=? AND a.clock_in IS NOT NULL AND a.clock_out IS NULL
                ORDER BY a.clock_in""",
             (today_str,)
         ).fetchall()
@@ -5348,7 +5869,7 @@ async def admin_dashboard(request: Request):
         for m in months_3:
             # Active employees at end of month
             ae = conn.execute(
-                "SELECT COUNT(*) FROM employees WHERE role='Employee' AND is_active=1",
+                "SELECT COUNT(*) FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1",
             ).fetchone()[0]
             active_emp_trend.append({"label": m["label"], "value": ae})
 
@@ -5562,7 +6083,7 @@ async def update_calendar_event(request: Request, event_id: int):
         ev = conn.execute("SELECT created_by_id FROM calendar_events WHERE id=?", (event_id,)).fetchone()
         if not ev:
             return JSONResponse({"ok": False}, status_code=404)
-        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager"):
+        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager", "Team Manager"):
             return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
         title = (data.get("title") or "").strip()
         if not title:
@@ -5583,7 +6104,7 @@ async def delete_calendar_event(request: Request, event_id: int):
         ev = conn.execute("SELECT created_by_id FROM calendar_events WHERE id=?", (event_id,)).fetchone()
         if not ev:
             return JSONResponse({"ok": False}, status_code=404)
-        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager"):
+        if ev["created_by_id"] != user["id"] and user["role"] not in ("Admin", "HR Manager", "Team Manager"):
             return JSONResponse({"ok": False, "error": "Not allowed"}, status_code=403)
         conn.execute("DELETE FROM calendar_events WHERE id=?", (event_id,))
     return JSONResponse({"ok": True})
@@ -5677,7 +6198,7 @@ async def export_attendance(
     date_to: str = "",
     emp_id: int = 0,
 ):
-    require_role(request, "HR Manager", "Admin")
+    require_role(request, "HR Manager", "Admin", "Team Manager")
     now = get_pht_now()
     df = date_from or now.replace(day=1).strftime("%Y-%m-%d")
     dt = date_to   or now.strftime("%Y-%m-%d")
@@ -5790,7 +6311,7 @@ async def export_timesheets(
 
 @app.get("/my-review", response_class=HTMLResponse)
 async def my_review(request: Request):
-    user = require_role(request, "Employee")
+    user = require_role(request, *STAFF_ROLES)
     with get_db() as conn:
         reviews = conn.execute(
             "SELECT * FROM performance_reviews WHERE emp_id=? ORDER BY created_at DESC",
@@ -5818,7 +6339,7 @@ async def self_rate_review(
     self_rating: int = Form(...),
     self_comments: str = Form(""),
 ):
-    user = require_role(request, "Employee")
+    user = require_role(request, *STAFF_ROLES)
     now_str = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         rev = conn.execute(
@@ -5853,7 +6374,7 @@ async def hr_reviews(request: Request, status: str = ""):
         q += " ORDER BY pr.created_at DESC"
         reviews = conn.execute(q, params).fetchall()
         employees = conn.execute(
-            "SELECT id, name FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT id, name FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
         status_counts = {}
         for s in ("Pending Self-Review", "Pending HR Review", "Completed"):
@@ -5880,7 +6401,7 @@ async def create_review_cycle(
     with get_db() as conn:
         if not emp_ids:
             emps = conn.execute(
-                "SELECT id FROM employees WHERE role='Employee' AND is_active=1"
+                "SELECT id FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
             ).fetchall()
             emp_ids = [e["id"] for e in emps]
         created = 0
@@ -6004,7 +6525,7 @@ async def review_template_detail(request: Request, tid: int):
             (tid,)
         ).fetchall()
         employees = conn.execute(
-            "SELECT id, name FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT id, name FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
     qs = []
     for q in questions:
@@ -6094,7 +6615,7 @@ async def review_template_assign(
             return RedirectResponse("/review-templates", status_code=302)
         if not emp_ids:
             emps = conn.execute(
-                "SELECT id FROM employees WHERE role='Employee' AND is_active=1"
+                "SELECT id FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
             ).fetchall()
             emp_ids = [e["id"] for e in emps]
         created = 0
@@ -6118,7 +6639,7 @@ async def review_template_assign(
 
 @app.get("/review-assignments/{aid}", response_class=HTMLResponse)
 async def review_assignment_form(request: Request, aid: int):
-    user = require_role(request, "Employee", "HR Manager", "Admin")
+    user = require_role(request, "Employee", "Team Manager", "HR Manager", "Admin")
     with get_db() as conn:
         assignment = conn.execute(
             """SELECT ra.*, rt.title, rt.description, e.name as emp_name
@@ -6132,7 +6653,7 @@ async def review_assignment_form(request: Request, aid: int):
             flash(request, "Assignment not found.", "error")
             return RedirectResponse("/my-review", status_code=302)
         # Employees can only view their own
-        if user["role"] == "Employee" and assignment["emp_id"] != user["id"]:
+        if user["role"] in STAFF_ROLES and assignment["emp_id"] != user["id"]:
             flash(request, "Access denied.", "error")
             return RedirectResponse("/my-review", status_code=302)
         questions = conn.execute(
@@ -6162,7 +6683,7 @@ async def review_assignment_form(request: Request, aid: int):
 
 @app.post("/review-assignments/{aid}/submit")
 async def review_assignment_submit(request: Request, aid: int):
-    user = require_role(request, "Employee", "HR Manager", "Admin")
+    user = require_role(request, "Employee", "Team Manager", "HR Manager", "Admin")
     form = await request.form()
     now_str = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
@@ -6172,7 +6693,7 @@ async def review_assignment_submit(request: Request, aid: int):
         if not assignment:
             flash(request, "Assignment not found.", "error")
             return RedirectResponse("/my-review", status_code=302)
-        if user["role"] == "Employee" and assignment["emp_id"] != user["id"]:
+        if user["role"] in STAFF_ROLES and assignment["emp_id"] != user["id"]:
             flash(request, "Access denied.", "error")
             return RedirectResponse("/my-review", status_code=302)
         questions = conn.execute(
@@ -6206,7 +6727,7 @@ async def review_assignment_submit(request: Request, aid: int):
             f"/review-templates/{assignment['template_id']}"
         )
     flash(request, "Review submitted successfully.")
-    redir = "/my-review" if user["role"] == "Employee" else f"/review-templates/{assignment['template_id']}"
+    redir = "/my-review" if user["role"] in STAFF_ROLES else f"/review-templates/{assignment['template_id']}"
     return RedirectResponse(redir, status_code=302)
 
 
@@ -6261,7 +6782,7 @@ _DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 @app.get("/hr-schedule", response_class=HTMLResponse)
 async def hr_schedule(request: Request, week: str = ""):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     ws, _ = get_week_range()
     week_start = week or ws
 
@@ -6278,7 +6799,7 @@ async def hr_schedule(request: Request, week: str = ""):
 
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT id, name, shift_type FROM employees WHERE role='Employee' AND is_active=1 ORDER BY name"
+            "SELECT id, name, shift_type FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
         ).fetchall()
         schedules = conn.execute(
             "SELECT * FROM schedules WHERE week_start=?", (week_start,)
@@ -6304,13 +6825,13 @@ async def hr_schedule(request: Request, week: str = ""):
 
 @app.post("/api/schedule/save")
 async def save_schedule(request: Request):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     week_start = form.get("week_start", "")
     now_str = get_pht_now().strftime("%Y-%m-%d %H:%M:%S")
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT id FROM employees WHERE role='Employee' AND is_active=1"
+            "SELECT id FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1"
         ).fetchall()
         for emp in employees:
             eid = emp["id"]
@@ -6333,7 +6854,7 @@ async def save_schedule(request: Request):
 
 @app.get("/my-schedule", response_class=HTMLResponse)
 async def my_schedule(request: Request, week: str = ""):
-    user = require_role(request, "Employee")
+    user = require_role(request, *STAFF_ROLES)
     ws, _ = get_week_range()
     week_start = week or ws
 
@@ -6375,7 +6896,7 @@ async def my_schedule(request: Request, week: str = ""):
 
 @app.get("/api/search")
 async def global_search(request: Request, q: str = ""):
-    user = require_role(request, "Employee", "HR Manager", "Admin")
+    user = require_role(request, "Employee", "Team Manager", "HR Manager", "Admin")
     q = q.strip()
     if not q or len(q) < 2:
         return JSONResponse({"results": {}})
@@ -6397,7 +6918,7 @@ async def global_search(request: Request, q: str = ""):
             results["Employees"] = [
                 {"label": r["name"],
                  "sub": f"{r['role']} · {r['department'] or '—'}",
-                 "url": f"/employees/{r['id']}" if user["role"] != "Employee" else "/directory"}
+                 "url": f"/employees/{r['id']}" if user["role"] in ("HR Manager", "Admin") else "/directory"}
                 for r in emp_rows
             ]
 
@@ -6414,8 +6935,8 @@ async def global_search(request: Request, q: str = ""):
                 for r in ann_rows
             ]
 
-        # Clients (HR + Admin only)
-        if user["role"] in ("HR Manager", "Admin"):
+        # Clients (managers only)
+        if user["role"] in ("HR Manager", "Admin", "Team Manager"):
             cli_rows = conn.execute(
                 """SELECT id, name FROM clients
                    WHERE name LIKE ? LIMIT 6""",
@@ -6493,7 +7014,7 @@ async def admin_drive_stats(request: Request):
 
 @app.get("/hr/surveys", response_class=HTMLResponse)
 async def hr_surveys(request: Request):
-    user = require_role(request, "Admin", "HR Manager")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         surveys = conn.execute(
             """SELECT s.*, COUNT(DISTINCT sa.emp_id) as assigned_count,
@@ -6511,10 +7032,10 @@ async def hr_surveys(request: Request):
 
 @app.get("/hr/surveys/new", response_class=HTMLResponse)
 async def hr_survey_new(request: Request):
-    user = require_role(request, "Admin", "HR Manager")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         employees = conn.execute(
-            "SELECT id, name FROM employees WHERE is_active=1 AND role='Employee' ORDER BY name"
+            "SELECT id, name FROM employees WHERE is_active=1 AND role IN ('Employee','Team Manager') ORDER BY name"
         ).fetchall()
     return templates.TemplateResponse(request, "shared/survey_create.html", {
         "user": user, "survey": None, "questions": [],
@@ -6525,7 +7046,7 @@ async def hr_survey_new(request: Request):
 
 @app.post("/hr/surveys/create")
 async def hr_survey_create(request: Request):
-    user = require_role(request, "Admin", "HR Manager")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     title = (form.get("title") or "").strip()
     description = (form.get("description") or "").strip()
@@ -6555,7 +7076,7 @@ async def hr_survey_create(request: Request):
                 (survey_id, qt, qtype, i)
             )
         if assign_all:
-            active_emps = conn.execute("SELECT id FROM employees WHERE is_active=1 AND role='Employee'").fetchall()
+            active_emps = conn.execute("SELECT id FROM employees WHERE is_active=1 AND role IN ('Employee','Team Manager')").fetchall()
             for e in active_emps:
                 conn.execute("INSERT OR IGNORE INTO survey_assignments (survey_id, emp_id) VALUES (?,?)", (survey_id, e["id"]))
         else:
@@ -6568,7 +7089,7 @@ async def hr_survey_create(request: Request):
 
 @app.post("/hr/surveys/{survey_id}/publish")
 async def hr_survey_publish(request: Request, survey_id: int):
-    require_role(request, "Admin", "HR Manager")
+    require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         conn.execute("UPDATE surveys SET status='active' WHERE id=?", (survey_id,))
     return RedirectResponse(f"/hr/surveys/{survey_id}/results", status_code=302)
@@ -6576,7 +7097,7 @@ async def hr_survey_publish(request: Request, survey_id: int):
 
 @app.post("/hr/surveys/{survey_id}/close")
 async def hr_survey_close(request: Request, survey_id: int):
-    require_role(request, "Admin", "HR Manager")
+    require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         conn.execute("UPDATE surveys SET status='closed' WHERE id=?", (survey_id,))
     return RedirectResponse(f"/hr/surveys/{survey_id}/results", status_code=302)
@@ -6584,7 +7105,7 @@ async def hr_survey_close(request: Request, survey_id: int):
 
 @app.get("/hr/surveys/{survey_id}/results", response_class=HTMLResponse)
 async def hr_survey_results(request: Request, survey_id: int):
-    user = require_role(request, "Admin", "HR Manager")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         survey = conn.execute("SELECT * FROM surveys WHERE id=?", (survey_id,)).fetchone()
         if not survey:
@@ -6968,7 +7489,7 @@ async def compliance_acknowledge(request: Request, doc_id: int):
         ).fetchone()[0]
     if pending == 0:
         flash(request, "All required documents signed. Welcome!", "success")
-        dest = "/dashboard" if user["role"] == "Employee" else "/kanban"
+        dest = "/dashboard" if user["role"] in STAFF_ROLES else "/kanban"
         return RedirectResponse(dest, status_code=302)
     return RedirectResponse("/compliance", status_code=302)
 
@@ -6990,7 +7511,7 @@ async def hr_compliance_admin(request: Request):
                 (d["id"],)
             ).fetchone()[0]
             dd["emp_count"] = conn.execute(
-                "SELECT COUNT(*) FROM employees WHERE is_active=1 AND role='Employee'"
+                "SELECT COUNT(*) FROM employees WHERE is_active=1 AND role IN ('Employee','Team Manager')"
             ).fetchone()[0]
             docs_out.append(dd)
         ack_records = conn.execute(
@@ -7098,7 +7619,7 @@ INCIDENT_TYPES = [
 
 @app.get("/incidents", response_class=HTMLResponse)
 async def incidents_list(request: Request):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     status_filter = request.query_params.get("status", "")
     with get_db() as conn:
         q = """SELECT i.*, e.name as subject_name, r.name as reporter_name
@@ -7127,7 +7648,7 @@ async def incidents_list(request: Request):
 
 @app.post("/incidents/add")
 async def incidents_add(request: Request):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     incident_date  = form.get("incident_date", "").strip()
     incident_type  = form.get("incident_type", "").strip()
@@ -7155,7 +7676,7 @@ async def incidents_add(request: Request):
 
 @app.get("/incidents/{incident_id}", response_class=HTMLResponse)
 async def incident_detail(request: Request, incident_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         inc = conn.execute(
             """SELECT i.*, e.name as subject_name, e.email as subject_email,
@@ -7188,7 +7709,7 @@ async def incident_detail(request: Request, incident_id: int):
 
 @app.post("/incidents/{incident_id}/issue-nte")
 async def incident_issue_nte(request: Request, incident_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     subject_matter = form.get("subject_matter", "").strip()
     due_date       = form.get("due_date", "").strip()
@@ -7218,7 +7739,7 @@ async def incident_issue_nte(request: Request, incident_id: int):
 
 @app.post("/incidents/{incident_id}/issue-nod")
 async def incident_issue_nod(request: Request, incident_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     form = await request.form()
     decision       = form.get("decision", "").strip()
     penalty        = form.get("penalty", "").strip()
@@ -7246,7 +7767,7 @@ async def incident_issue_nod(request: Request, incident_id: int):
 
 @app.post("/incidents/{incident_id}/dismiss")
 async def incident_dismiss(request: Request, incident_id: int):
-    user = require_role(request, "HR Manager", "Admin")
+    user = require_role(request, "HR Manager", "Admin", "Team Manager")
     with get_db() as conn:
         conn.execute("UPDATE incidents SET status='Dismissed' WHERE id=?", (incident_id,))
     flash(request, "Incident dismissed.", "success")

@@ -9,18 +9,65 @@
   .note-card { border-left: 3px solid {{ client.hex_color }}; padding: 12px 14px; background: var(--surface); border-radius: 0 8px 8px 0; }
   .tab-btn { padding: 6px 16px; border-radius: 6px; border: 1px solid var(--border); background: none; color: var(--muted); cursor: pointer; font-size: .82rem; font-weight: 600; }
   .tab-btn.active { background: {{ client.hex_color }}22; color: {{ client.hex_color }}; border-color: {{ client.hex_color }}; }
+
+  .range-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .range-pill { padding:5px 12px; border-radius:99px; border:1px solid var(--border); font-size:.78rem; font-weight:600; color:var(--muted); text-decoration:none; background:var(--surface); }
+  .range-pill:hover { color:var(--text); }
+  .range-pill.active { background:{{ client.hex_color }}; border-color:{{ client.hex_color }}; color:#fff; }
+  .range-custom { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+  .range-custom .form-input { width:auto; height:30px; font-size:.78rem; padding:2px 8px; }
+
+  #task-table tbody tr[data-task-id] { cursor:pointer; }
+  #task-table tbody tr[data-task-id]:hover { background: {{ client.hex_color }}10; }
+
+  .report-tasks { margin:0; padding-left:18px; }
+  .report-tasks li { margin:2px 0; line-height:1.45; }
+  .report-table td { vertical-align: top; }
+  .report-table tfoot td { font-weight:800; border-top:2px solid var(--border); }
+
+  .kn-notes-body { color: var(--text) !important; background: var(--surface-2) !important; }
+  .kn-notes-body * { color: inherit !important; background: transparent !important; }
 </style>
 {% endblock %}
 
 {% block content %}
+{% set shift_badges = {'Morning': ('☀️ Morning', 'badge-yellow'), 'Night': ('🌙 Night', 'badge-blue'), 'Both': ('☀️🌙 Morning & Night', 'badge-green')} %}
 <div class="page-header">
   <div class="flex-center gap-12">
     <a href="/clients" class="btn btn-outline btn-sm">← Clients</a>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:{{ client.hex_color }};"></span>
+      {% if client.logo_url and client.logo_url.startswith('/') %}
+        <img src="{{ client.logo_url }}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:#fff;">
+      {% else %}
+        <span style="display:inline-block;width:14px;height:14px;border-radius:3px;background:{{ client.hex_color }};"></span>
+      {% endif %}
       <h2 style="margin:0;">{{ client.name }}</h2>
+      {% if client.shift_tag in shift_badges %}
+        <span class="badge {{ shift_badges[client.shift_tag][1] }}">{{ shift_badges[client.shift_tag][0] }}</span>
+      {% endif %}
     </div>
   </div>
+</div>
+
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">
+  {% if flash.kind == 'error' %}✗{% else %}✓{% endif %}
+  {{ flash.msg }}
+</div>
+{% endif %}
+
+<!-- Date range -->
+<div class="range-bar">
+  {% for key, label in range_presets.items() if key != 'custom' %}
+    <a href="?range={{ key }}" class="range-pill keep-tab {% if range_preset == key %}active{% endif %}">{{ label }}</a>
+  {% endfor %}
+  <form method="get" class="range-custom keep-tab">
+    <input type="hidden" name="range" value="custom">
+    <input type="date" name="start" class="form-input" value="{{ range_start }}" required aria-label="From">
+    <span class="text-xs text-muted">to</span>
+    <input type="date" name="end" class="form-input" value="{{ range_end }}" required aria-label="To">
+    <button type="submit" class="btn btn-outline btn-sm {% if range_preset == 'custom' %}btn-primary{% endif %}">Apply</button>
+  </form>
 </div>
 
 <!-- Stats row -->
@@ -28,15 +75,17 @@
   <div class="stat-card">
     <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">⏱</div>
     <div>
-      <div class="stat-label">All-Time Hours</div>
-      <div class="stat-value">{{ total_hours }}h</div>
+      <div class="stat-label">Total Hours</div>
+      <div class="stat-value">{{ range_hours }}h</div>
+      <div class="stat-sub">{{ range_label }}</div>
     </div>
   </div>
   <div class="stat-card">
-    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📅</div>
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📝</div>
     <div>
-      <div class="stat-label">This Month</div>
-      <div class="stat-value">{{ month_hours }}h</div>
+      <div class="stat-label">Tasks</div>
+      <div class="stat-value">{{ tasks | length }}</div>
+      <div class="stat-sub">{{ tasks | selectattr('status','eq','Done') | list | length }} done · {{ range_label }}</div>
     </div>
   </div>
   <div class="stat-card">
@@ -47,27 +96,27 @@
     </div>
   </div>
   <div class="stat-card">
-    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📝</div>
+    <div class="stat-icon" style="background:{{ client.hex_color }}22;color:{{ client.hex_color }};">📈</div>
     <div>
-      <div class="stat-label">Total Tasks</div>
-      <div class="stat-value">{{ tasks | length }}</div>
-      <div class="stat-sub">{{ tasks | selectattr('status','eq','Done') | list | length }} done</div>
+      <div class="stat-label">All-Time Hours</div>
+      <div class="stat-value">{{ all_time_hours }}h</div>
     </div>
   </div>
 </div>
 
 <!-- Tab buttons -->
-<div style="display:flex; gap:8px; margin-bottom:16px;">
-  <button class="tab-btn active" onclick="showTab('tasks',this)">📋 Tasks</button>
-  <button class="tab-btn" onclick="showTab('hours',this)">⏱ Hours by Day</button>
-  <button class="tab-btn" onclick="showTab('notes',this)">📌 Notes ({{ notes | length }})</button>
+<div style="display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap;">
+  <button class="tab-btn active" data-tab="tasks" onclick="showTab('tasks')">📋 Tasks</button>
+  <button class="tab-btn" data-tab="hours" onclick="showTab('hours')">⏱ Hours by Day</button>
+  <button class="tab-btn" data-tab="report" onclick="showTab('report')">📄 Report</button>
+  <button class="tab-btn" data-tab="notes" onclick="showTab('notes')">📌 Notes ({{ notes | length }})</button>
 </div>
 
 <!-- TASKS TAB -->
 <div id="tab-tasks">
   <div class="card">
     <div class="card-header">
-      <h3>All Tasks — {{ client.name }}</h3>
+      <h3>Tasks — {{ range_label }}</h3>
       <input type="text" id="task-search" class="form-input" style="width:200px" placeholder="🔍 Search…">
     </div>
     <div class="table-wrapper">
@@ -85,19 +134,21 @@
         <tbody>
           {% set sc = {'Todo':'gray','In Progress':'blue','For Review':'yellow','Done':'green'} %}
           {% for t in tasks %}
-          <tr data-search="{{ (t.task_title ~ ' ' ~ t.emp_name) | lower }}">
+          <tr data-task-id="{{ t.id }}" data-search="{{ (t.task_title ~ ' ' ~ t.emp_name) | lower }}"
+              tabindex="0" title="Open task details">
             <td class="text-xs text-muted nowrap">{{ t.date_logged }}</td>
             <td class="fw-600">{{ t.emp_name }}</td>
             <td>
               {{ t.task_title }}
-              {% if t.notes %}<div class="text-xs text-muted truncate" style="max-width:220px;">{{ t.notes }}</div>{% endif %}
+              {% if t.is_archived %}<span class="badge badge-gray" style="font-size:.6rem;">Archived</span>{% endif %}
+              {% if t.notes %}<div class="text-xs text-muted truncate" style="max-width:220px;">{{ t.notes | striptags }}</div>{% endif %}
             </td>
             <td class="fw-600">{{ t.hours_worked }}h</td>
             <td class="text-xs text-muted truncate" style="max-width:140px;">{{ t.output_files or '—' }}</td>
             <td><span class="badge badge-{{ sc.get(t.status,'gray') }}">{{ t.status }}</span></td>
           </tr>
           {% else %}
-          <tr><td colspan="6" class="text-center text-muted" style="padding:24px">No tasks yet for this client.</td></tr>
+          <tr><td colspan="6" class="text-center text-muted" style="padding:24px">No tasks for this client in {{ range_label }}.</td></tr>
           {% endfor %}
         </tbody>
       </table>
@@ -108,7 +159,7 @@
 <!-- HOURS BY DAY TAB -->
 <div id="tab-hours" style="display:none;">
   <div class="card">
-    <div class="card-header"><h3>Hours by Day (last 30 days)</h3></div>
+    <div class="card-header"><h3>Hours by Day — {{ range_label }}</h3></div>
     {% if hours_by_day %}
     {% set max_day_hrs = hours_by_day | map(attribute=1) | max %}
     <div class="table-wrapper">
@@ -130,14 +181,48 @@
       </table>
     </div>
     {% else %}
-      <div class="empty-state"><div class="emoji">📊</div><p>No hours logged yet.</p></div>
+      <div class="empty-state"><div class="emoji">📊</div><p>No hours logged in {{ range_label }}.</p></div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- REPORT TAB -->
+<div id="tab-report" style="display:none;">
+  <div class="card">
+    <div class="card-header" style="flex-wrap:wrap;gap:10px;">
+      <h3>Work Report — {{ range_label }}</h3>
+      <div class="flex gap-8">
+        <a href="/clients/{{ client.id }}/report.xlsx?{{ range_query }}" class="btn btn-outline btn-sm">⬇ Export Excel</a>
+        <a href="/clients/{{ client.id }}/report/print?{{ range_query }}" target="_blank" rel="noopener" class="btn btn-primary btn-sm">⬇ Export PDF</a>
+      </div>
+    </div>
+    {% if report_days %}
+    <div class="table-wrapper">
+      <table class="report-table">
+        <thead><tr><th style="width:120px;">Date</th><th>Tasks</th><th style="width:110px;text-align:right;">Total Hours</th></tr></thead>
+        <tbody>
+          {% for d in report_days %}
+          <tr>
+            <td class="fw-600 nowrap">{{ d.date }}</td>
+            <td><ul class="report-tasks">{% for title in d.tasks %}<li>{{ title }}</li>{% endfor %}</ul></td>
+            <td class="fw-700" style="text-align:right;">{{ "%.2f"|format(d.hours) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr><td>Total</td><td></td><td style="text-align:right;">{{ "%.2f"|format(range_hours) }}</td></tr>
+        </tfoot>
+      </table>
+    </div>
+    {% else %}
+      <div class="empty-state"><div class="emoji">📄</div><p>No tasks logged in {{ range_label }}.</p></div>
     {% endif %}
   </div>
 </div>
 
 <!-- NOTES TAB -->
 <div id="tab-notes" style="display:none;">
-  <div style="display:grid; grid-template-columns:1fr 360px; gap:20px; align-items:start;">
+  <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:20px; align-items:start;">
 
     <!-- Notes list -->
     <div>
@@ -151,7 +236,7 @@
                 <div class="text-xs text-muted mt-2">{{ note.author_name }} · {{ note.created_at[:16] }}</div>
               </div>
               <form method="post" action="/api/clients/{{ client.id }}/notes/{{ note.id }}/delete" style="flex-shrink:0;">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+                <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
                 <button type="submit" class="btn btn-ghost btn-sm" data-confirm="Delete this note?"
                         style="font-size:.7rem;padding:2px 8px;color:var(--muted);">✕</button>
               </form>
@@ -170,7 +255,7 @@
       <div class="card-header"><h3>+ Add Note</h3></div>
       <div class="card-body">
         <form method="post" action="/api/clients/{{ client.id }}/notes">
-      <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+          <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
           <div class="form-group">
             <label class="form-label">Title</label>
             <input type="text" name="title" class="form-input" required
@@ -188,17 +273,47 @@
 
   </div>
 </div>
+
+<!-- Card detail modal (reuses app.js openCardModal) -->
+<div class="modal-overlay" id="card-modal">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-header">
+      <span class="modal-title" id="card-modal-title">Card Detail</span>
+      <button class="modal-close" onclick="closeModal('card-modal')">×</button>
+    </div>
+    <div class="modal-body" id="card-modal-body">
+      <div class="empty-state"><div class="emoji">⏳</div><p>Loading…</p></div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-  function showTab(name, btn) {
-    ['tasks','hours','notes'].forEach(t => {
+  const TABS = ['tasks', 'hours', 'report', 'notes'];
+  function showTab(name) {
+    if (!TABS.includes(name)) name = 'tasks';
+    TABS.forEach(t => {
       document.getElementById('tab-' + t).style.display = (t === name) ? '' : 'none';
     });
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+    history.replaceState(null, '', '#' + name);
   }
+  showTab(location.hash.slice(1));
+
+  // Keep the current tab when changing the date range
+  document.querySelectorAll('a.keep-tab').forEach(a => {
+    a.addEventListener('click', () => { a.href = a.href.split('#')[0] + location.hash; });
+  });
+  document.querySelectorAll('form.keep-tab').forEach(f => {
+    f.addEventListener('submit', () => { f.action = location.pathname + location.hash; });
+  });
+
+  // Tasks open the same detail view as the Kanban board
+  document.querySelectorAll('#task-table tbody tr[data-task-id]').forEach(tr => {
+    tr.addEventListener('click', () => openCardModal(tr.dataset.taskId));
+    tr.addEventListener('keydown', e => { if (e.key === 'Enter') openCardModal(tr.dataset.taskId); });
+  });
 
   const taskSearch = document.getElementById('task-search');
   if (taskSearch) {

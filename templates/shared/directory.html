@@ -104,7 +104,7 @@
     <div class="dir-card-body">
 
       <div class="dir-avatar-wrap">
-        <div class="dir-avatar">
+        <div class="dir-avatar {{ vip_class(p.role) }}">
           {% if p.profile_pic_path %}
             <img src="/uploads/{{ p.profile_pic_path }}" alt="{{ p.name[0] }}">
           {% else %}
@@ -113,7 +113,7 @@
         </div>
       </div>
 
-      <div class="dir-name">{{ p.name }}</div>
+      <div class="dir-name">{{ p.name }}{{ role_tag(p.role) }}</div>
       <div class="dir-role">{{ p.role }}</div>
 
       {% if p.shift_type %}

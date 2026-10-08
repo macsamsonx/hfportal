@@ -92,10 +92,10 @@
 
 {% block content %}
 
-{# Client → hex color map #}
+{# Client name → client (color, logo) #}
 {% set cc = {} %}
 {% for c in clients %}
-  {% set _ = cc.update({c.name: c.hex_color}) %}
+  {% set _ = cc.update({c.name: c}) %}
 {% endfor %}
 
 <div class="page-header">
@@ -162,15 +162,19 @@
         </div>
       {% endif %}
       {% for card in cards %}
-      {% set client_hex = cc.get(card.client, '#64748b') %}
+      {% set client_info = cc.get(card.client) %}
+      {% set client_hex = client_info.hex_color if client_info else '#64748b' %}
       {% set is_overdue = card.due_date and card.due_date < now[:10] and card.status != 'Done' %}
       <div class="kanban-card"
            style="border-left:3px solid {% if is_overdue %}#ef4444{% else %}{{ client_hex }}{% endif %};"
            data-task-id="{{ card.id }}"
            data-own="{{ 'true' if card.emp_id == user.id else 'false' }}"
            data-role="{{ user.role }}"
+           data-status="{{ card.status }}"
+           data-est="{{ card.estimated_hours or '' }}"
            data-client="{{ card.client | default('') | lower }}"
            data-person="{{ card.emp_name | default('') | lower }}"
+           data-person-name="{{ card.emp_name | default('') }}"
            data-title="{{ card.task_title | default('') | lower }}">
 
         <!-- Urgency + Client row -->
@@ -185,7 +189,11 @@
             <span style="font-size:.6rem;font-weight:700;color:#7c3aed;" title="Recurring: {{ card.recur_freq }}">🔁</span>
           {% endif %}
           {% if card.client %}
-            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
+            {% if client_info and client_info.logo_url and client_info.logo_url.startswith('/') %}
+              <img src="{{ client_info.logo_url }}" alt="" style="width:14px;height:14px;object-fit:contain;border-radius:3px;background:#fff;flex-shrink:0;">
+            {% else %}
+              <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:{{ client_hex }};flex-shrink:0;"></span>
+            {% endif %}
             <span style="font-size:.64rem;font-weight:700;color:{{ client_hex }};text-transform:uppercase;letter-spacing:.04em;">{{ card.client }}</span>
           {% endif %}
         </div>
@@ -195,7 +203,8 @@
 
         <!-- Meta row -->
         <div class="kanban-card-meta">
-          <span>⏱ {{ card.hours_worked }}h</span>
+          {% set over_est = card.estimated_hours and (card.hours_worked or 0) > card.estimated_hours %}
+          <span {% if over_est %}style="color:#d97706;font-weight:700;" title="Over the estimate"{% endif %}>⏱ {{ card.hours_worked }}h{% if card.estimated_hours %}<span style="opacity:.7;"> / {{ card.estimated_hours }}h</span>{% endif %}</span>
           {% if card.due_date %}
             {% if is_overdue %}
               <span style="font-size:.63rem;color:#ef4444;font-weight:700;">⚠️ {{ card.due_date }}</span>
@@ -225,13 +234,13 @@
         <div class="kanban-card-footer" style="margin-top:6px;">
           <div style="display:flex; align-items:center; gap:4px;">
             {% if card.profile_pic_path %}
-              <div class="card-avatar" title="{{ card.emp_name }}">
+              <div class="card-avatar {{ vip_class(card.emp_role) }}" title="{{ card.emp_name }}">
                 <img src="/uploads/{{ card.profile_pic_path }}" alt="{{ card.emp_name[0] }}">
               </div>
             {% else %}
-              <div class="card-avatar" title="{{ card.emp_name }}">{{ card.emp_name[0] }}</div>
+              <div class="card-avatar {{ vip_class(card.emp_role) }}" title="{{ card.emp_name }}">{{ card.emp_name[0] }}</div>
             {% endif %}
-            <span style="font-size:.68rem;font-weight:600;color:var(--text-2);">{{ card.emp_name }}</span>
+            <span style="font-size:.68rem;font-weight:600;color:var(--text-2);">{{ card.emp_name }}</span>{{ role_tag(card.emp_role) }}
             {% if card.hr_reviewed_by %}
               <div class="card-avatar"
                    title="Reviewer: {{ card.hr_reviewed_by }}"
@@ -297,6 +306,10 @@
           <div class="form-group" style="flex:1;">
             <label class="form-label">Due Date</label>
             <input type="date" name="due_date" class="form-input">
+          </div>
+          <div class="form-group" style="width:120px;">
+            <label class="form-label">Est. Hours</label>
+            <input type="number" name="estimated_hours" class="form-input" min="0.25" max="200" step="0.25" placeholder="e.g. 2">
           </div>
         </div>
         <div class="form-group mb-12">

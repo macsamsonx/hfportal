@@ -45,3 +45,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Client logos uploaded/downloaded at runtime
+static/uploads/client_logos/

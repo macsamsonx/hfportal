@@ -179,7 +179,7 @@ function makeCell(year, month, day, otherMonth, todayStr) {
 // ── Event detail modal ────────────────────────────────────────────────────────
 function openEventDetail(ev) {
   const color = EVENT_COLORS[ev.event_type] || '#64748b';
-  const canEdit = ev.created_by_id == _MY_ID || _MY_ROLE === 'Admin' || _MY_ROLE === 'HR Manager';
+  const canEdit = ev.created_by_id == _MY_ID || ['Admin', 'HR Manager', 'Team Manager'].includes(_MY_ROLE);
   document.getElementById('ev-panel-content').innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
       <span class="ev-type-badge" style="background:${color};">${ev.event_type}</span>

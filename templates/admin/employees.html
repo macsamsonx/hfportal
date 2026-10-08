@@ -54,16 +54,16 @@
           <td>
             <div class="flex-center gap-8">
               {% if emp.profile_pic_path %}
-                <img src="/uploads/{{ emp.profile_pic_path }}"
+                <img src="/uploads/{{ emp.profile_pic_path }}" class="{{ vip_class(emp.role) }}"
                      style="width:36px;height:36px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border);">
               {% else %}
-                <div class="emp-initial"
-                     style="background:{{ '#dbeafe' if emp.role=='Employee' else '#fef3c7' if emp.role=='HR Manager' else '#dcfce7' }}">
+                <div class="emp-initial {{ vip_class(emp.role) }}"
+                     style="background:{{ '#dbeafe' if emp.role=='Employee' else '#fef3c7' if emp.role=='HR Manager' else '#ccfbf1' if emp.role=='Team Manager' else '#dcfce7' }}">
                   {{ emp.name[0] }}
                 </div>
               {% endif %}
               <div>
-                <div class="fw-600">{{ emp.name }}</div>
+                <div class="fw-600">{{ emp.name }}{{ role_tag(emp.role) }}</div>
                 <div class="text-xs text-muted">{{ emp.email or emp.username }}</div>
               </div>
             </div>
@@ -71,6 +71,7 @@
           <td>
             {% if emp.role == 'Employee' %}<span class="badge badge-blue">Employee</span>
             {% elif emp.role == 'HR Manager' %}<span class="badge badge-yellow">HR Manager</span>
+            {% elif emp.role == 'Team Manager' %}<span class="badge badge-gray" style="background:#ccfbf1;color:#0f766e;">Team Manager</span>
             {% else %}<span class="badge badge-green">Admin</span>{% endif %}
           </td>
           <td>{{ emp.shift_type }}</td>
@@ -164,6 +165,7 @@
             <label class="form-label">Role</label>
             <select name="role" class="form-select">
               <option value="Employee">Employee</option>
+              <option value="Team Manager">Team Manager</option>
               <option value="HR Manager">HR Manager</option>
               <option value="Admin">Admin</option>
             </select>
@@ -252,6 +254,7 @@
             <label class="form-label">Role</label>
             <select id="edit-role" name="role" class="form-select">
               <option value="Employee">Employee</option>
+              <option value="Team Manager">Team Manager</option>
               <option value="HR Manager">HR Manager</option>
               <option value="Admin">Admin</option>
             </select>
