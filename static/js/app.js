@@ -911,7 +911,7 @@ function _pcShouldProbe() {
   // Only from the office network (or a browser that has met the helper) — no Chrome prompt at home
   return !!wrap && (wrap.dataset.probe === '1' || _pcSeenHelper() || location.pathname === '/office-pcs');
 }
-async function getPcSnapshot(timeoutMs = 1500) {
+async function getPcSnapshot(timeoutMs = 2500) {
   if (!_pcShouldProbe()) return null;
   try {
     const r = await fetch(HF_HELPER_URL, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });

@@ -1458,6 +1458,23 @@ async def office_pcs_mac_installer(request: Request):
                               headers={"Content-Disposition": 'attachment; filename="HF-Hub-Helper-Mac.zip"'})
 
 
+@app.get("/office-pcs/installer/windows")
+async def office_pcs_windows_installer(request: Request):
+    """The Windows installer (.bat), with a fresh 24-hour setup code and this HF Hub's address built in."""
+    user = require_role(request, *PC_ADMIN_ROLES)
+    code = _new_pc_setup_code(user)
+    origin = f"{_public_scheme(request)}://{request.url.netloc}"
+    with open(os.path.join(_HELPER_DIR, "windows", "install.bat"), encoding="ascii") as f:
+        script = f.read()
+    with open(os.path.join(_HELPER_DIR, "windows", "hf-helper.ps1"), encoding="ascii") as f:
+        helper = f.read().rstrip("\n")
+    script = (script.replace("__PORTAL__", origin).replace("__CODE__", code)
+                    .replace("__ORIGINS__", origin).replace("__HELPER__", helper))
+    script = script.replace("\r\n", "\n").replace("\n", "\r\n")   # cmd.exe needs Windows line endings
+    return _StarletteResponse(script.encode("ascii"), media_type="application/octet-stream",
+                              headers={"Content-Disposition": 'attachment; filename="HF-Hub-Helper-Setup.bat"'})
+
+
 @app.post("/api/pc/{ws_id}/update")
 async def office_pc_update(request: Request, ws_id: int):
     user = require_role(request, *PC_ADMIN_ROLES)

@@ -85,8 +85,13 @@
 <div class="dl-grid">
   <div class="card"><div class="card-body" style="padding:16px 18px;">
     <h3>{{ icon('monitor', 18) }} Windows 10 / 11</h3>
-    <button class="btn btn-outline" style="margin-top:12px;" disabled title="Coming after the Windows test run">Windows installer — coming next</button>
-    <p class="text-xs text-muted" style="margin-top:8px;">Waiting for the read-only test (HF-PC-Check.bat) from one office PC, so it's built on real data.</p>
+    <a href="/office-pcs/installer/windows" class="btn btn-primary" style="margin-top:12px;">Download Windows installer (.bat)</a>
+    <ol class="dl-steps">
+      <li>In Chrome's download bar, if it warns about the file, choose <b>Keep</b></li>
+      <li>Double-click <b>HF-Hub-Helper-Setup.bat</b>. If “Windows protected your PC” appears: <b>More info → Run anyway</b></li>
+      <li>Click <b>Yes</b> when Windows asks, wait for “Installed”</li>
+      <li>Use <b>Chrome</b> for HF Hub; click <b>Allow</b> if it asks about local devices</li>
+    </ol>
   </div></div>
   <div class="card"><div class="card-body" style="padding:16px 18px;">
     <h3>{{ icon('monitor', 18) }} Mac (Mac mini, MacBook Air)</h3>
