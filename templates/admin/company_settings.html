@@ -59,6 +59,11 @@
             <label class="form-label">Website</label>
             <input name="website" type="text" class="form-input" value="{{ company.website or '' }}" placeholder="https://example.com">
           </div>
+          <div class="form-group">
+            <label class="form-label">Team Tools Link</label>
+            <input name="tools_url" type="url" class="form-input" value="{{ company.tools_url or '' }}" placeholder="http://192.168.100.186:8080">
+            <div class="form-hint">Shown to everyone as "Team Tools" in the sidebar. Leave blank to hide it. Works from the office network (or Tailscale).</div>
+          </div>
         </div>
       </div>
 

@@ -1297,6 +1297,48 @@ def init_db():
                 UNIQUE(emp_id, day_num)
             )""")
 
+        # ── Office PC snapshots (helper on each office computer) ───────────────────
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS workstations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_uid TEXT UNIQUE NOT NULL,     -- Windows MachineGuid / Mac hardware UUID
+                secret TEXT NOT NULL,                -- signs the helper's snapshots (HMAC-SHA256)
+                hostname TEXT,
+                label TEXT,                          -- admin's name for it, e.g. "PC-07"
+                platform TEXT,                       -- windows | mac
+                expected_link TEXT DEFAULT 'cable',  -- cable | wifi (MacBook Air)
+                revoked INTEGER DEFAULT 0,
+                enrolled_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                last_seen TEXT,
+                last_emp_id INTEGER,
+                last_status TEXT,
+                last_snapshot TEXT                   -- JSON of the latest evaluated snapshot
+            );
+            CREATE TABLE IF NOT EXISTS workstation_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                workstation_id INTEGER NOT NULL,
+                emp_id INTEGER,
+                attendance_id INTEGER,
+                kind TEXT NOT NULL,                  -- time_in | time_out | visit
+                taken_at TEXT DEFAULT (datetime('now', '+8 hours')),
+                ip TEXT,
+                link_type TEXT,                      -- cable | wifi | none
+                link_mbps INTEGER,
+                disks TEXT,                          -- JSON list
+                status TEXT,                         -- ok | warn | bad
+                warnings TEXT,                       -- JSON list
+                FOREIGN KEY(workstation_id) REFERENCES workstations(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS idx_ws_snap_att ON workstation_snapshots(attendance_id);
+            CREATE INDEX IF NOT EXISTS idx_ws_snap_emp ON workstation_snapshots(emp_id, taken_at);
+            CREATE TABLE IF NOT EXISTS pc_setup_codes (
+                code TEXT PRIMARY KEY,
+                created_by TEXT,
+                expires_at TEXT NOT NULL,
+                uses INTEGER DEFAULT 0
+            );
+        """)
+
         # ── Training library (cards with text, video, files, comments) ─────────────
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS trainings (

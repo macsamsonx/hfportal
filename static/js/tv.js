@@ -80,16 +80,36 @@ function renderAttendance(list) {
               alt="${escTV(emp.name[0])}">`
       : `<div class="tv-emp-avatar">${escTV(emp.name.split(' ').map(w=>w[0]).join('').slice(0,2))}</div>`;
 
+    // Office PC line at the bottom of the card (from the Time In / latest snapshot)
+    let pcHtml = '';
+    const pc = emp.pc;
+    if (isIn && pc) {
+      const ssdCls = pc.ssd_state === 'bad' ? 'tv-pc-bad' : pc.ssd_state === 'warn' ? 'tv-pc-warn' : '';
+      pcHtml = `<div class="tv-pc tv-pc-st-${escTV(pc.status)}" title="${escTV(pc.warning || '')}">
+          <span class="tv-pc-dot"></span><b>${escTV(pc.name)}</b>
+          ${pc.ip ? `<span class="tv-pc-sep">·</span><span class="tv-pc-ip">${escTV(pc.ip)}</span>` : ''}
+          <span class="tv-pc-sep">·</span><b class="${pc.net_warn ? 'tv-pc-warn' : ''}">${escTV(pc.net)}</b>
+          ${pc.ssd ? `<span class="tv-pc-sep">·</span><b class="${ssdCls}">${escTV(pc.ssd)}</b>` : ''}
+          ${pc.warning ? '<span class="tv-pc-alert">⚠</span>' : ''}
+        </div>`;
+    } else if (isOut && pc) {
+      pcHtml = `<div class="tv-pc tv-pc-muted">Was on ${escTV(pc.name)}</div>`;
+    } else if (isIn) {
+      pcHtml = `<div class="tv-pc tv-pc-muted">Not on an office PC</div>`;
+    }
+
     return `
       <div class="tv-emp-card ${isIn ? 'tv-emp-in' : ''}">
-        ${avatarHtml}
-        <div class="tv-emp-info">
-          <div class="tv-emp-name">${escTV(emp.name)}</div>
-          <div class="tv-emp-meta">${escTV(emp.shift_type)} · ${timeHtml || '—'}</div>
-        </div>
-        <div class="tv-status-badge ${statusClass}">
-          <span class="tv-status-dot"></span>${statusLabel}
-        </div>
+        <div class="tv-emp-row">
+          ${avatarHtml}
+          <div class="tv-emp-info">
+            <div class="tv-emp-name">${escTV(emp.name)}</div>
+            <div class="tv-emp-meta">${escTV(emp.shift_type)} · ${timeHtml || '—'}</div>
+          </div>
+          <div class="tv-status-badge ${statusClass}">
+            <span class="tv-status-dot"></span>${statusLabel}
+          </div>
+        </div>${pcHtml}
       </div>`;
   }).join('') || '<div style="text-align:center;color:var(--muted);font-size:.8rem;padding:20px">No employees</div>';
 }

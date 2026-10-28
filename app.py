@@ -120,6 +120,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response as _StarletteResponse
 from xlsx_export import build_xlsx
 from html_sanitize import sanitize_rich_text
+import pc_snapshot as pcs
 
 class _CSRFMiddleware(BaseHTTPMiddleware):
     _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -192,7 +193,7 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
             # Google Drive: chat photos/GIFs, training images and embedded videos/PDFs
             "img-src 'self' data: blob: https://drive.google.com https://drive.usercontent.google.com https://*.googleusercontent.com; "
             "frame-src 'self' https://www.google.com https://drive.google.com; "
-            "connect-src 'self' https://www.google.com;"
+            "connect-src 'self' https://www.google.com https://wttr.in http://127.0.0.1:47600;"
         )
         return response
 
@@ -258,6 +259,22 @@ templates.env.globals["vip_class"] = _vip_class
 templates.env.globals["role_tag"] = _role_tag
 from ui_icons import icon as _ui_icon
 templates.env.globals["icon"] = _ui_icon
+
+
+def _pc_icon(state, size: int = 18):
+    """Monitor icon with a status dot: ok (green) / warn (amber) / bad (red) / none (gray)."""
+    state = state if state in ("ok", "warn", "bad") else "none"
+    return _Markup(f'<span class="pcicon pcicon--{state}">{_ui_icon("monitor", size)}<span class="pcdot"></span></span>')
+
+
+def _pc_net_summary(view) -> str:
+    import pc_snapshot as _pcs
+    line = _pcs.tv_line(view or {})
+    return " · ".join(x for x in (line["net"], line["ssd"]) if x)
+
+
+templates.env.globals["pc_icon"] = _pc_icon
+templates.env.globals["pcnet"] = _pc_net_summary
 templates.env.globals["mention_groups"] = ["everyone", "teamlead", "admin", "hr", "morningshift", "nightshift"]
 init_db()
 
@@ -481,6 +498,10 @@ def shared_ctx(user: dict, request: Request = None) -> dict:
             ctx["att_clock_out"] = att["clock_out"][:5]
         elif role in STAFF_ROLES:
             ctx["att_status"] = "not_clocked_in"
+    ctx["tools_url"] = get_company_settings().get("tools_url") or ""
+    # Look for the office-PC helper only from the office network (no Chrome prompt at home/phones)
+    if request is not None:
+        ctx["pc_probe"] = _visitor_public_ip(request) in _office_ips()
     ctx["vl_enabled"] = bool(user.get("vl_enabled", 1))
     ctx["sl_enabled"] = bool(user.get("sl_enabled", 1))
     ctx["now"] = get_pht_now().isoformat()
@@ -775,6 +796,12 @@ async def company_settings_save(request: Request):
     for field in fields:
         val = str(form.get(field, "")).strip()
         save_company_setting(field, val)
+    # Team Tools link (office tools server) — only plain http(s) addresses
+    tools_url = str(form.get("tools_url", "")).strip()
+    if tools_url and not tools_url.lower().startswith(("http://", "https://")):
+        flash(request, "Team Tools link must start with http:// or https://", "error")
+        return RedirectResponse("/admin/company-settings", status_code=302)
+    save_company_setting("tools_url", tools_url)
 
     # Logo upload
     logo_file = form.get("logo")
@@ -794,8 +821,8 @@ async def company_settings_save(request: Request):
 @app.get("/admin/clear-database", response_class=HTMLResponse)
 async def clear_db_page(request: Request):
     user = require_role(request, "Admin")
-    ctx = {"request": request}
-    ctx.update(shared_ctx(user))
+    ctx = {"request": request, "user": user}
+    ctx.update(shared_ctx(user, request))
     return templates.TemplateResponse(request, "admin/clear_database.html", ctx)
 
 
@@ -1144,7 +1171,8 @@ async def dashboard(request: Request):
 
 
 @app.post("/api/clock-in")
-async def clock_in(request: Request, clock_time: str = Form("")):
+async def clock_in(request: Request, clock_time: str = Form(""),
+                   pc_payload: str = Form(""), pc_sig: str = Form("")):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     raw = clock_time.strip()
@@ -1156,16 +1184,18 @@ async def clock_in(request: Request, clock_time: str = Form("")):
             "SELECT id FROM attendance WHERE emp_id=? AND date_logged=?", (user["id"], today)
         ).fetchone()
         if not existing and not (current and not current["clock_out"]):
-            conn.execute(
+            att_id = conn.execute(
                 "INSERT INTO attendance (emp_id, clock_in, date_logged, ip_address) VALUES (?, ?, ?, ?)",
                 (user["id"], now, today, ip),
-            )
+            ).lastrowid
             audit(conn, user["id"], user["name"], "clock_in", "attendance", ip=ip)
+            _capture_pc(conn, pc_payload, pc_sig, user, "time_in", att_id)
     return RedirectResponse("/dashboard", status_code=302)
 
 
 @app.post("/api/clock-out")
-async def clock_out(request: Request, clock_time: str = Form("")):
+async def clock_out(request: Request, clock_time: str = Form(""),
+                    pc_payload: str = Form(""), pc_sig: str = Form("")):
     user = require_user(request)
     today = get_today_date(user["shift_type"])
     raw = clock_time.strip()
@@ -1182,6 +1212,7 @@ async def clock_out(request: Request, clock_time: str = Form("")):
                 "UPDATE attendance SET clock_out=?, is_on_break=0 WHERE id=? AND clock_out IS NULL",
                 (now, att["id"]),
             )
+            _capture_pc(conn, pc_payload, pc_sig, user, "time_out", att["id"])
     return RedirectResponse("/dashboard", status_code=302)
 
 
@@ -1250,6 +1281,205 @@ async def break_end(request: Request):
         conn.execute("UPDATE attendance SET is_on_break=0 WHERE id=?", (att["id"],))
     flash(request, "Break ended — back to work!")
     return RedirectResponse("/dashboard", status_code=302)
+
+
+# ── Office PC snapshots ───────────────────────────────────────────────────────
+# A helper on each office computer answers HF Hub's page (on that computer only) with a
+# signed snapshot: name, LAN IP, network link, SSD. Captured at Time In / Time Out and on
+# page visits, shown in the top-bar PC chip, Office PCs, attendance and the TV board.
+PC_ADMIN_ROLES = ("Admin", "HR Manager", "Team Manager")
+_HELPER_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "helpers")
+
+
+def _pht_naive() -> datetime:
+    return get_pht_now().replace(tzinfo=None)
+
+
+def _visitor_public_ip(request: Request) -> str:
+    # Through the Cloudflare Tunnel the real visitor address is in CF-Connecting-IP
+    return (request.headers.get("cf-connecting-ip")
+            or request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+            or (request.client.host if request.client else ""))
+
+
+def _office_ips() -> list:
+    return [x for x in (get_company_settings().get("office_public_ips") or "").split(",") if x]
+
+
+def _learn_office_ip(request: Request):
+    """A genuine helper snapshot proves this visit came from the office network."""
+    ip = _visitor_public_ip(request)
+    known = _office_ips()
+    if ip and ip not in known:
+        save_company_setting("office_public_ips", ",".join(([ip] + known)[:5]))
+
+
+def _capture_pc(conn, payload: str, sig: str, user: dict, kind: str, attendance_id) -> Optional[dict]:
+    """Verify + save a helper snapshot. None when there's no helper or the snapshot is invalid."""
+    if not payload or not sig:
+        return None
+    try:
+        ws, data = pcs.verify(conn, payload, sig)
+    except pcs.SnapshotError:
+        return None
+    view = pcs.evaluate(data, ws["expected_link"])
+    return pcs.record(conn, ws, view, user["id"], attendance_id, kind, _pht_naive())
+
+
+def _snapshot_view(row) -> dict:
+    """Rebuild the display view from a saved snapshot row (joined with workstations)."""
+    return {
+        "workstation_id": row["workstation_id"], "name": row["label"] or row["hostname"] or "Computer",
+        "ip": row["ip"], "link_type": row["link_type"], "link_mbps": row["link_mbps"],
+        "expected_link": row["expected_link"], "status": row["status"], "taken_at": row["taken_at"],
+        "kind": row["kind"], "disks": json.loads(row["disks"] or "[]"),
+        "warnings": json.loads(row["warnings"] or "[]"),
+    }
+
+
+_SNAPSHOT_SELECT = """SELECT s.*, w.label, w.hostname, w.expected_link FROM workstation_snapshots s
+                      JOIN workstations w ON w.id = s.workstation_id"""
+
+
+@app.post("/api/pc/enroll")
+async def pc_enroll(request: Request):
+    """Called once by the installer on a new computer, with the setup code from the download."""
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"error": "bad request"}, status_code=400)
+    import re as _re
+    code = str(data.get("code") or "").strip().upper()
+    uid = str(data.get("device_uid") or "").strip()
+    if not code or not _re.fullmatch(r"[A-Za-z0-9{}-]{8,64}", uid):
+        return JSONResponse({"error": "missing setup code or computer ID"}, status_code=400)
+    platform = data.get("platform") if data.get("platform") in ("windows", "mac") else None
+    hostname = str(data.get("hostname") or "")[:80]
+    now = _pht_naive().strftime("%Y-%m-%d %H:%M:%S")
+    secret = pcs.new_secret()
+    with get_db() as conn:
+        if not conn.execute("SELECT 1 FROM pc_setup_codes WHERE code=? AND expires_at > ?", (code, now)).fetchone():
+            return JSONResponse({"error": "Setup code expired or invalid — download a fresh installer from HF Hub."},
+                                status_code=403)
+        existing = conn.execute("SELECT id FROM workstations WHERE device_uid=?", (uid,)).fetchone()
+        if existing:   # reinstall on the same computer keeps its name and history
+            ws_id = existing["id"]
+            conn.execute("UPDATE workstations SET secret=?, hostname=?, platform=COALESCE(?, platform), revoked=0 WHERE id=?",
+                         (secret, hostname, platform, ws_id))
+        else:
+            ws_id = conn.execute(
+                "INSERT INTO workstations (device_uid, secret, hostname, platform) VALUES (?,?,?,?)",
+                (uid, secret, hostname, platform)).lastrowid
+        conn.execute("UPDATE pc_setup_codes SET uses=uses+1 WHERE code=?", (code,))
+        audit(conn, None, f"Installer ({hostname})", "pc_enrolled", "workstations", ws_id)
+    return JSONResponse({"device_id": ws_id, "secret": secret})
+
+
+@app.post("/api/pc/snapshot")
+async def pc_snapshot(request: Request):
+    """The page relays the local helper's signed snapshot; returns what the PC chip shows."""
+    user = require_user(request)
+    try:
+        data = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False}, status_code=400)
+    with get_db() as conn:
+        att = get_current_attendance(conn, user)
+        open_att = att["id"] if att and att.get("clock_in") and not att.get("clock_out") else None
+        view = _capture_pc(conn, data.get("payload"), data.get("sig"), user, "visit", open_att)
+    if not view:
+        return JSONResponse({"ok": False, "error": "not an enrolled office computer"}, status_code=400)
+    _learn_office_ip(request)
+    return JSONResponse({"ok": True, "pc": view})
+
+
+@app.get("/office-pcs", response_class=HTMLResponse)
+async def office_pcs_page(request: Request):
+    user = require_role(request, *PC_ADMIN_ROLES)
+    now = _pht_naive()
+    today = now.strftime("%Y-%m-%d")
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT w.*, e.name AS emp_name FROM workstations w
+               LEFT JOIN employees e ON e.id = w.last_emp_id
+               WHERE w.revoked=0 ORDER BY COALESCE(w.label, w.hostname) COLLATE NOCASE""").fetchall()
+        code = conn.execute("SELECT * FROM pc_setup_codes WHERE expires_at > ? ORDER BY expires_at DESC LIMIT 1",
+                            (now.strftime("%Y-%m-%d %H:%M:%S"),)).fetchone()
+    pcs_list = []
+    for r in rows:
+        snap = json.loads(r["last_snapshot"]) if r["last_snapshot"] else None
+        seen_today = bool(r["last_seen"] and r["last_seen"][:10] == today)
+        pcs_list.append({**dict(r), "snap": snap, "seen_today": seen_today,
+                         "state": (r["last_status"] if seen_today else "none") or "none"})
+    counts = {k: sum(1 for p in pcs_list if p["state"] == k) for k in ("ok", "warn", "bad", "none")}
+    return templates.TemplateResponse(request, "admin/office_pcs.html", {
+        "user": user, "pcs": pcs_list, "counts": counts, "setup_code": dict(code) if code else None,
+        "flash": get_flash(request), **shared_ctx(user, request),
+    })
+
+
+@app.post("/office-pcs/setup-code")
+async def office_pcs_new_code(request: Request):
+    user = require_role(request, *PC_ADMIN_ROLES)
+    _new_pc_setup_code(user)
+    flash(request, "New setup code created — valid for 24 hours.")
+    return RedirectResponse("/office-pcs", status_code=302)
+
+
+def _new_pc_setup_code(user: dict) -> str:
+    code = pcs.new_setup_code()
+    expires = (_pht_naive() + timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    with get_db() as conn:
+        conn.execute("INSERT INTO pc_setup_codes (code, created_by, expires_at) VALUES (?,?,?)",
+                     (code, user["name"], expires))
+    return code
+
+
+@app.get("/office-pcs/installer/mac")
+async def office_pcs_mac_installer(request: Request):
+    """Zip containing the Mac installer, with a fresh 24-hour setup code and this HF Hub's address built in."""
+    user = require_role(request, *PC_ADMIN_ROLES)
+    import zipfile
+    code = _new_pc_setup_code(user)
+    origin = f"{_public_scheme(request)}://{request.url.netloc}"
+    with open(os.path.join(_HELPER_DIR, "mac", "install.command"), encoding="utf-8") as f:
+        script = f.read()
+    with open(os.path.join(_HELPER_DIR, "mac", "hf-helper.pl"), encoding="utf-8") as f:
+        helper = f.read().rstrip("\n")
+    script = (script.replace("__PORTAL__", origin).replace("__CODE__", code)
+                    .replace("__ORIGINS__", origin).replace("__HELPER__", helper))
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        info = zipfile.ZipInfo("HF-Hub-Helper-Setup.command", date_time=_pht_naive().timetuple()[:6])
+        info.external_attr = 0o100755 << 16      # keep it executable so double-click works
+        info.compress_type = zipfile.ZIP_DEFLATED
+        z.writestr(info, script)
+    return _StarletteResponse(buf.getvalue(), media_type="application/zip",
+                              headers={"Content-Disposition": 'attachment; filename="HF-Hub-Helper-Mac.zip"'})
+
+
+@app.post("/api/pc/{ws_id}/update")
+async def office_pc_update(request: Request, ws_id: int):
+    user = require_role(request, *PC_ADMIN_ROLES)
+    form = await request.form()
+    label = (form.get("label") or "").strip()[:40] or None
+    expected = form.get("expected_link") if form.get("expected_link") in ("cable", "wifi") else "cable"
+    with get_db() as conn:
+        conn.execute("UPDATE workstations SET label=?, expected_link=? WHERE id=?", (label, expected, ws_id))
+        audit(conn, user["id"], user["name"], "pc_updated", "workstations", ws_id, new_value=f"{label} / {expected}")
+    flash(request, "Computer updated.")
+    return RedirectResponse("/office-pcs", status_code=302)
+
+
+@app.post("/api/pc/{ws_id}/remove")
+async def office_pc_remove(request: Request, ws_id: int):
+    user = require_role(request, *PC_ADMIN_ROLES)
+    with get_db() as conn:
+        # Revoke instead of delete: keeps attendance history, and its helper stops being trusted
+        conn.execute("UPDATE workstations SET revoked=1, secret=? WHERE id=?", (pcs.new_secret(), ws_id))
+        audit(conn, user["id"], user["name"], "pc_removed", "workstations", ws_id)
+    flash(request, "Computer removed. Its past attendance records keep the PC details.")
+    return RedirectResponse("/office-pcs", status_code=302)
 
 
 # ── Tasks ──────────────────────────────────────────────────────────────────────
@@ -3727,13 +3957,70 @@ async def upload_bank_qr(request: Request, qr_file: UploadFile = File(None)):
 
 
 # ── TV Dashboard ───────────────────────────────────────────────────────────────
+# ── TV board access ──────────────────────────────────────────────────────────
+# The office TV isn't logged in, so it gets a secret key once (/tv?key=…), kept in a
+# long-lived cookie. Logged-in users can open the board too. Everyone else is refused —
+# the board shows names, attendance and every Kanban card.
+_TV_COOKIE = "hf_tv"
+
+
+def _tv_key() -> str:
+    key = get_company_settings().get("tv_key")
+    if not key:
+        key = secrets.token_urlsafe(24)
+        save_company_setting("tv_key", key)
+    return key
+
+
+def _public_scheme(request: Request) -> str:
+    # Behind the Cloudflare Tunnel the app sees plain http; the browser used https
+    return request.headers.get("x-forwarded-proto", request.url.scheme).split(",")[0].strip()
+
+
+def _tv_allowed(request: Request) -> bool:
+    if current_user(request):
+        return True
+    cookie = request.cookies.get(_TV_COOKIE, "")
+    return bool(cookie) and secrets.compare_digest(cookie, _tv_key())
+
+
 @app.get("/tv", response_class=HTMLResponse)
-async def tv_dashboard(request: Request):
+async def tv_dashboard(request: Request, key: str = ""):
+    if key:
+        if not secrets.compare_digest(key, _tv_key()):
+            return HTMLResponse(_TV_DENIED_HTML, status_code=403)
+        resp = RedirectResponse("/tv", status_code=302)   # drop the key from the address bar
+        resp.set_cookie(_TV_COOKIE, key, max_age=5 * 365 * 24 * 3600, httponly=True,
+                        samesite="lax", secure=_public_scheme(request) == "https")
+        return resp
+    if not _tv_allowed(request):
+        return HTMLResponse(_TV_DENIED_HTML, status_code=403)
     return templates.TemplateResponse(request, "tv.html")
+
+
+_TV_DENIED_HTML = """<!doctype html><html><head><meta charset="utf-8"><title>TV board</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#020617;color:#e2e8f0;font-family:-apple-system,Segoe UI,sans-serif;text-align:center;padding:24px;">
+<div><h1 style="font-size:1.3rem;margin:0 0 8px;">This screen isn't set up as an HF Hub TV</h1>
+<p style="color:#94a3b8;margin:0;">An admin can open the TV link from HF Hub &rarr; TV Posters on this screen once.</p></div>
+</body></html>"""
+
+
+@app.post("/api/tv/key/regenerate")
+async def tv_key_regenerate(request: Request):
+    user = require_role(request, "HR Manager", "Admin")
+    save_company_setting("tv_key", secrets.token_urlsafe(24))
+    with get_db() as conn:
+        audit(conn, user["id"], user["name"], "tv_key_regenerated")
+    flash(request, "New TV link created. Open it once on the office TV — the old link no longer works.")
+    return RedirectResponse("/tv-manage", status_code=302)
 
 
 @app.get("/api/tv/data")
 async def tv_data(request: Request):
+    if not _tv_allowed(request):
+        return JSONResponse({"error": "TV not authorized"}, status_code=403)
     with get_db() as conn:
         employees = conn.execute(
             "SELECT id, name, shift_type, profile_pic_path FROM employees WHERE role IN ('Employee','Team Manager') AND is_active=1 ORDER BY name"
@@ -3755,6 +4042,13 @@ async def tv_data(request: Request):
             ).fetchone()
         clocked_in = bool(att and att["clock_in"] and not att["clock_out"])
         clocked_out = bool(att and att["clock_out"])
+        pc = None
+        if att:
+            with get_db() as conn:
+                snap = conn.execute(_SNAPSHOT_SELECT + " WHERE s.attendance_id=? ORDER BY s.id DESC LIMIT 1",
+                                    (att["id"],)).fetchone()
+            if snap:
+                pc = pcs.tv_line(_snapshot_view(snap))
         attendance_status.append({
             "id": emp["id"],
             "name": emp["name"],
@@ -3764,6 +4058,7 @@ async def tv_data(request: Request):
             "clocked_out": clocked_out,
             "clock_in_time": att["clock_in"] if att else None,
             "clock_out_time": att["clock_out"] if att else None,
+            "pc": pc,
         })
 
     columns = {s: [] for s in KANBAN_STATUSES}
@@ -3799,10 +4094,27 @@ async def attendance_report(request: Request, start: str = None, end: str = None
                ORDER BY a.date_logged DESC, e.name""",
             (start, end),
         ).fetchall()
+        records = [dict(r) for r in records]
+        # Office PC per shift: computers used (in order) and the state at Time In
+        if records:
+            marks = ",".join("?" * len(records))
+            snaps = conn.execute(_SNAPSHOT_SELECT + f" WHERE s.attendance_id IN ({marks}) ORDER BY s.id",
+                                 [r["id"] for r in records]).fetchall()
+            by_att = {}
+            for sn in snaps:
+                by_att.setdefault(sn["attendance_id"], []).append(_snapshot_view(sn))
+            for r in records:
+                views = by_att.get(r["id"], [])
+                names = []
+                for v in views:
+                    if not names or names[-1] != v["name"]:
+                        names.append(v["name"])
+                r["pc_names"] = names
+                r["pc_first"] = next((v for v in views if v["kind"] == "time_in"), views[0] if views else None)
 
     return templates.TemplateResponse(request, "shared/attendance.html", {
         "user": user,
-        "records": [dict(r) for r in records],
+        "records": records,
         "start": start, "end": end,
         "flash": get_flash(request),
         **shared_ctx(user, request),
@@ -5585,6 +5897,7 @@ async def tv_manage_page(request: Request):
         ).fetchall()
     return templates.TemplateResponse(request, "shared/tv_manage.html", {
         "user": user,
+        "tv_link": f"{_public_scheme(request)}://{request.url.netloc}/tv?key={_tv_key()}",
         "posters": [dict(p) for p in posters],
         "flash": get_flash(request),
         **shared_ctx(user, request),
@@ -5649,7 +5962,9 @@ async def delete_poster(request: Request, poster_id: int):
 
 
 @app.get("/api/tv/posters")
-async def get_tv_posters():
+async def get_tv_posters(request: Request):
+    if not _tv_allowed(request):
+        return JSONResponse({"error": "TV not authorized"}, status_code=403)
     with get_db() as conn:
         posters = conn.execute(
             "SELECT * FROM tv_posters WHERE is_active=1 ORDER BY display_order, id"

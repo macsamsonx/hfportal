@@ -14,6 +14,29 @@
   </div>
 </div>
 
+{% if flash %}
+<div class="flash {{ flash.kind }}" style="margin-bottom:14px;">{% if flash.kind == 'error' %}✗{% else %}✓{% endif %} {{ flash.msg }}</div>
+{% endif %}
+
+<div class="card mb-16">
+  <div class="card-header"><h3>Office TV link</h3></div>
+  <div class="card-body" style="padding:16px 18px;">
+    <p class="text-sm" style="margin-bottom:10px;">
+      Open this link <strong>once</strong> on the office TV — it's remembered there.
+      The TV board shows names, attendance and Kanban cards, so it no longer opens for anyone without this link or an HF Hub login.
+    </p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <input type="text" id="tv-link" class="form-input" value="{{ tv_link }}" readonly style="flex:1;min-width:280px;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;">
+      <button type="button" class="btn btn-outline btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('tv-link').value).then(() => showToast('TV link copied', 'success'))">Copy</button>
+      <form method="post" action="/api/tv/key/regenerate" style="margin:0;">
+        <input type="hidden" name="_csrf" value="{{ csrf_token or '' }}">
+        <button type="submit" class="btn btn-ghost btn-sm" data-confirm="Create a new TV link? The office TV will need the new link opened once.">New link</button>
+      </form>
+    </div>
+    <div class="text-xs text-muted" style="margin-top:8px;">Treat it like a password: don't post it in chat. If it leaks, click <strong>New link</strong>.</div>
+  </div>
+</div>
+
 {% if not posters %}
 <div class="card">
   <div class="empty-state">

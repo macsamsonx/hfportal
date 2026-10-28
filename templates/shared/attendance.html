@@ -45,6 +45,9 @@
           <th>Clock Out</th>
           <th>Hours</th>
           <th>Status</th>
+          <th>PC</th>
+          <th>IP</th>
+          <th>PC at Time In</th>
         </tr>
       </thead>
       <tbody>
@@ -80,10 +83,21 @@
               <span class="badge badge-red">No Record</span>
             {% endif %}
           </td>
+        <td class="nowrap">
+            {% if rec.pc_names %}<span class="pc-inline">{{ pc_icon(rec.pc_first.status if rec.pc_first else 'none', 16) }} {{ rec.pc_names | join(' → ') }}</span>
+            {% elif rec.clock_in %}<span class="text-xs text-muted">Not on an office PC</span>{% else %}—{% endif %}
+          </td>
+          <td class="text-xs text-muted nowrap">{{ rec.pc_first.ip if rec.pc_first and rec.pc_first.ip else '—' }}</td>
+          <td class="text-xs">
+            {% if rec.pc_first %}
+              {% set w = rec.pc_first.warnings %}
+              <span class="pc-state pc-state--{{ rec.pc_first.status }}">{{ w[0].message if w else 'Good — ' ~ (pcnet(rec.pc_first)) }}</span>
+            {% else %}—{% endif %}
+          </td>
         </tr>
         {% else %}
         <tr>
-          <td colspan="7" class="text-center text-muted" style="padding:24px">
+          <td colspan="10" class="text-center text-muted" style="padding:24px">
             No attendance records found for this period.
           </td>
         </tr>

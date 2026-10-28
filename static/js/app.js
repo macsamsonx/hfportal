@@ -899,5 +899,110 @@ function initTaskForm() {
 }
 document.addEventListener('DOMContentLoaded', initTaskForm);
 
+// ── Office PC chip (helper on this computer → signed snapshot → HF Hub) ───────
+const HF_HELPER_URL = 'http://127.0.0.1:47600/snapshot';
+const _PC_LABELS = { ok: 'Good', warn: 'Warning', bad: 'Problem', none: 'Not on an office PC' };
+function _pcSeenHelper(set) {
+  try { if (set) localStorage.setItem('hf_pc_helper', '1'); return localStorage.getItem('hf_pc_helper') === '1'; }
+  catch { return false; }
+}
+function _pcShouldProbe() {
+  const wrap = document.getElementById('pc-wrap');
+  // Only from the office network (or a browser that has met the helper) — no Chrome prompt at home
+  return !!wrap && (wrap.dataset.probe === '1' || _pcSeenHelper() || location.pathname === '/office-pcs');
+}
+async function getPcSnapshot(timeoutMs = 1500) {
+  if (!_pcShouldProbe()) return null;
+  try {
+    const r = await fetch(HF_HELPER_URL, { cache: 'no-store', signal: AbortSignal.timeout(timeoutMs) });
+    if (!r.ok) return null;
+    const snap = await r.json();
+    _pcSeenHelper(true);
+    return snap;
+  } catch { return null; }
+}
+function _pcNet(pc) {
+  if (pc.link_type === 'wifi') return 'Wi-Fi';
+  if (pc.link_type === 'cable') return pc.link_mbps >= 1000 ? (pc.link_mbps / 1000) + ' Gbps cable' : (pc.link_mbps || '?') + ' Mbps cable';
+  return 'Not connected';
+}
+function renderPcChip(pc) {
+  const chip = document.getElementById('pc-chip'), pop = document.getElementById('pc-pop');
+  if (!chip || !pop) return;
+  const state = pc ? pc.status : 'none';
+  chip.className = 'pc-chip pcicon--' + state;
+  chip.querySelector('.pcicon').className = 'pcicon pcicon--' + state;
+  document.getElementById('pc-chip-label').textContent = pc ? pc.name : 'No office PC';
+  chip.title = pc ? `${pc.name} — ${_PC_LABELS[state]}` : 'Not on an office PC';
+  if (!pc) {
+    pop.innerHTML = `<div class="pc-pop-head"><span class="pc-pop-title">${chip.querySelector('.pcicon').outerHTML}
+        <span><strong>Not on an office PC</strong><br><span class="text-xs text-muted">Phone, home computer, or helper not installed</span></span></span></div>
+      <div class="text-sm text-muted">No office computer details are saved with your Time In from this device.</div>`;
+    return;
+  }
+  const netState = (pc.warnings || []).some(w => /Wi-Fi|Mbps|network/i.test(w.message)) ? 'st-warn' : '';
+  const disks = (pc.disks || []).map(d => {
+    const used = typeof d.used_pct === 'number' ? Math.round(d.used_pct) + '% used' : 'usage n/a';
+    const health = d.health ? ' · ' + esc(d.health) : '';
+    const wear = typeof d.wear_pct === 'number' ? ' · ' + Math.round(d.wear_pct) + '% worn' : '';
+    const cls = d.state === 'bad' ? 'st-bad' : d.state === 'warn' ? 'st-warn' : '';
+    return `<div class="pc-row"><span class="k">SSD ${esc(d.name)}</span><span class="v ${cls}">${used}${health}${wear}</span></div>`;
+  }).join('');
+  const warns = (pc.warnings || []).map(w =>
+    `<div class="pc-warn pcicon--${w.severity}"><b>⚠</b><span>${esc(w.message)}</span></div>`).join('');
+  pop.innerHTML = `
+    <div class="pc-pop-head">
+      <span class="pc-pop-title">${chip.querySelector('.pcicon').outerHTML}
+        <span><strong>${esc(pc.name)}</strong><br><span class="text-xs text-muted">${pc.platform === 'mac' ? 'Mac' : 'Windows PC'}</span></span></span>
+      <span class="pc-pill pc-pill--${state}">${_PC_LABELS[state]}</span>
+    </div>
+    <div class="pc-row"><span class="k">IP address</span><span class="v">${esc(pc.ip || '—')}</span></div>
+    <div class="pc-row"><span class="k">Network</span><span class="v ${netState}">${_pcNet(pc)}${pc.expected_link === 'wifi' && pc.link_type === 'wifi' ? ' (normal for this computer)' : ''}</span></div>
+    ${disks}${warns}
+    <div class="pc-foot">Checked ${esc((pc.taken_at || '').slice(11, 16))} · updates each time you open HF Hub</div>`;
+}
+async function refreshPcChip() {
+  if (!document.getElementById('pc-wrap')) return;
+  const snap = await getPcSnapshot();
+  if (!snap) { renderPcChip(null); return; }
+  try {
+    const res = await apiFetch('/api/pc/snapshot', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(snap),
+    });
+    const data = await res.json();
+    renderPcChip(data.ok ? data.pc : null);
+  } catch { renderPcChip(null); }
+}
+document.addEventListener('click', e => {
+  const chip = document.getElementById('pc-chip'), pop = document.getElementById('pc-pop');
+  if (!chip || !pop) return;
+  if (chip.contains(e.target)) {
+    const open = pop.classList.toggle('open');
+    chip.setAttribute('aria-expanded', open);
+  } else if (!pop.contains(e.target)) {
+    pop.classList.remove('open'); chip.setAttribute('aria-expanded', 'false');
+  }
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') document.getElementById('pc-pop')?.classList.remove('open'); });
+// Time In / Time Out: attach the signed snapshot to the form so it's saved with the attendance record
+document.addEventListener('submit', async e => {
+  const form = e.target.closest('form[action$="/api/clock-in"], form[action$="/api/clock-out"]');
+  if (!form || form.dataset.pcAttached) return;
+  e.preventDefault();
+  const btn = form.querySelector('button[type="submit"]');
+  if (btn) btn.disabled = true;
+  const snap = await getPcSnapshot(2000);
+  if (snap) {
+    for (const [name, value] of [['pc_payload', snap.payload], ['pc_sig', snap.sig]]) {
+      const input = document.createElement('input');
+      input.type = 'hidden'; input.name = name; input.value = value;
+      form.appendChild(input);
+    }
+  }
+  form.dataset.pcAttached = '1';
+  form.submit();
+});
+document.addEventListener('DOMContentLoaded', refreshPcChip);
+
 // ── Init ──────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', initKanban);

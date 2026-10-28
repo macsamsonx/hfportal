@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/style.css?v=4">
+  <link rel="stylesheet" href="/static/css/style.css?v=5">
   <meta name="csrf-token" content="{{ csrf_token or '' }}">
   {% block extra_head %}{% endblock %}
   <script>
@@ -136,6 +136,9 @@
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">{{ icon('clock') }}</span> Attendance
         </a>
+        <a href="/office-pcs" class="nav-link {% if request.url.path == '/office-pcs' %}active{% endif %}">
+          <span class="icon">{{ icon('monitor') }}</span> Office PCs
+        </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">{{ icon('schedule') }}</span> Schedule
         </a>
@@ -208,6 +211,9 @@
         </a>
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">{{ icon('clock') }}</span> Attendance
+        </a>
+        <a href="/office-pcs" class="nav-link {% if request.url.path == '/office-pcs' %}active{% endif %}">
+          <span class="icon">{{ icon('monitor') }}</span> Office PCs
         </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">{{ icon('schedule') }}</span> Schedule
@@ -312,6 +318,9 @@
         <a href="/attendance" class="nav-link {% if request.url.path == '/attendance' %}active{% endif %}">
           <span class="icon">{{ icon('clock') }}</span> Attendance
         </a>
+        <a href="/office-pcs" class="nav-link {% if request.url.path == '/office-pcs' %}active{% endif %}">
+          <span class="icon">{{ icon('monitor') }}</span> Office PCs
+        </a>
         <a href="/hr-schedule" class="nav-link {% if request.url.path == '/hr-schedule' %}active{% endif %}">
           <span class="icon">{{ icon('schedule') }}</span> Schedule
         </a>
@@ -402,6 +411,12 @@
         </a>
       {% endif %}
 
+      {% if tools_url %}
+      <div class="nav-section" style="margin-top:8px;">Tools</div>
+      <a href="{{ tools_url }}" target="_blank" rel="noopener" class="nav-link" title="Opens the office tools dashboard (office network or Tailscale)">
+        <span class="icon">{{ icon('toolbox') }}</span> Team Tools
+      </a>
+      {% endif %}
       {% if user.role != 'Employee' %}
       <div class="nav-section" style="margin-top:8px;">System</div>
       <a href="/tv" target="_blank" class="nav-link">
@@ -456,6 +471,14 @@
         {% endif %}
       </div>
       {% endif %}
+
+      {# ── Office PC chip: filled by app.js from the helper on this computer ── #}
+      <div class="pc-wrap" id="pc-wrap" data-probe="{{ '1' if pc_probe else '' }}">
+        <button type="button" class="pc-chip pcicon--none" id="pc-chip" aria-haspopup="dialog" aria-expanded="false" title="Your computer">
+          <span id="pc-chip-icon">{{ pc_icon('none', 18) }}</span><span class="pc-chip-label" id="pc-chip-label">PC</span>
+        </button>
+        <div class="pc-pop" id="pc-pop" role="dialog" aria-label="Your computer"></div>
+      </div>
 
       <div style="display:flex; align-items:center; gap:10px;">
         <!-- Dark mode toggle -->
@@ -844,7 +867,7 @@
   </div>
 
 </div>
-<script src="/static/js/app.js?v=6"></script>
+<script src="/static/js/app.js?v=7"></script>
 {% block extra_js %}{% endblock %}
 <script>
 // Global search
